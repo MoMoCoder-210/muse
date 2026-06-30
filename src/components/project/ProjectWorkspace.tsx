@@ -1,8 +1,13 @@
+import { useCallback, useState } from "react";
 import type { ProjectInfo } from "../../types/project";
+import { getProject } from "../../services/tauri";
 import { WorkflowBoard } from "./WorkflowBoard";
+import { ScriptImportPanel } from "./ScriptImportPanel";
+import { ClipListPanel } from "./ClipListPanel";
 
 type ProjectWorkspaceProps = {
   project: ProjectInfo | null;
+  onProjectUpdated: (project: ProjectInfo) => void;
 };
 
 function formatDate(value: string): string {
@@ -17,7 +22,7 @@ function formatDate(value: string): string {
   });
 }
 
-export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
+export function ProjectWorkspace({ project, onProjectUpdated }: ProjectWorkspaceProps) {
   if (!project) {
     return (
       <div className="empty-workspace">
@@ -28,44 +33,67 @@ export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
   }
 
   return (
-    <>
+    <div className="workspace-inner">
+      <WorkspaceHeader project={project} />
+      <WorkflowBoard currentStep={project.current_step} />
+      <WorkspaceContent project={project} onProjectUpdated={onProjectUpdated} />
+    </div>
+  );
+}
+
+function WorkspaceHeader({ project }: { project: ProjectInfo }) {
+  return (
+    <div className="workspace-header-row">
       <div className="workspace-header">
         <div>
           <div className="workspace-kicker">项目工作区</div>
           <h2>{project.name}</h2>
-          <p>{project.description || "未填写描述"}</p>
+          {project.description && <p>{project.description}</p>}
         </div>
         <div className="workspace-badges">
           <span>{project.current_step}</span>
           <span>{project.status}</span>
         </div>
       </div>
-
       <div className="workspace-summary">
         <div className="summary-card">
           <span>工作区目录</span>
-          <strong>{project.workspace_path}</strong>
+          <strong title={project.workspace_path}>
+            {project.workspace_path.split(/[\\/]/).pop()}
+          </strong>
         </div>
         <div className="summary-card">
           <span>创建时间</span>
           <strong>{formatDate(project.created_at)}</strong>
         </div>
       </div>
-
-      <WorkflowBoard currentStep={project.current_step} />
-
-      <div className="workspace-grid">
-        <section className="workspace-panel">
-          <h3>当前项目概览</h3>
-          <p>
-            这里后续会接入剧本导入、自动拆分镜、角色场景物品生成、分镜编辑、融合生成和视频产出。
-          </p>
-        </section>
-        <section className="workspace-panel">
-          <h3>后续操作区</h3>
-          <p>你可以在这里继续放置片段列表、分镜预览、任务队列和生成结果。</p>
-        </section>
-      </div>
-    </>
+    </div>
   );
+}
+
+function WorkspaceContent({
+  project,
+  onProjectUpdated,
+}: {
+  project: ProjectInfo;
+  onProjectUpdated: (p: ProjectInfo) => void;
+}) {
+  const handleImported = useCallback(async () => {
+    // 导入成功后重新拉取项目信息（current_step 可能已变）
+    try {
+      const updated = await getProject(project.id);
+      onProjectUpdated(updated);
+    } catch {
+      // 即使更新失败，也切换到片段视图
+      onProjectUpdated({ ...project, current_step: "script" });
+    }
+  }, [project, onProjectUpdated]);
+
+  // project 步骤 = "project"：显示剧本导入入口
+  if (project.current_step === "project") {
+    return <ScriptImportPanel project={project} onImported={handleImported} />;
+  }
+
+  // 其余步骤：显示片段列表（后续各步骤在此扩展）
+  return <ClipListPanel project={project} />;
 }

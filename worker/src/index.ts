@@ -17,6 +17,7 @@ import { TaskRunner } from "./task-runner.js";
 import { RateLimiterImpl } from "./rate-limiter.js";
 import { PROTOCOL_VERSION } from "./types.js";
 import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
+import { splitScriptHandler } from "./handlers/split-script.js";
 
 const workerId = randomUUID();
 let dbPath = process.env.WORKER_DB_PATH || "";
@@ -140,10 +141,10 @@ async function main(): Promise<void> {
     // TaskRunner 内置心跳定时器，通过 onHeartbeat 回调将心跳发送出去
     taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, sendHeartbeat);
 
-    // 注册任务处理器（TODO: 实现各 handler）
-    // taskRunner.registerHandler("split_script", splitScriptHandler);
+    // 注册任务处理器
+    taskRunner.registerHandler("split_script", splitScriptHandler);
+    // TODO: 后续模块注册
     // taskRunner.registerHandler("generate_script", generateScriptHandler);
-    // ...
 
     sendLog("info", `Database initialized: ${dbPath}`);
   } else {

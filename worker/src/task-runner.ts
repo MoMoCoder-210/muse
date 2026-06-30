@@ -169,6 +169,10 @@ export class TaskRunner {
     // 构建 TaskContext
     const ctx: TaskContext = {
       workspacePath: "", // TODO: 从项目配置获取
+      taskId: task.id,
+      taskInput: (() => {
+        try { return JSON.parse(task.input_json); } catch { return {}; }
+      })(),
       db: this.db,
       emit: this.emit,
       rateLimiter: this.rateLimiter,

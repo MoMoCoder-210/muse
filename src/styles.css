@@ -759,3 +759,289 @@ button {
     flex-direction: column;
   }
 }
+
+/* ─────────────────────────────────────────────────────────
+   项目工作区内层布局
+   ───────────────────────────────────────────────────────── */
+.workspace-inner {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-header-row {
+  display: grid;
+  gap: 12px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   面板通用头部
+   ───────────────────────────────────────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: var(--font-size-section);
+  font-size: 18px;
+}
+
+.panel-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.panel-loading {
+  color: var(--text-muted);
+  padding: 32px 0;
+  text-align: center;
+}
+
+.btn-sm {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+}
+
+/* ─────────────────────────────────────────────────────────
+   剧本导入面板
+   ───────────────────────────────────────────────────────── */
+.script-import-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.import-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--segmented-bg);
+  width: fit-content;
+}
+
+.tab-btn {
+  min-height: 34px;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tab-btn.active {
+  background: var(--bg-surface-modal);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.import-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.script-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  resize: none;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  line-height: 1.7;
+  padding: 14px;
+  outline: none;
+  font-family: var(--font-family);
+}
+
+.script-textarea:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.file-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.file-picker-input {
+  display: flex;
+  gap: 10px;
+}
+
+.file-path-display {
+  flex: 1;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: var(--font-size-control);
+  padding: 12px 14px;
+  outline: none;
+  cursor: default;
+}
+
+.file-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ─────────────────────────────────────────────────────────
+   片段列表面板
+   ───────────────────────────────────────────────────────── */
+.clip-list-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.split-status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.split-status--pending  { background: var(--chip-bg); color: var(--chip-text); }
+.split-status--running  { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
+.split-status--success  { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+.split-status--failed   { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+
+.split-error-banner {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  font-size: var(--font-size-sm);
+}
+
+.empty-clip-list {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 0;
+  font-size: var(--font-size-sm);
+}
+
+.clip-list {
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.clip-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.6);
+  overflow: hidden;
+}
+
+.clip-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.clip-item-header:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.clip-index {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  min-width: 48px;
+}
+
+.clip-title {
+  flex: 1;
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-wordcount {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.clip-status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.clip-status--pending        { background: var(--chip-bg); color: var(--chip-text); }
+.clip-status--script_ready   { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
+.clip-status--done           { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+.clip-status--failed         { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+
+.clip-expand-icon {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.clip-item-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.clip-summary {
+  margin: 10px 0 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.clip-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  line-height: 1.8;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+}

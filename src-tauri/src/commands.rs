@@ -22,6 +22,35 @@ pub struct ProjectInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ImportScriptInput {
+    pub project_id: String,
+    pub source_type: String, // "paste" | "txt"
+    pub content: Option<String>,
+    pub file_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportScriptResult {
+    pub source_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClipInfo {
+    pub id: String,
+    pub project_id: String,
+    pub source_id: Option<String>,
+    pub sort_index: i64,
+    pub title: String,
+    pub summary: String,
+    pub source_text: String,
+    pub estimated_duration: Option<f64>,
+    pub status: String,
+    pub current_step: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ProjectRegistryEntry {
     id: String,
     workspace_path: String,
@@ -206,6 +235,138 @@ pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), 
     Ok(())
 }
 
+/// 导入剧本：规范化文本，写入 script_sources，创建 split_script 任务。
+#[tauri::command]
+pub fn import_script(
+    input: ImportScriptInput,
+    app: tauri::AppHandle,
+) -> Result<ImportScriptResult, String> {
+    let db_path = get_project_db_path(&input.project_id, &app)?;
+    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+
+    // 读取原始内容
+    let raw_content = match (input.content, input.file_path) {
+        (Some(c), _) => c,
+        (None, Some(path)) => std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read file: {}", e))?,
+        (None, None) => return Err("content or file_path is required".to_string()),
+    };
+
+    // 简单规范化：统一换行符、去除 BOM
+    let normalized = normalize_text(&raw_content);
+
+    let source_id = uuid::Uuid::new_v4().to_string();
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let lock_key = format!("split_script:{}", source_id);
+
+    // 在同一事务内写入 script_source + task
+    conn.execute_batch("BEGIN")?;
+
+    conn.execute(
+        "INSERT INTO script_sources (id, project_id, source_type, file_name, raw_content, normalized_content, split_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending')",
+        rusqlite::params![
+            &source_id,
+            &input.project_id,
+            &input.source_type,
+            Option::<String>::None, // file_name 暂不传
+            &raw_content,
+            &normalized,
+        ],
+    )
+    .map_err(|e| { let _ = conn.execute_batch("ROLLBACK"); e.to_string() })?;
+
+    let input_json = serde_json::json!({
+        "projectId": &input.project_id,
+        "sourceId": &source_id,
+        "forceAi": false
+    })
+    .to_string();
+
+    conn.execute(
+        "INSERT INTO tasks (id, project_id, type, status, lock_key, input_json, max_retry)
+         VALUES (?1, ?2, 'split_script', 'pending', ?3, ?4, 3)",
+        rusqlite::params![&task_id, &input.project_id, &lock_key, &input_json],
+    )
+    .map_err(|e| { let _ = conn.execute_batch("ROLLBACK"); e.to_string() })?;
+
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+
+    log::info!("Script imported: source_id={}, task_id={}", source_id, task_id);
+    Ok(ImportScriptResult { source_id })
+}
+
+/// 获取项目的片段列表。
+#[tauri::command]
+pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipInfo>, String> {
+    let db_path = get_project_db_path(&project_id, &app)?;
+    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, source_id, sort_index, title, summary, source_text,
+                    estimated_duration, status, current_step, created_at, updated_at
+             FROM clips WHERE project_id = ?1 ORDER BY sort_index ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let clips = stmt
+        .query_map(rusqlite::params![&project_id], |row| {
+            Ok(ClipInfo {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                source_id: row.get(2)?,
+                sort_index: row.get(3)?,
+                title: row.get(4)?,
+                summary: row.get(5)?,
+                source_text: row.get(6)?,
+                estimated_duration: row.get(7)?,
+                status: row.get(8)?,
+                current_step: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(clips)
+}
+
+/// 获取项目的剧本来源（最新一条）。
+#[tauri::command]
+pub fn get_script_source(project_id: String, app: tauri::AppHandle) -> Result<Option<serde_json::Value>, String> {
+    let db_path = get_project_db_path(&project_id, &app)?;
+    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+
+    let result = conn.query_row(
+        "SELECT id, project_id, source_type, file_name, split_status, error_message,
+                retry_count, created_at, updated_at
+         FROM script_sources WHERE project_id = ?1 ORDER BY created_at DESC LIMIT 1",
+        rusqlite::params![&project_id],
+        |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "project_id": row.get::<_, String>(1)?,
+                "source_type": row.get::<_, String>(2)?,
+                "file_name": row.get::<_, Option<String>>(3)?,
+                "split_status": row.get::<_, String>(4)?,
+                "error_message": row.get::<_, Option<String>>(5)?,
+                "retry_count": row.get::<_, i64>(6)?,
+                "created_at": row.get::<_, String>(7)?,
+                "updated_at": row.get::<_, String>(8)?,
+            }))
+        },
+    );
+
+    match result {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn resolve_workspace_path(
     workspace_path: &str,
     project_name: &str,
@@ -252,4 +413,30 @@ fn upsert_project_registry(
     let path = project_registry_path(app_data_dir);
     let content = serde_json::to_string_pretty(&registry).map_err(|e| e.to_string())?;
     std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
+/// 通过注册表找到项目工作区，返回其数据库路径。
+fn get_project_db_path(project_id: &str, app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
+    let registry = load_project_registry(&app_data_dir)?;
+    let workspace_path = registry
+        .into_iter()
+        .find(|e| e.id == project_id)
+        .map(|e| e.workspace_path)
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+    Ok(std::path::PathBuf::from(workspace_path).join("project.sqlite"))
+}
+
+/// 文本规范化：统一换行符、去除 BOM 和零宽字符。
+fn normalize_text(text: &str) -> String {
+    // 去除 BOM
+    let text = text.trim_start_matches('\u{FEFF}');
+    // 统一换行符
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    // 去除零宽字符
+    let text: String = text
+        .chars()
+        .filter(|&c| c != '\u{200B}' && c != '\u{200C}' && c != '\u{200D}' && c != '\u{FEFF}')
+        .collect();
+    text.trim().to_string()
 }

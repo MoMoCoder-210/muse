@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ProjectInfo } from "../../types/project";
 import { useProjects } from "../../hooks/useProjects";
 import { ProjectSidebar } from "./ProjectSidebar";
@@ -7,43 +7,39 @@ import { CreateProjectModal } from "./CreateProjectModal";
 
 type ProjectManagementPageProps = {
   onGoHome: () => void;
-  /** 首页点"创建项目"后传入 true，页面打开时自动弹出创建弹窗 */
-  autoOpenCreate?: boolean;
-  /** 消费 autoOpenCreate 信号后回调，重置父组件状态 */
-  onAutoOpenConsumed?: () => void;
 };
 
-export function ProjectManagementPage({
-  onGoHome,
-  autoOpenCreate,
-  onAutoOpenConsumed,
-}: ProjectManagementPageProps) {
+export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
   const { projects, loading, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  // 维护一个本地的"选中项目"缓存，允许 workspace 操作后立即反映而无需重新拉列表
+  const [projectOverrides, setProjectOverrides] = useState<Record<string, ProjectInfo>>({});
 
-  // 首次加载项目列表
   useEffect(() => {
     load();
   }, [load]);
 
-  // 响应来自首页的"创建项目"触发
-  useEffect(() => {
-    if (!autoOpenCreate) return;
-    setModalOpen(true);
-    onAutoOpenConsumed?.();
-  }, [autoOpenCreate, onAutoOpenConsumed]);
+  const selectedProject = (() => {
+    if (!selectedProjectId) return null;
+    return projectOverrides[selectedProjectId]
+      ?? projects.find((p) => p.id === selectedProjectId)
+      ?? null;
+  })();
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
-
-  function handleCreated(project: ProjectInfo) {
+  const handleCreated = useCallback((project: ProjectInfo) => {
     setModalOpen(false);
     load().then((items) => {
       if (items.some((p) => p.id === project.id)) {
         setSelectedProjectId(project.id);
       }
     });
-  }
+  }, [load]);
+
+  // workspace 内部操作（如导入剧本后 current_step 变化）触发本地更新
+  const handleProjectUpdated = useCallback((updated: ProjectInfo) => {
+    setProjectOverrides((prev) => ({ ...prev, [updated.id]: updated }));
+  }, []);
 
   return (
     <section className="projects-screen">
@@ -51,14 +47,28 @@ export function ProjectManagementPage({
         projects={projects}
         selectedProjectId={selectedProjectId}
         loading={loading}
-        onSelectProject={setSelectedProjectId}
+        onSelectProject={(id) => {
+          setSelectedProjectId(id);
+          // 切换项目时清除旧的 override，让列表数据重新生效
+          setProjectOverrides((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }}
         onCreateProject={() => setModalOpen(true)}
-        onRefresh={load}
+        onRefresh={() => {
+          setProjectOverrides({});
+          load();
+        }}
         onGoHome={onGoHome}
       />
 
       <main className="project-workspace">
-        <ProjectWorkspace project={selectedProject} />
+        <ProjectWorkspace
+          project={selectedProject}
+          onProjectUpdated={handleProjectUpdated}
+        />
       </main>
 
       {modalOpen ? (

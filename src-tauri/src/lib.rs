@@ -29,6 +29,9 @@ pub fn run() {
             commands::create_project,
             commands::get_project,
             commands::list_projects,
+            commands::import_script,
+            commands::list_clips,
+            commands::get_script_source,
             commands::start_worker,
             commands::stop_worker,
         ])

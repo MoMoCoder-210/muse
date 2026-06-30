@@ -73,6 +73,8 @@ export type WorkerMessage =
 // ===== TaskContext =====
 export interface TaskContext {
   workspacePath: string;
+  taskId: string;
+  taskInput: unknown;      // 已解析的 input_json 对象
   db: import("better-sqlite3").Database;
   emit: (event: TaskEvent) => void;
   rateLimiter: RateLimiter;

@@ -3,7 +3,14 @@
  * 所有 invoke 调用集中在这里，组件不直接引入 @tauri-apps/api
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectInfo, CreateProjectInput } from "../types/project";
+import type {
+  ProjectInfo,
+  CreateProjectInput,
+  ImportScriptInput,
+  ImportScriptResult,
+  Clip,
+  ScriptSource,
+} from "../types/project";
 
 export async function getAppVersion(): Promise<string> {
   return invoke<string>("get_app_version");
@@ -19,4 +26,16 @@ export async function getProject(projectId: string): Promise<ProjectInfo> {
 
 export async function createProject(input: CreateProjectInput): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("create_project", { input });
+}
+
+export async function importScript(input: ImportScriptInput): Promise<ImportScriptResult> {
+  return invoke<ImportScriptResult>("import_script", { input });
+}
+
+export async function listClips(projectId: string): Promise<Clip[]> {
+  return invoke<Clip[]>("list_clips", { projectId });
+}
+
+export async function getScriptSource(projectId: string): Promise<ScriptSource | null> {
+  return invoke<ScriptSource | null>("get_script_source", { projectId });
 }

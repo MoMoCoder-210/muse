@@ -3,13 +3,15 @@ import { getAppVersion } from "./services/tauri";
 import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
 import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
+import { CreateProjectModal } from "./components/project/CreateProjectModal";
+import type { ProjectInfo } from "./types/project";
 
 type ViewMode = "home" | "projects";
 
 export default function App() {
   const [view, setView] = useState<ViewMode>("home");
   const [version, setVersion] = useState("unknown");
-  const [createModalTrigger, setCreateModalTrigger] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   useEffect(() => {
     getAppVersion()
@@ -17,15 +19,9 @@ export default function App() {
       .catch(console.error);
   }, []);
 
-  // 首页点"创建项目"：切到项目管理页并立即弹出创建弹窗
-  const handleHomeCreate = useCallback(() => {
+  const handleCreated = useCallback((project: ProjectInfo) => {
+    setCreateModalOpen(false);
     setView("projects");
-    setCreateModalTrigger(true);
-  }, []);
-
-  // 弹窗触发一次后立即重置，避免重复触发
-  const handleModalTriggerConsumed = useCallback(() => {
-    setCreateModalTrigger(false);
   }, []);
 
   return (
@@ -35,16 +31,21 @@ export default function App() {
       {view === "home" ? (
         <HomePage
           version={version}
-          onCreateProject={handleHomeCreate}
+          onCreateProject={() => setCreateModalOpen(true)}
           onGoToProjects={() => setView("projects")}
         />
       ) : (
         <ProjectManagementPage
           onGoHome={() => setView("home")}
-          autoOpenCreate={createModalTrigger}
-          onAutoOpenConsumed={handleModalTriggerConsumed}
         />
       )}
+
+      {createModalOpen ? (
+        <CreateProjectModal
+          onClose={() => setCreateModalOpen(false)}
+          onCreated={handleCreated}
+        />
+      ) : null}
     </div>
   );
 }
