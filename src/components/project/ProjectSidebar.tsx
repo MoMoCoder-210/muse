@@ -10,6 +10,7 @@ type ProjectSidebarProps = {
   onCreateProject: () => void;
   onRefresh: () => void;
   onGoHome: () => void;
+  onOpenSettings: () => void;
 };
 
 export function ProjectSidebar({
@@ -20,6 +21,7 @@ export function ProjectSidebar({
   onCreateProject,
   onRefresh,
   onGoHome,
+  onOpenSettings,
 }: ProjectSidebarProps) {
   return (
     <aside className="project-sidebar">
@@ -54,10 +56,21 @@ export function ProjectSidebar({
         />
       </div>
 
-      {/* 底部：返回首页 */}
-      <button type="button" className="sidebar-back-btn" onClick={onGoHome}>
-        返回首页
-      </button>
+      {/* 底部操作栏 */}
+      <div className="sidebar-footer">
+        <button type="button" className="sidebar-back-btn" onClick={onGoHome}>
+          返回首页
+        </button>
+        <button
+          type="button"
+          className="sidebar-settings-btn"
+          onClick={onOpenSettings}
+          aria-label="打开设置"
+          title="设置"
+        >
+          ⚙
+        </button>
+      </div>
     </aside>
   );
 }

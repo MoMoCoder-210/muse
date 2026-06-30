@@ -150,39 +150,7 @@
   text-align: center;
 }
 
-/* 底部返回按钮 */
-.sidebar-back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 13px 16px;
-  border: 0;
-  border-top: 1px solid var(--border-faint);
-  border-radius: 0 0 22px 22px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.sidebar-back-btn::before {
-  content: "←";
-  font-size: var(--font-size-control);
-  transition: transform 120ms ease;
-}
-
-.sidebar-back-btn:hover {
-  background: var(--bg-surface-deep);
-  color: var(--text-primary);
-}
-
-.sidebar-back-btn:hover::before {
-  transform: translateX(-3px);
-}
+/* 底部返回/设置按钮样式见 settings.css */
 
 /* ── 工作区 ───────────────────────────────────── */
 .project-workspace {

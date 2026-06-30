@@ -39,3 +39,14 @@ export async function listClips(projectId: string): Promise<Clip[]> {
 export async function getScriptSource(projectId: string): Promise<ScriptSource | null> {
   return invoke<ScriptSource | null>("get_script_source", { projectId });
 }
+
+// ── 设置 ──────────────────────────────────────────────────
+import type { AppSettings } from "../types/settings";
+
+export async function getSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>("get_settings");
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  return invoke<void>("save_settings", { settings });
+}

@@ -4,6 +4,7 @@ import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
 import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
+import { SettingsPage } from "./components/settings/SettingsPage";
 import type { ProjectInfo } from "./types/project";
 
 type ViewMode = "home" | "projects";
@@ -12,6 +13,7 @@ export default function App() {
   const [view, setView] = useState<ViewMode>("home");
   const [version, setVersion] = useState("unknown");
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     getAppVersion()
@@ -33,10 +35,12 @@ export default function App() {
           version={version}
           onCreateProject={() => setCreateModalOpen(true)}
           onGoToProjects={() => setView("projects")}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (
         <ProjectManagementPage
           onGoHome={() => setView("home")}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
 
@@ -45,6 +49,10 @@ export default function App() {
           onClose={() => setCreateModalOpen(false)}
           onCreated={handleCreated}
         />
+      ) : null}
+
+      {settingsOpen ? (
+        <SettingsPage onClose={() => setSettingsOpen(false)} />
       ) : null}
     </div>
   );

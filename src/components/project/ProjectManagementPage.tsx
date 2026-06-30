@@ -7,9 +7,10 @@ import { CreateProjectModal } from "./CreateProjectModal";
 
 type ProjectManagementPageProps = {
   onGoHome: () => void;
+  onOpenSettings: () => void;
 };
 
-export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
+export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManagementPageProps) {
   const { projects, loading, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -62,6 +63,7 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
           load();
         }}
         onGoHome={onGoHome}
+        onOpenSettings={onOpenSettings}
       />
 
       <main className="project-workspace">

@@ -4,9 +4,10 @@ type HomePageProps = {
   version: string;
   onCreateProject: () => void;
   onGoToProjects: () => void;
+  onOpenSettings: () => void;
 };
 
-export function HomePage({ version, onCreateProject, onGoToProjects }: HomePageProps) {
+export function HomePage({ version, onCreateProject, onGoToProjects, onOpenSettings }: HomePageProps) {
   return (
     <section className="home-screen">
       <div className="home-card">
@@ -25,6 +26,15 @@ export function HomePage({ version, onCreateProject, onGoToProjects }: HomePageP
 
         <div className="home-meta">
           <span>版本：{version}</span>
+          <button
+            type="button"
+            className="home-settings-btn"
+            onClick={onOpenSettings}
+            aria-label="打开设置"
+            title="设置"
+          >
+            ⚙
+          </button>
         </div>
       </div>
     </section>

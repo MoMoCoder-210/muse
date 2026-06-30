@@ -1,0 +1,242 @@
+/* 设置页 */
+
+/* 全屏覆盖层，层级高于所有页面内容 */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--overlay-modal);
+  backdrop-filter: blur(6px);
+}
+
+/* 设置面板主体 */
+.settings-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  width: min(680px, 100%);
+  max-height: calc(100vh - 40px);
+  border: 1px solid var(--border-base);
+  border-radius: 22px;
+  background: var(--bg-surface-modal);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+
+/* 头部 */
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 22px 0;
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.settings-subtitle {
+  margin: 4px 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Tab 导航 */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 14px 22px 0;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.settings-tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.settings-tab-btn:hover {
+  background: var(--bg-surface-deep);
+  color: var(--text-secondary);
+}
+
+.settings-tab-btn.active {
+  background: var(--bg-surface-deep);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--border-accent);
+}
+
+/* 未配置红点 */
+.settings-tab-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-orange);
+  flex-shrink: 0;
+}
+
+/* 内容区 */
+.settings-body {
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.settings-loading {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 0;
+  font-size: var(--font-size-sm);
+}
+
+/* 模型配置区块 */
+.model-config-section {
+  display: grid;
+  gap: 18px;
+}
+
+.model-config-header h3 {
+  margin: 0 0 4px;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.model-config-header p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  line-height: var(--line-height-base);
+}
+
+.model-config-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* 底部 */
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.settings-docs-link {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.settings-docs-link:hover {
+  color: var(--badge-text);
+}
+
+.settings-footer-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ── 设置入口按钮 ─────────────────────────────────── */
+
+/* 首页版本号旁的齿轮 */
+.home-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.home-settings-btn:hover {
+  background: var(--chip-bg);
+  color: var(--text-primary);
+}
+
+/* 侧边栏底部栏 */
+.sidebar-footer {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border-faint);
+}
+
+.sidebar-back-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 13px 14px;
+  border: 0;
+  border-radius: 0 0 0 22px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-back-btn::before {
+  content: "←";
+  font-size: var(--font-size-control);
+  transition: transform 120ms ease;
+}
+
+.sidebar-back-btn:hover {
+  background: var(--bg-surface-deep);
+  color: var(--text-primary);
+}
+
+.sidebar-back-btn:hover::before {
+  transform: translateX(-3px);
+}
+
+/* 侧边栏齿轮按钮 */
+.sidebar-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--border-faint);
+  border-radius: 0 0 22px 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-settings-btn:hover {
+  background: var(--bg-surface-deep);
+  color: var(--text-primary);
+}
