@@ -58,6 +58,7 @@ export type WorkerCommand =
   | { version: number; cmd: "enqueue"; taskId: string }
   | { version: number; cmd: "cancel"; taskId: string }
   | { version: number; cmd: "shutdown"; timeoutMs: number }
+  | { version: number; cmd: "reload_config" }
   | { version: number; cmd: "ping" };
 
 export type WorkerMessage =

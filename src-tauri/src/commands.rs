@@ -222,9 +222,12 @@ pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> 
 }
 
 #[tauri::command]
-pub fn start_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<String, String> {
+pub fn start_worker(state: tauri::State<'_, SharedSidecarManager>, app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let config_path = app_data_dir.join("settings.json").to_string_lossy().to_string();
+    // db_path 和 workspace_path 此处传空字符串，由前端在 enqueue 时携带项目信息
     let mut manager = state.lock().map_err(|e| e.to_string())?;
-    manager.start().map_err(|e| e.to_string())?;
+    manager.start("", "", &config_path).map_err(|e| e.to_string())?;
     Ok(manager.worker_id().to_string())
 }
 
@@ -232,6 +235,48 @@ pub fn start_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<Str
 pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), String> {
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     manager.shutdown(30000).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 读取当前应用配置（settings.json）。
+/// 如果文件不存在，返回内置默认值。
+#[tauri::command]
+pub fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let settings_path = app_data_dir.join("settings.json");
+
+    if !settings_path.exists() {
+        return Ok(serde_json::json!({
+            "text":  { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k-241215", "maxTokens": 4096, "temperature": 0.7, "timeoutMs": 60000 },
+            "image": { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-seedream-4-5-251128", "size": "1024x1024", "timeoutMs": 120000 },
+            "voice": { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-tts", "voice": "zh_female_shuangkuaisisi_moon_bigtts", "speed": 1.0, "timeoutMs": 60000 }
+        }));
+    }
+
+    let content = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+/// 保存配置到 settings.json，并通知 worker 热更新。
+#[tauri::command]
+pub fn save_settings(
+    settings: serde_json::Value,
+    state: tauri::State<'_, SharedSidecarManager>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let settings_path = app_data_dir.join("settings.json");
+
+    let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
+    log::info!("Settings saved to {:?}", settings_path);
+
+    // 通知 worker 热更新（worker 运行中才发送）
+    let mut manager = state.lock().map_err(|e| e.to_string())?;
+    if manager.is_running() {
+        manager.send_reload_config().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 

@@ -18,16 +18,22 @@ import { RateLimiterImpl } from "./rate-limiter.js";
 import { PROTOCOL_VERSION } from "./types.js";
 import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
 import { splitScriptHandler } from "./handlers/split-script.js";
+import { SettingsManager } from "./config/settings.js";
+import { createClients } from "./clients/index.js";
+import type { ApiClients } from "./clients/index.js";
 
 const workerId = randomUUID();
 let dbPath = process.env.WORKER_DB_PATH || "";
 let workspacePath = process.env.WORKER_WORKSPACE_PATH || "";
+let configPath = process.env.WORKER_CONFIG_PATH || "";
 let running = true;
 
 // 初始化数据库连接
 let db: ReturnType<typeof initDatabase>;
 let taskRunner: TaskRunner;
 let rateLimiter: RateLimiterImpl;
+let settings: SettingsManager;
+let clients: ApiClients;
 
 // 发送消息到 Tauri 主进程（stdout）
 function sendMessage(msg: WorkerMessage): void {
@@ -75,6 +81,15 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
 
     case "ping":
       sendHeartbeat();
+      break;
+
+    case "reload_config":
+      if (clients) {
+        clients.reload();
+        sendLog("info", "Config reloaded");
+      } else {
+        sendLog("warn", "reload_config: clients not initialized");
+      }
       break;
 
     default:
@@ -131,7 +146,18 @@ async function main(): Promise<void> {
       dbPath = args[i + 1];
     } else if (args[i] === "--workspace" && args[i + 1]) {
       workspacePath = args[i + 1];
+    } else if (args[i] === "--config" && args[i + 1]) {
+      configPath = args[i + 1];
     }
+  }
+
+  // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
+  if (configPath) {
+    settings = new SettingsManager(configPath);
+    clients = createClients(settings);
+    sendLog("info", `Config loaded: ${configPath}`);
+  } else {
+    sendLog("warn", "No config path provided, API clients not initialized");
   }
 
   // 初始化数据库

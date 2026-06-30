@@ -32,6 +32,8 @@ pub fn run() {
             commands::import_script,
             commands::list_clips,
             commands::get_script_source,
+            commands::get_settings,
+            commands::save_settings,
             commands::start_worker,
             commands::stop_worker,
         ])

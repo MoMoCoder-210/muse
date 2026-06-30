@@ -67,7 +67,7 @@ impl SidecarManager {
     /// 3. 等待 ready 消息（包含 workerId + protocolVersion）
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
-    pub fn start(&mut self) -> Result<(), SidecarError> {
+    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
         }
@@ -80,6 +80,9 @@ impl SidecarManager {
 
         let child = Command::new("node")
             .arg(&worker_path)
+            .args(["--db", db_path])
+            .args(["--workspace", workspace_path])
+            .args(["--config", config_path])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -225,6 +228,16 @@ impl SidecarManager {
         .map_err(|e| SidecarError::Crashed(format!("failed to cleanup locks: {}", e)))?;
 
         log::info!("Cleaned up locks for worker {}", self.worker_id);
+        Ok(())
+    }
+
+    /// 发送 reload_config 命令给 worker
+    pub fn send_reload_config(&mut self) -> Result<(), SidecarError> {
+        let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            let cmd = serde_json::json!({ "version": 1, "cmd": "reload_config" });
+            let _ = writeln!(stdin, "{}", cmd);
+        }
         Ok(())
     }
 
