@@ -1,0 +1,38 @@
+/* 响应式断点 */
+
+@media (max-width: 1080px) {
+  .projects-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-summary,
+  .modal-form {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-input {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-card {
+    padding: 28px 20px;
+  }
+
+  .home-actions,
+  .sidebar-actions,
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .sidebar-header,
+  .workspace-header,
+  .modal-header {
+    flex-direction: column;
+  }
+}

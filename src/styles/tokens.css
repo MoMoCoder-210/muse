@@ -1,0 +1,117 @@
+/* ─────────────────────────────────────────────────────────
+   CSS 自定义属性 Token 层
+   实际值由 src/config/theme.ts 的 applyTheme() 在运行时注入。
+   此处仅声明回退默认值（与 darkTheme 保持一致），
+   确保在 JS 未执行时仍能渲染出正确的暗色样式。
+   ───────────────────────────────────────────────────────── */
+:root {
+  /* 背景 */
+  --bg-base:            #060912;
+  --bg-canvas:          #090d14;
+  --bg-surface:         rgba(7, 10, 16, 0.84);
+  --bg-surface-deep:    rgba(15, 23, 42, 0.82);
+  --bg-surface-modal:   rgba(7, 10, 16, 0.82);
+  --bg-input:           rgba(8, 12, 18, 0.88);
+  --bg-input-deep:      rgba(12, 18, 30, 0.96);
+
+  /* 文字 */
+  --text-primary:       #f8fafc;
+  --text-secondary:     #cbd5e1;
+  --text-muted:         #94a3b8;
+  --text-accent:        #bfdbfe;
+  --text-success:       #86efac;
+
+  /* 主色 */
+  --accent-primary:     #2563eb;
+  --accent-secondary:   #0ea5e9;
+  --accent-purple:      #a855f7;
+  --accent-orange:      #f97316;
+
+  /* 边框 */
+  --border-base:        rgba(148, 163, 184, 0.14);
+  --border-subtle:      rgba(148, 163, 184, 0.12);
+  --border-faint:       rgba(148, 163, 184, 0.10);
+  --border-accent:      rgba(96, 165, 250, 0.80);
+  --border-accent-subtle: rgba(96, 165, 250, 0.22);
+
+  /* 按钮 */
+  --btn-primary-bg:         #2563eb;
+  --btn-primary-bg-end:     #0ea5e9;
+  --btn-primary-border:     rgba(125, 211, 252, 0.34);
+  --btn-primary-shadow:     rgba(37, 99, 235, 0.28);
+  --btn-secondary-bg:       rgba(37, 99, 235, 0.26);
+  --btn-secondary-border:   rgba(96, 165, 250, 0.28);
+  --btn-secondary-text:     #dbeafe;
+  --btn-ghost-bg:           rgba(15, 23, 42, 0.76);
+  --btn-ghost-border:       rgba(148, 163, 184, 0.18);
+  --btn-ghost-text:         #e2e8f0;
+
+  /* 焦点环 */
+  --focus-ring:             rgba(59, 130, 246, 0.16);
+  --focus-border:           rgba(96, 165, 250, 0.80);
+
+  /* 阴影 */
+  --shadow-card:            0 24px 70px rgba(0, 0, 0, 0.45);
+  --shadow-modal:           0 24px 70px rgba(0, 0, 0, 0.42);
+  --shadow-select-menu:     0 18px 40px rgba(0, 0, 0, 0.32);
+  --shadow-panel:           0 24px 70px rgba(0, 0, 0, 0.35);
+
+  /* 遮罩 */
+  --overlay-modal:          rgba(2, 6, 23, 0.72);
+
+  /* 工作流步骤 */
+  --step-done-bg:           rgba(37, 99, 235, 0.28);
+  --step-done-bg-end:       rgba(15, 23, 42, 0.68);
+  --step-done-border:       rgba(59, 130, 246, 0.42);
+  --step-done-text:         #dbeafe;
+  --step-pending-bg:        rgba(15, 23, 42, 0.72);
+
+  /* Badge / Chip */
+  --badge-bg:               rgba(59, 130, 246, 0.16);
+  --badge-text:             #bfdbfe;
+  --chip-bg:                rgba(148, 163, 184, 0.12);
+  --chip-text:              #cbd5e1;
+
+  /* Select */
+  --select-active-bg:            rgba(37, 99, 235, 0.16);
+  --select-active-text:          #dbeafe;
+  --select-hover-bg:             rgba(37, 99, 235, 0.24);
+  --select-menu-border:          rgba(96, 165, 250, 0.22);
+  --select-menu-bg:              rgba(9, 14, 24, 0.98);
+  --select-caret-color:          rgba(226, 232, 240, 0.90);
+  --select-trigger-hover-border: rgba(96, 165, 250, 0.48);
+
+  /* Segmented */
+  --segmented-bg:                rgba(148, 163, 184, 0.12);
+  --segmented-active-bg:         rgba(59, 130, 246, 0.22);
+  --segmented-active-border:     rgba(96, 165, 250, 0.80);
+
+  /* 杂项 */
+  --modal-close-btn-color:  rgba(226, 232, 240, 0.82);
+  --project-item-active-bg: rgba(30, 41, 59, 0.92);
+  --color-white:            #ffffff;
+
+  /* ── 字体 ──
+     5 个字号刻度：
+       xs       12px  badge、状态标签、辅助说明
+       sm       13px  次级标签（home-meta、表单字段标签）
+       base     15px  正文、列表项标题
+       control  14px  输入框、下拉框、所有普通按钮
+       section  30px  二级标题
+       icon     24px  图标按钮字符
+       hero     clamp 首页大标题
+  */
+  --font-family:          "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-size-xs:         12px;
+  --font-size-sm:         13px;
+  --font-size-base:       15px;
+  --font-size-control:    14px;
+  --font-size-section:    30px;
+  --font-size-icon:       24px;
+  --font-size-hero:       clamp(48px, 8vw, 78px);
+  --line-height-base:     1.5;
+  --line-height-tight:    0.95;
+  --line-height-section:  1.05;
+  --font-weight-normal:   400;
+  --font-weight-semibold: 600;
+}

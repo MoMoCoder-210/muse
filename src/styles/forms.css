@@ -1,0 +1,175 @@
+/* 表单控件：输入框、Select、Segmented */
+
+/* 通用字段容器 */
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* 组合输入（输入框 + 按钮并排） */
+.inline-input {
+  display: flex;
+  gap: 10px;
+}
+
+.inline-input input {
+  flex: 1;
+}
+
+/* 分段控件 */
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.segmented button {
+  background: var(--segmented-bg);
+  color: var(--btn-ghost-text);
+}
+
+.segmented button.active {
+  background: var(--segmented-active-bg);
+  color: var(--color-white);
+  border: 1px solid var(--segmented-active-border);
+}
+
+/* 自定义 Select */
+.select-shell {
+  position: relative;
+}
+
+.select-trigger {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.select-trigger:hover {
+  border-color: var(--select-trigger-hover-border);
+  background: var(--bg-input-deep);
+}
+
+.select-trigger.open {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.select-caret {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-right: 2px solid var(--select-caret-color);
+  border-bottom: 2px solid var(--select-caret-color);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 120ms ease;
+}
+
+.select-trigger.open .select-caret {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--select-menu-border);
+  border-radius: 16px;
+  background: var(--select-menu-bg);
+  box-shadow: var(--shadow-select-menu);
+  backdrop-filter: blur(16px);
+}
+
+.select-option {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  text-align: left;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.select-option:hover {
+  background: var(--select-hover-bg);
+  color: var(--text-primary);
+}
+
+.select-option.active {
+  background: var(--select-active-bg);
+  color: var(--select-active-text);
+}
+
+/* Tab 切换条（导入面板等复用） */
+.import-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--segmented-bg);
+  width: fit-content;
+}
+
+.tab-btn {
+  min-height: 34px;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tab-btn.active {
+  background: var(--bg-surface-modal);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}

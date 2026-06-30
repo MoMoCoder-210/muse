@@ -1,0 +1,252 @@
+/* 项目管理页：侧边栏、项目列表、工作区、工作流步骤板 */
+
+/* 侧边栏与工作区面板容器 */
+.project-sidebar,
+.project-workspace {
+  min-height: 0;
+  border: 1px solid var(--border-base);
+  border-radius: 22px;
+  background: var(--bg-surface-modal);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+}
+
+/* 侧边栏 */
+.project-sidebar {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  padding: 18px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sidebar-header h2 {
+  margin: 10px 0 0;
+  font-size: var(--font-size-section);
+  line-height: var(--line-height-section);
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* 项目列表 */
+.project-list {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.project-item {
+  text-align: left;
+  width: 100%;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-deep);
+  color: var(--text-primary);
+}
+
+.project-item.active {
+  border-color: var(--border-accent);
+  background: var(--project-item-active-bg);
+}
+
+.project-item-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-item-title strong {
+  font-size: var(--font-size-base);
+}
+
+.project-item-title span {
+  color: var(--text-success);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.project-item p,
+.project-item small {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  display: block;
+  word-break: break-word;
+}
+
+.empty-panel {
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* 工作区 */
+.project-workspace {
+  padding: 22px;
+  overflow: hidden;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-header h2 {
+  margin: 10px 0 0;
+  font-size: var(--font-size-section);
+  line-height: var(--line-height-section);
+}
+
+.workspace-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+}
+
+.workspace-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace-badges span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--font-size-xs);
+}
+
+.workspace-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-card {
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.summary-card span {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.summary-card strong {
+  color: var(--text-primary);
+  word-break: break-word;
+  font-size: var(--font-size-sm);
+}
+
+/* 工作区内层（step 路由容器） */
+.workspace-inner {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-header-row {
+  display: grid;
+  gap: 12px;
+}
+
+/* 空状态 */
+.empty-workspace {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  height: 100%;
+  min-height: 320px;
+  color: var(--text-secondary);
+}
+
+.empty-workspace h2 {
+  margin: 0 0 10px;
+}
+
+.empty-workspace p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* 工作流步骤板 */
+.workflow-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-step {
+  min-height: 86px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-faint);
+  background: var(--step-pending-bg);
+  display: flex;
+  align-items: flex-end;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.workflow-step.done {
+  color: var(--step-done-text);
+  border-color: var(--step-done-border);
+  background: linear-gradient(180deg, var(--step-done-bg), var(--step-done-bg-end));
+}
+
+/* 通用面板头部 */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.panel-header p {
+  width: 100%;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.panel-loading {
+  color: var(--text-muted);
+  padding: 32px 0;
+  text-align: center;
+  font-size: var(--font-size-sm);
+}

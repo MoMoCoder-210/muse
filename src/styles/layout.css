@@ -1,0 +1,98 @@
+/* 应用壳与页面级布局 */
+
+.app-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.backdrop-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.home-screen,
+.projects-screen {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* 首页 */
+.home-screen {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.home-card {
+  width: min(540px, 100%);
+  text-align: center;
+  padding: 42px 38px;
+  border-radius: 24px;
+  border: 1px solid var(--border-base);
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
+}
+
+.brand-badge,
+.sidebar-kicker,
+.workspace-kicker,
+.modal-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0;
+}
+
+.home-card h1 {
+  margin: 18px 0 10px;
+  font-size: var(--font-size-hero);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0;
+}
+
+.home-card p {
+  margin: 0 auto;
+  max-width: 28ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.home-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.home-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* 项目管理页双栏 */
+.projects-screen {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px;
+}
