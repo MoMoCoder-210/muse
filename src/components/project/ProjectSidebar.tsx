@@ -23,30 +23,29 @@ export function ProjectSidebar({
 }: ProjectSidebarProps) {
   return (
     <aside className="project-sidebar">
+      {/* 头部：应用名居中 */}
       <div className="sidebar-header">
-        <div>
-          <div className="sidebar-kicker">项目管理</div>
-          <h2>{APP_NAME}</h2>
-        </div>
-        <button type="button" className="ghost-button" onClick={onGoHome}>
-          返回首页
-        </button>
+        <h2 className="sidebar-title">{APP_NAME}</h2>
       </div>
 
+      {/* 操作区：创建 + 刷新 */}
       <div className="sidebar-actions">
-        <button type="button" className="primary-button" onClick={onCreateProject}>
-          创建项目
+        <button type="button" className="primary-button btn-sm sidebar-create-btn" onClick={onCreateProject}>
+          + 新建项目
         </button>
         <button
           type="button"
-          className="secondary-button"
+          className="ghost-button btn-icon-sm"
           onClick={onRefresh}
           disabled={loading}
+          aria-label="刷新列表"
+          title="刷新列表"
         >
-          {loading ? "刷新中..." : "刷新列表"}
+          {loading ? "…" : "↻"}
         </button>
       </div>
 
+      {/* 项目列表 */}
       <div className="project-list">
         <ProjectList
           projects={projects}
@@ -54,6 +53,11 @@ export function ProjectSidebar({
           onSelect={onSelectProject}
         />
       </div>
+
+      {/* 底部：返回首页 */}
+      <button type="button" className="sidebar-back-btn" onClick={onGoHome}>
+        返回首页
+      </button>
     </aside>
   );
 }

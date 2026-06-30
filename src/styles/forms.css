@@ -1,6 +1,5 @@
 /* 表单控件：输入框、Select、Segmented */
 
-/* 通用字段容器 */
 .field {
   display: grid;
   gap: 8px;
@@ -27,7 +26,7 @@
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-/* 组合输入（输入框 + 按钮并排） */
+/* 组合输入 */
 .inline-input {
   display: flex;
   gap: 10px;
@@ -146,7 +145,7 @@
   color: var(--select-active-text);
 }
 
-/* Tab 切换条（导入面板等复用） */
+/* Tab 切换条 */
 .import-tabs {
   display: flex;
   gap: 4px;
@@ -171,5 +170,5 @@
 .tab-btn.active {
   background: var(--bg-surface-modal);
   color: var(--text-primary);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-select-menu);
 }

@@ -30,7 +30,7 @@
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-control);
-  line-height: 1.7;
+  line-height: var(--line-height-base);
   padding: 14px;
   outline: none;
   font-family: var(--font-family);
@@ -95,20 +95,20 @@
   font-weight: var(--font-weight-semibold);
 }
 
-.split-status--pending { background: var(--chip-bg); color: var(--chip-text); }
-.split-status--running { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
-.split-status--success { background: rgba(34, 197, 94, 0.16); color: #86efac; }
-.split-status--failed  { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.split-status--pending { background: var(--chip-bg);    color: var(--chip-text); }
+.split-status--running { background: var(--badge-bg);   color: var(--badge-text); }
+.split-status--success { background: var(--chip-bg);    color: var(--text-success); }
+.split-status--failed  { background: var(--chip-bg);    color: var(--text-muted); }
 
 /* 错误提示横幅 */
 .split-error-banner {
   padding: 12px 14px;
   border-radius: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background: var(--bg-surface-deep);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: var(--line-height-base);
 }
 
 /* 空状态 */
@@ -130,7 +130,7 @@
 .clip-item {
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--step-pending-bg);
   overflow: hidden;
 }
 
@@ -145,7 +145,7 @@
 }
 
 .clip-item-header:hover {
-  background: rgba(37, 99, 235, 0.06);
+  background: var(--bg-surface-deep);
 }
 
 .clip-index {
@@ -178,10 +178,10 @@
   white-space: nowrap;
 }
 
-.clip-status--pending      { background: var(--chip-bg); color: var(--chip-text); }
-.clip-status--script_ready { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
-.clip-status--done         { background: rgba(34, 197, 94, 0.16); color: #86efac; }
-.clip-status--failed       { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.clip-status--pending      { background: var(--chip-bg);    color: var(--chip-text); }
+.clip-status--script_ready { background: var(--badge-bg);   color: var(--badge-text); }
+.clip-status--done         { background: var(--chip-bg);    color: var(--text-success); }
+.clip-status--failed       { background: var(--chip-bg);    color: var(--text-muted); }
 
 .clip-expand-icon {
   color: var(--text-muted);
@@ -207,10 +207,10 @@
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   font-family: var(--font-family);
-  line-height: 1.8;
+  line-height: var(--line-height-base);
   max-height: 320px;
   overflow-y: auto;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-canvas);
   border-radius: 10px;
 }

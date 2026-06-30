@@ -57,7 +57,7 @@
   background: var(--btn-ghost-bg);
   border-color: var(--btn-ghost-border);
   font-size: var(--font-size-icon);
-  line-height: 1;
+  line-height: var(--line-height-tight);
 }
 
 .modal-close-button {
@@ -82,4 +82,11 @@
   min-height: 32px;
   padding: 6px 12px;
   font-size: var(--font-size-sm);
+}
+
+/* disabled 状态 */
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }

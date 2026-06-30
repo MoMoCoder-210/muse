@@ -242,7 +242,7 @@ pub fn import_script(
     app: tauri::AppHandle,
 ) -> Result<ImportScriptResult, String> {
     let db_path = get_project_db_path(&input.project_id, &app)?;
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+    let mut conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
 
     // 读取原始内容
     let raw_content = match (input.content, input.file_path) {
@@ -259,23 +259,6 @@ pub fn import_script(
     let task_id = uuid::Uuid::new_v4().to_string();
     let lock_key = format!("split_script:{}", source_id);
 
-    // 在同一事务内写入 script_source + task
-    conn.execute_batch("BEGIN")?;
-
-    conn.execute(
-        "INSERT INTO script_sources (id, project_id, source_type, file_name, raw_content, normalized_content, split_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending')",
-        rusqlite::params![
-            &source_id,
-            &input.project_id,
-            &input.source_type,
-            Option::<String>::None, // file_name 暂不传
-            &raw_content,
-            &normalized,
-        ],
-    )
-    .map_err(|e| { let _ = conn.execute_batch("ROLLBACK"); e.to_string() })?;
-
     let input_json = serde_json::json!({
         "projectId": &input.project_id,
         "sourceId": &source_id,
@@ -283,14 +266,31 @@ pub fn import_script(
     })
     .to_string();
 
-    conn.execute(
+    // 在同一事务内写入 script_source + task，任一失败自动回滚
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO script_sources (id, project_id, source_type, file_name, raw_content, normalized_content, split_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending')",
+        rusqlite::params![
+            &source_id,
+            &input.project_id,
+            &input.source_type,
+            Option::<String>::None,
+            &raw_content,
+            &normalized,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
         "INSERT INTO tasks (id, project_id, type, status, lock_key, input_json, max_retry)
          VALUES (?1, ?2, 'split_script', 'pending', ?3, ?4, 3)",
         rusqlite::params![&task_id, &input.project_id, &lock_key, &input_json],
     )
-    .map_err(|e| { let _ = conn.execute_batch("ROLLBACK"); e.to_string() })?;
+    .map_err(|e| e.to_string())?;
 
-    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     log::info!("Script imported: source_id={}, task_id={}", source_id, task_id);
     Ok(ImportScriptResult { source_id })
