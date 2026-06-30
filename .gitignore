@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+worker/node_modules/
+worker/dist/
+
+# Build outputs
+dist/
+src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Tauri
+src-tauri/gen/
+src-tauri/WixTools/
+
+# SQLite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+.cache/
+
+# Workspace data (开发时生成的工作区数据)
+workspace/

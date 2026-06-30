@@ -1,0 +1,35 @@
+[package]
+name = "desktop-lite"
+version = "0.1.0"
+description = "桌面端轻量版视频创作工具"
+authors = ["you"]
+edition = "2021"
+rust-version = "1.77"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "desktop_lite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+dirs = "6"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+
+[features]
+# this feature is used for production builds where `devUrl` is not needed
+custom-protocol = ["tauri/custom-protocol"]
