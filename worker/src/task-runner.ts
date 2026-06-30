@@ -25,6 +25,8 @@ import {
   markTaskSuccess,
   markTaskFailed,
   getWaitingRemoteTasks,
+  getRunningTaskCount,
+  type PendingTask,
 } from "./db.js";
 
 const POLL_INTERVAL_MS = 1000;
@@ -39,17 +41,21 @@ export class TaskRunner {
   private abortController: AbortController;
   private handlers: Map<TaskType, (ctx: TaskContext) => Promise<string>> = new Map();
 
+  private onHeartbeat: ((activeCount: number) => void) | null = null;
+
   constructor(
     db: DatabaseType,
     workerId: string,
     rateLimiter: RateLimiter,
-    emit: (event: TaskEvent) => void
+    emit: (event: TaskEvent) => void,
+    onHeartbeat?: (activeCount: number) => void
   ) {
     this.db = db;
     this.workerId = workerId;
     this.rateLimiter = rateLimiter;
     this.emit = emit;
     this.abortController = new AbortController();
+    this.onHeartbeat = onHeartbeat ?? null;
   }
 
   /**
@@ -69,7 +75,7 @@ export class TaskRunner {
     // 启动心跳定时器
     const heartbeatTimer = setInterval(() => {
       const activeCount = this.getActiveTaskCount();
-      // 心跳通过 stdout 发送，由 index.ts 处理
+      this.onHeartbeat?.(activeCount);
     }, HEARTBEAT_INTERVAL_MS);
 
     // 主循环
@@ -135,16 +141,7 @@ export class TaskRunner {
    * 执行单个任务
    */
   private async executeTask(
-    task: {
-      id: string;
-      project_id: string;
-      clip_id: string | null;
-      type: string;
-      input_json: string;
-      retry_count: number;
-      max_retry: number;
-      lock_key: string;
-    },
+    task: PendingTask,
     apiType: ApiType,
     taskType: TaskType
   ): Promise<void> {
@@ -218,13 +215,10 @@ export class TaskRunner {
   }
 
   /**
-   * 获取当前活跃任务数
+   * 获取当前活跃任务数（running 状态）
    */
   private getActiveTaskCount(): number {
-    const result = this.db
-      .prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'running'")
-      .get() as any;
-    return result?.count ?? 0;
+    return getRunningTaskCount(this.db);
   }
 
   /**

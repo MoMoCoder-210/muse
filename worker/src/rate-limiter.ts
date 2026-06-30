@@ -148,7 +148,7 @@ export class RateLimiterImpl {
    * 停止所有 bucket（优雅退出时调用）
    */
   stopAll(): void {
-    for (const [apiType, bucket] of this.buckets) {
+    for (const bucket of this.buckets.values()) {
       bucket.paused = true;
       bucket.activeCount = 0;
     }

@@ -12,7 +12,7 @@
 
 import { randomUUID } from "crypto";
 import { createInterface } from "readline";
-import { initDatabase } from "./db.js";
+import { initDatabase, getRunningTaskCount } from "./db.js";
 import { TaskRunner } from "./task-runner.js";
 import { RateLimiterImpl } from "./rate-limiter.js";
 import { PROTOCOL_VERSION } from "./types.js";
@@ -30,7 +30,7 @@ let rateLimiter: RateLimiterImpl;
 
 // 发送消息到 Tauri 主进程（stdout）
 function sendMessage(msg: WorkerMessage): void {
-  process.stdout.write(JSON.stringify({ ...msg, version: PROTOCOL_VERSION }) + "\n");
+  process.stdout.write(JSON.stringify(msg) + "\n");
 }
 
 // 发送日志
@@ -46,9 +46,7 @@ function emitEvent(event: TaskEvent): void {
 // 发送心跳
 function sendHeartbeat(): void {
   if (!running) return;
-  const activeTasks = db
-    ? (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'running'").get() as any)?.count ?? 0
-    : 0;
+  const activeTasks = db ? getRunningTaskCount(db) : 0;
   sendMessage({ version: PROTOCOL_VERSION, msg: "heartbeat", workerId, activeTasks });
 }
 
@@ -99,17 +97,14 @@ async function handleShutdown(timeoutMs: number): Promise<void> {
   }
 
   // 等待进行中的任务完成
-  let pendingTasks = 0;
-  if (db) {
-    pendingTasks = (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'running'").get() as any)?.count ?? 0;
-  }
+  let pendingTasks = db ? getRunningTaskCount(db) : 0;
   sendMessage({ version: PROTOCOL_VERSION, msg: "shutting_down", pendingTasks });
 
   // 给任务一些时间完成
   const deadline = Date.now() + Math.min(timeoutMs, 30000);
   while (Date.now() < deadline) {
     if (db) {
-      pendingTasks = (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'running'").get() as any)?.count ?? 0;
+      pendingTasks = getRunningTaskCount(db);
       if (pendingTasks === 0) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -142,7 +137,8 @@ async function main(): Promise<void> {
   if (dbPath) {
     db = initDatabase(dbPath);
     rateLimiter = new RateLimiterImpl();
-    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent);
+    // TaskRunner 内置心跳定时器，通过 onHeartbeat 回调将心跳发送出去
+    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, sendHeartbeat);
 
     // 注册任务处理器（TODO: 实现各 handler）
     // taskRunner.registerHandler("split_script", splitScriptHandler);
@@ -162,8 +158,11 @@ async function main(): Promise<void> {
     protocolVersion: PROTOCOL_VERSION,
   });
 
-  // 启动心跳定时器
-  const heartbeatTimer = setInterval(sendHeartbeat, 10000);
+  // 当没有 taskRunner 时（空闲模式），单独启动心跳定时器
+  let idleHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  if (!taskRunner) {
+    idleHeartbeatTimer = setInterval(sendHeartbeat, 10000);
+  }
 
   // 启动任务循环
   if (taskRunner) {
@@ -204,7 +203,7 @@ async function main(): Promise<void> {
 
   // 清理
   process.on("exit", () => {
-    clearInterval(heartbeatTimer);
+    clearInterval(idleHeartbeatTimer);
     if (db?.open) {
       db.close();
     }

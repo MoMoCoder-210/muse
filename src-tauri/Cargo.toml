@@ -1,5 +1,5 @@
 [package]
-name = "desktop-lite"
+name = "muse"
 version = "0.1.0"
 description = "桌面端轻量版视频创作工具"
 authors = ["you"]
@@ -9,14 +9,14 @@ rust-version = "1.77"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "desktop_lite_lib"
+name = "muse_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

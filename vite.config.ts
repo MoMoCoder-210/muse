@@ -1,12 +1,13 @@
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Tauri expects a fixed port and externalizable assets
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": "/src",
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
   // Vite options tailored for Tauri development
@@ -27,4 +28,4 @@ export default defineConfig(async () => ({
     sourcemap: false,
     outDir: "dist",
   },
-}));
+});

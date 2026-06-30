@@ -1,16 +1,22 @@
 use std::process::{Child, Command, Stdio};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+#[allow(dead_code)]
 const HEARTBEAT_TIMEOUT_SECS: u64 = 30;
+#[allow(dead_code)]
 const HEARTBEAT_CHECK_INTERVAL_SECS: u64 = 5;
+#[allow(dead_code)]
 const MAX_RESTART_COUNT: u32 = 3;
+#[allow(dead_code)]
 const RESTART_WINDOW_MINS: u64 = 5;
+#[allow(dead_code)]
 const RESTART_DELAY_SECS: u64 = 2;
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum SidecarError {
     #[error("sidecar already running")]
     AlreadyRunning,
@@ -35,10 +41,13 @@ pub struct SidecarManager {
     worker_id: String,
     child: Option<Child>,
     last_heartbeat: Option<Instant>,
+    #[allow(dead_code)]
     restart_count: u32,
+    #[allow(dead_code)]
     restart_window_start: Option<Instant>,
 }
 
+#[allow(dead_code)]
 impl SidecarManager {
     pub fn new() -> Self {
         Self {

@@ -4,6 +4,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum DbError {
     #[error("database connection failed: {0}")]
     Connection(String),
@@ -104,6 +105,7 @@ pub fn run_migrations(conn: &Connection, migrations_dir: &Path) -> Result<(), Db
 }
 
 /// 获取应用数据目录中的数据库路径
+#[allow(dead_code)]
 pub fn get_db_path(app_data_dir: &Path, project_id: &str) -> std::path::PathBuf {
     app_data_dir.join("projects").join(project_id).join("project.sqlite")
 }

@@ -1,3 +1,4 @@
+mod app_paths;
 mod commands;
 mod db;
 mod sidecar;
@@ -8,20 +9,17 @@ use tauri::Manager;
 pub fn run() {
     env_logger::init();
 
-    let app = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            // 初始化应用数据目录
-            let app_data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&app_data_dir)?;
+            let app_data_dir =
+                app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
+            log::info!("Application data directory: {:?}", app_data_dir);
 
-            // 初始化日志
-            log::info!("应用数据目录: {:?}", app_data_dir);
-
-            // 启动 Node sidecar worker
-            let sidecar_manager = sidecar::SidecarManager::new();
+            let sidecar_manager: sidecar::SharedSidecarManager =
+                std::sync::Mutex::new(sidecar::SidecarManager::new());
             app.manage(sidecar_manager);
 
             Ok(())

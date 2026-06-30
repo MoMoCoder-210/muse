@@ -32,12 +32,7 @@ export function initDatabase(dbPath: string): DatabaseType {
   return db;
 }
 
-/**
- * 获取任务列表。
- *
- * 查询所有 status = 'pending' 且 lockKey 未被占用的 Task，按 createdAt 排序。
- */
-export function getPendingTasks(db: DatabaseType): Array<{
+export type PendingTask = {
   id: string;
   project_id: string;
   clip_id: string | null;
@@ -51,7 +46,14 @@ export function getPendingTasks(db: DatabaseType): Array<{
   remote_task_id: string | null;
   retry_count: number;
   max_retry: number;
-}> {
+};
+
+/**
+ * 获取任务列表。
+ *
+ * 查询所有 status = 'pending' 且 lockKey 未被占用的 Task，按 createdAt 排序。
+ */
+export function getPendingTasks(db: DatabaseType): PendingTask[] {
   return db
     .prepare(
       `SELECT t.id, t.project_id, t.clip_id, t.batch_id, t.storyboard_id, t.asset_id,
@@ -64,7 +66,7 @@ export function getPendingTasks(db: DatabaseType): Array<{
          )
        ORDER BY t.created_at ASC`
     )
-    .all() as any;
+    .all() as PendingTask[];
 }
 
 /**
@@ -140,20 +142,32 @@ export function markTaskFailed(
   ).run(errorMessage, taskId);
 }
 
-/**
- * 获取 waiting_remote 状态的任务（用于恢复轮询）。
- */
-export function getWaitingRemoteTasks(db: DatabaseType): Array<{
+export type WaitingRemoteTask = {
   id: string;
   type: string;
   remote_task_id: string;
   project_id: string;
-}> {
+};
+
+/**
+ * 获取 waiting_remote 状态的任务（用于恢复轮询）。
+ */
+export function getWaitingRemoteTasks(db: DatabaseType): WaitingRemoteTask[] {
   return db
     .prepare(
       `SELECT id, type, remote_task_id, project_id FROM tasks WHERE status = 'waiting_remote'`
     )
-    .all() as any;
+    .all() as WaitingRemoteTask[];
+}
+
+/**
+ * 获取 running 状态的任务数量。
+ */
+export function getRunningTaskCount(db: DatabaseType): number {
+  const result = db
+    .prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'running'")
+    .get() as { count: number };
+  return result?.count ?? 0;
 }
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "@desktop-lite/worker",
+  "name": "@muse/worker",
   "private": true,
   "version": "0.1.0",
   "type": "module",

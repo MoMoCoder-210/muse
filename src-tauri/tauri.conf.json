@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop-lite",
+  "productName": "Muse",
   "version": "0.1.0",
-  "identifier": "com.desktop-lite.app",
+  "identifier": "com.muse.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "Desktop Lite - 视频创作工具",
+        "title": "Muse",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -45,10 +45,5 @@
       "../worker/dist/*"
     ],
     "externalBin": []
-  },
-  "plugins": {
-    "shell": {
-      "sidecar": true
-    }
   }
 }

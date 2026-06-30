@@ -1,38 +1,761 @@
+/* ─────────────────────────────────────────────────────────
+   CSS 自定义属性 Token 层
+   实际值由 src/config/theme.ts 的 applyTheme() 在运行时注入。
+   此处仅声明回退默认值（与 darkTheme 保持一致），
+   确保在 JS 未执行时仍能渲染出正确的暗色样式。
+   ───────────────────────────────────────────────────────── */
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light dark;
+  --bg-base:            #060912;
+  --bg-canvas:          #090d14;
+  --bg-surface:         rgba(7, 10, 16, 0.84);
+  --bg-surface-deep:    rgba(15, 23, 42, 0.82);
+  --bg-surface-modal:   rgba(7, 10, 16, 0.82);
+  --bg-input:           rgba(8, 12, 18, 0.88);
+  --bg-input-deep:      rgba(12, 18, 30, 0.96);
+
+  --text-primary:       #f8fafc;
+  --text-secondary:     #cbd5e1;
+  --text-muted:         #94a3b8;
+  --text-accent:        #bfdbfe;
+  --text-success:       #86efac;
+
+  --accent-primary:     #2563eb;
+  --accent-secondary:   #0ea5e9;
+  --accent-purple:      #a855f7;
+  --accent-orange:      #f97316;
+
+  --border-base:        rgba(148, 163, 184, 0.14);
+  --border-subtle:      rgba(148, 163, 184, 0.12);
+  --border-faint:       rgba(148, 163, 184, 0.10);
+  --border-accent:      rgba(96, 165, 250, 0.80);
+  --border-accent-subtle: rgba(96, 165, 250, 0.22);
+
+  --btn-primary-bg:         #2563eb;
+  --btn-primary-bg-end:     #0ea5e9;
+  --btn-primary-border:     rgba(125, 211, 252, 0.34);
+  --btn-primary-shadow:     rgba(37, 99, 235, 0.28);
+  --btn-secondary-bg:       rgba(37, 99, 235, 0.26);
+  --btn-secondary-border:   rgba(96, 165, 250, 0.28);
+  --btn-secondary-text:     #dbeafe;
+  --btn-ghost-bg:           rgba(15, 23, 42, 0.76);
+  --btn-ghost-border:       rgba(148, 163, 184, 0.18);
+  --btn-ghost-text:         #e2e8f0;
+
+  --focus-ring:             rgba(59, 130, 246, 0.16);
+  --focus-border:           rgba(96, 165, 250, 0.80);
+
+  --shadow-card:            0 24px 70px rgba(0, 0, 0, 0.45);
+  --shadow-modal:           0 24px 70px rgba(0, 0, 0, 0.42);
+  --shadow-select-menu:     0 18px 40px rgba(0, 0, 0, 0.32);
+
+  --overlay-modal:          rgba(2, 6, 23, 0.72);
+
+  --step-done-bg:           rgba(37, 99, 235, 0.28);
+  --step-done-bg-end:       rgba(15, 23, 42, 0.68);
+  --step-done-border:       rgba(59, 130, 246, 0.42);
+  --step-done-text:         #dbeafe;
+
+  --badge-bg:               rgba(59, 130, 246, 0.16);
+  --badge-text:             #bfdbfe;
+
+  --chip-bg:                rgba(148, 163, 184, 0.12);
+  --chip-text:              #cbd5e1;
+
+  --select-active-bg:       rgba(37, 99, 235, 0.16);
+  --select-active-text:     #dbeafe;
+  --select-hover-bg:        rgba(37, 99, 235, 0.24);
+  --select-menu-border:     rgba(96, 165, 250, 0.22);
+  --select-menu-bg:         rgba(9, 14, 24, 0.98);
+  --segmented-bg:           rgba(148, 163, 184, 0.12);
+  --segmented-active-bg:    rgba(59, 130, 246, 0.22);
+  --segmented-active-border: rgba(96, 165, 250, 0.80);
+
+  --modal-close-btn-color:  rgba(226, 232, 240, 0.82);
+  --select-caret-color:     rgba(226, 232, 240, 0.90);
+  --project-item-active-bg: rgba(30, 41, 59, 0.92);
+  --step-pending-bg:        rgba(15, 23, 42, 0.72);
+
+  /* 纯色辅助 */
+  --color-white:            #ffffff;
+  /* 侧边栏/工作区面板阴影（不含 box-shadow 其余参数） */
+  --shadow-panel:           0 24px 70px rgba(0, 0, 0, 0.35);
+  /* select hover 边框色 */
+  --select-trigger-hover-border: rgba(96, 165, 250, 0.48);
+
+  /* ── 字体 ──
+     5 个字号刻度，按需修改任意一行即可全局生效：
+       xs       12px  badge、状态标签、辅助说明
+       sm       13px  次级标签（home-meta、表单字段标签）
+       base     15px  正文、列表项标题
+       control  14px  输入框、下拉框、所有普通按钮
+       section  30px  二级标题
+       icon     24px  图标按钮字符
+       hero     clamp 首页大标题
+  */
+  --font-family:        "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-size-xs:       12px;
+  --font-size-sm:       13px;
+  --font-size-base:     15px;
+  --font-size-control:  14px;
+  --font-size-section:  30px;
+  --font-size-icon:     24px;
+  --font-size-hero:     clamp(48px, 8vw, 78px);
+  --line-height-base:   1.5;
+  --line-height-tight:  0.95;
+  --line-height-section:1.05;
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+}
+
+/* ─────────────────────────────────────────────────────────
+   基础重置
+   ───────────────────────────────────────────────────────── */
+:root {
+  font-family: var(--font-family);
+  line-height: var(--line-height-base);
+  font-weight: var(--font-weight-normal);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
 }
 
 body {
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
 }
 
-.app {
-  max-width: 1200px;
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ─────────────────────────────────────────────────────────
+   应用壳
+   ───────────────────────────────────────────────────────── */
+.app-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.backdrop-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.home-screen,
+.projects-screen {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─────────────────────────────────────────────────────────
+   首页
+   ───────────────────────────────────────────────────────── */
+.home-screen {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.home-card {
+  width: min(540px, 100%);
+  text-align: center;
+  padding: 42px 38px;
+  border-radius: 24px;
+  border: 1px solid var(--border-base);
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
+}
+
+.brand-badge,
+.sidebar-kicker,
+.workspace-kicker,
+.modal-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0;
+}
+
+.home-card h1 {
+  margin: 18px 0 10px;
+  font-size: var(--font-size-hero);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0;
+}
+
+.home-card p {
   margin: 0 auto;
-  padding: 2rem;
+  max-width: 28ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}.home-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
 }
 
-.app-header {
+.home-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+/* ─────────────────────────────────────────────────────────
+   按钮系统
+   ───────────────────────────────────────────────────────── */
+.primary-button,
+.secondary-button,
+.ghost-button,
+.icon-button,
+.segmented button {
+  min-height: 44px;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-semibold);
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.ghost-button:hover,
+.icon-button:hover,
+.segmented button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button {
+  color: var(--color-white);
+  background: linear-gradient(135deg, var(--btn-primary-bg), var(--btn-primary-bg-end));
+  box-shadow: 0 16px 36px var(--btn-primary-shadow);
+  border-color: var(--btn-primary-border);
+}
+
+.secondary-button {
+  color: var(--btn-secondary-text);
+  background: var(--btn-secondary-bg);
+  border-color: var(--btn-secondary-border);
+}
+
+.ghost-button {
+  color: var(--btn-ghost-text);
+  background: var(--btn-ghost-bg);
+  border-color: var(--btn-ghost-border);
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  color: var(--btn-ghost-text);
+  background: var(--btn-ghost-bg);
+  border-color: var(--btn-ghost-border);
+  font-size: var(--font-size-icon);
+  line-height: 1;
+}
+
+.modal-close-button {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--modal-close-btn-color);
+  box-shadow: none;
+  font-size: var(--font-size-icon);
+}
+
+.modal-close-button:hover {
+  background: var(--chip-bg);
+  color: var(--text-primary);
+}
+
+/* ─────────────────────────────────────────────────────────
+   项目管理页
+   ───────────────────────────────────────────────────────── */
+.projects-screen {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px;
+}
+
+.project-sidebar,
+.project-workspace {
+  min-height: 0;
+  border: 1px solid var(--border-base);
+  border-radius: 22px;
+  background: var(--bg-surface-modal);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+}
+
+.project-sidebar {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  padding: 18px;
+}
+
+.sidebar-header,
+.workspace-header,
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header {
+  margin: -6px -6px 0 0;
+}
+
+.sidebar-header h2,
+.workspace-header h2,
+.modal-header h2 {
+  margin: 10px 0 0;
+  font-size: var(--font-size-section);
+  line-height: var(--line-height-section);
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.project-item {
+  text-align: left;
+  width: 100%;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-deep);
+  color: var(--text-primary);
+}
+
+.project-item.active {
+  border-color: var(--border-accent);
+  background: var(--project-item-active-bg);
+}
+
+.project-item-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-item-title strong {
+  font-size: var(--font-size-base);
+}
+
+.project-item-title span {
+  color: var(--text-success);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.project-item p,
+.project-item small {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  display: block;
+  word-break: break-word;
+}
+
+/* ─────────────────────────────────────────────────────────
+   工作区
+   ───────────────────────────────────────────────────────── */
+.project-workspace {
+  padding: 22px;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 18px;
+}
+
+.workspace-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace-badges span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--font-size-xs);
+}
+
+.workspace-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-card,
+.workspace-panel,
+.empty-panel,
+.empty-workspace,
+.modal-panel {
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.summary-card {
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.summary-card span {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.summary-card strong {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* ─────────────────────────────────────────────────────────
+   工作流步骤板
+   ───────────────────────────────────────────────────────── */
+.workflow-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-step {
+  min-height: 86px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-faint);
+  background: var(--step-pending-bg);
+  display: flex;
+  align-items: flex-end;
+  color: var(--text-muted);
+}
+
+.workflow-step.done {
+  color: var(--step-done-text);
+  border-color: var(--step-done-border);
+  background: linear-gradient(180deg, var(--step-done-bg), var(--step-done-bg-end));
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workspace-panel,
+.empty-workspace,
+.empty-panel {
+  padding: 18px;
+}
+
+.workspace-panel h3,
+.empty-workspace h2 {
+  margin: 0 0 10px;
+}
+
+.workspace-panel p,
+.empty-workspace p,
+.empty-panel {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.empty-workspace {
+  display: grid;
+  place-items: center;
   text-align: center;
-  margin-bottom: 2rem;
+  min-height: 320px;
 }
 
-.app-header h1 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+/* ─────────────────────────────────────────────────────────
+   弹窗
+   ───────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--overlay-modal);
 }
 
-.app-main {
-  text-align: center;
+.modal-panel {
+  width: min(720px, 100%);
+  padding: 22px;
+  box-shadow: var(--shadow-modal);
+}
+
+.modal-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   表单字段
+   ───────────────────────────────────────────────────────── */
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* ─────────────────────────────────────────────────────────
+   自定义 Select
+   ───────────────────────────────────────────────────────── */
+.select-shell {
+  position: relative;
+}
+
+.select-trigger {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.select-trigger:hover {
+  border-color: var(--select-trigger-hover-border);
+  background: var(--bg-input-deep);
+}
+
+.select-trigger.open {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.select-caret {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-right: 2px solid var(--select-caret-color);
+  border-bottom: 2px solid var(--select-caret-color);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 120ms ease;
+}
+
+.select-trigger.open .select-caret {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--select-menu-border);
+  border-radius: 16px;
+  background: var(--select-menu-bg);
+  box-shadow: var(--shadow-select-menu);
+  backdrop-filter: blur(16px);
+}
+
+.select-option {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  text-align: left;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.select-option:hover {
+  background: var(--select-hover-bg);
+  color: var(--text-primary);
+}
+
+.select-option.active {
+  background: var(--select-active-bg);
+  color: var(--select-active-text);
+}
+
+/* ─────────────────────────────────────────────────────────
+   组合输入 / 分段控件
+   ───────────────────────────────────────────────────────── */
+.inline-input {
+  display: flex;
+  gap: 10px;
+}
+
+.inline-input input {
+  flex: 1;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.segmented button {
+  background: var(--segmented-bg);
+  color: var(--btn-ghost-text);
+}
+
+.segmented button.active {
+  background: var(--segmented-active-bg);
+  color: var(--color-white);
+  border: 1px solid var(--segmented-active-border);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   响应式
+   ───────────────────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .projects-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-grid,
+  .workspace-summary,
+  .modal-form {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-input {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-card {
+    padding: 28px 20px;
+  }
+
+  .home-actions,
+  .sidebar-actions,
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .sidebar-header,
+  .workspace-header,
+  .modal-header {
+    flex-direction: column;
+  }
 }
