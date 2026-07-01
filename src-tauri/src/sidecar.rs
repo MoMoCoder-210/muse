@@ -45,6 +45,10 @@ pub struct SidecarManager {
     restart_count: u32,
     #[allow(dead_code)]
     restart_window_start: Option<Instant>,
+    // 启动参数，重启时复用
+    db_path: String,
+    workspace_path: String,
+    config_path: String,
 }
 
 #[allow(dead_code)]
@@ -56,6 +60,9 @@ impl SidecarManager {
             last_heartbeat: None,
             restart_count: 0,
             restart_window_start: None,
+            db_path: String::new(),
+            workspace_path: String::new(),
+            config_path: String::new(),
         }
     }
 
@@ -71,6 +78,11 @@ impl SidecarManager {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
         }
+
+        // 保存参数供 restart() 复用
+        self.db_path = db_path.to_string();
+        self.workspace_path = workspace_path.to_string();
+        self.config_path = config_path.to_string();
 
         let worker_path = std::env::current_dir()
             .map_err(|e| SidecarError::StartFailed(e.to_string()))?
@@ -189,10 +201,11 @@ impl SidecarManager {
             MAX_RESTART_COUNT
         );
 
-        self.start()
+        let db = self.db_path.clone();
+        let workspace = self.workspace_path.clone();
+        let config = self.config_path.clone();
+        self.start(&db, &workspace, &config)
     }
-
-    /// 检查心跳状态。
     ///
     /// 返回：
     /// - Ok：心跳正常

@@ -11,6 +11,8 @@ import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { VoiceModelConfig } from "../config/defaults.js";
 
+const DEFAULT_VOICE = "zh_female_shuangkuaisisi_moon_bigtts";
+
 export interface VoiceGenerateOptions {
   /** 覆盖配置中的 voice */
   voice?: string;
@@ -73,7 +75,7 @@ export class VoiceClient {
       {
         model: this.config.model,
         input: text,
-        voice: (options.voice ?? this.config.voice) as Parameters<
+        voice: (options.voice ?? DEFAULT_VOICE) as Parameters<
           OpenAI["audio"]["speech"]["create"]
         >[0]["voice"],
         speed: options.speed ?? this.config.speed,

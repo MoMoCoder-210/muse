@@ -23,7 +23,6 @@ export const DEFAULT_IMAGE_CONFIG: ImageModelConfig = {
   apiKey: "",
   baseUrl: ARK_BASE_URL,
   model: "doubao-seedream-4-5-251128",
-  size: "1024x1024",
   timeoutMs: 120_000,
 };
 
@@ -32,7 +31,6 @@ export const DEFAULT_VOICE_CONFIG: VoiceModelConfig = {
   apiKey: "",
   baseUrl: ARK_BASE_URL,
   model: "doubao-tts",
-  voice: "zh_female_shuangkuaisisi_moon_bigtts",
   speed: 1.0,
   timeoutMs: 60_000,
 };
@@ -52,8 +50,6 @@ export interface ImageModelConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-  /** 格式：宽x高，如 "1024x1024" | "2K" | "4K" */
-  size: string;
   timeoutMs: number;
 }
 
@@ -61,8 +57,6 @@ export interface VoiceModelConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-  /** 音色 ID，见火山方舟 TTS 文档 */
-  voice: string;
   /** 语速倍率，0.5 ~ 2.0 */
   speed: number;
   timeoutMs: number;

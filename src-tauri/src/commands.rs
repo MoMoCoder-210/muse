@@ -1,5 +1,6 @@
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
@@ -54,6 +55,112 @@ pub struct ClipInfo {
 struct ProjectRegistryEntry {
     id: String,
     workspace_path: String,
+}
+
+fn default_settings_json() -> Value {
+    serde_json::json!({
+        "text": {
+            "apiKey": "",
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-pro-32k-241215",
+            "maxTokens": 4096,
+            "temperature": 0.7,
+            "timeoutMs": 60000
+        },
+        "image": {
+            "apiKey": "",
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-seedream-4-5-251128",
+            "timeoutMs": 120000
+        },
+        "voice": {
+            "apiKey": "",
+            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-tts",
+            "speed": 1.0,
+            "timeoutMs": 60000
+        }
+    })
+}
+
+fn sanitize_settings(input: Value) -> Value {
+    let mut root = Map::new();
+
+    let source = input.as_object();
+
+    root.insert(
+        "text".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("text")),
+            &[
+                ("apiKey", Value::String(String::new())),
+                (
+                    "baseUrl",
+                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
+                ),
+                (
+                    "model",
+                    Value::String("doubao-pro-32k-241215".to_string()),
+                ),
+                ("maxTokens", Value::from(4096)),
+                ("temperature", Value::from(0.7)),
+                ("timeoutMs", Value::from(60000)),
+            ],
+        ),
+    );
+
+    root.insert(
+        "image".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("image")),
+            &[
+                ("apiKey", Value::String(String::new())),
+                (
+                    "baseUrl",
+                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
+                ),
+                (
+                    "model",
+                    Value::String("doubao-seedream-4-5-251128".to_string()),
+                ),
+                ("timeoutMs", Value::from(120000)),
+            ],
+        ),
+    );
+
+    root.insert(
+        "voice".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("voice")),
+            &[
+                ("apiKey", Value::String(String::new())),
+                (
+                    "baseUrl",
+                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
+                ),
+                ("model", Value::String("doubao-tts".to_string())),
+                ("speed", Value::from(1.0)),
+                ("timeoutMs", Value::from(60000)),
+            ],
+        ),
+    );
+
+    Value::Object(root)
+}
+
+fn sanitize_section(source: Option<&Value>, fields: &[(&str, Value)]) -> Value {
+    let source_obj = source.and_then(Value::as_object);
+    let mut section = Map::new();
+
+    for (key, default) in fields {
+        let value = source_obj
+            .and_then(|obj| obj.get(*key))
+            .cloned()
+            .unwrap_or_else(|| default.clone());
+        section.insert((*key).to_string(), value);
+    }
+
+    Value::Object(section)
 }
 
 #[tauri::command]
@@ -241,33 +348,31 @@ pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), 
 /// 读取当前应用配置（settings.json）。
 /// 如果文件不存在，返回内置默认值。
 #[tauri::command]
-pub fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
     let settings_path = app_data_dir.join("settings.json");
 
     if !settings_path.exists() {
-        return Ok(serde_json::json!({
-            "text":  { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k-241215", "maxTokens": 4096, "temperature": 0.7, "timeoutMs": 60000 },
-            "image": { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-seedream-4-5-251128", "size": "1024x1024", "timeoutMs": 120000 },
-            "voice": { "apiKey": "", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-tts", "voice": "zh_female_shuangkuaisisi_moon_bigtts", "speed": 1.0, "timeoutMs": 60000 }
-        }));
+        return Ok(default_settings_json());
     }
 
     let content = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    let parsed: Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(sanitize_settings(parsed))
 }
 
 /// 保存配置到 settings.json，并通知 worker 热更新。
 #[tauri::command]
 pub fn save_settings(
-    settings: serde_json::Value,
+    settings: Value,
     state: tauri::State<'_, SharedSidecarManager>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
     let settings_path = app_data_dir.join("settings.json");
+    let normalized_settings = sanitize_settings(settings);
 
-    let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&normalized_settings).map_err(|e| e.to_string())?;
     std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
     log::info!("Settings saved to {:?}", settings_path);
 

@@ -100,6 +100,16 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
           </label>
 
           <label className="field">
+            <span>项目描述</span>
+            <textarea
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+              placeholder="可选，补充项目背景或目标"
+              rows={3}
+            />
+          </label>
+
+          <label className="field">
             <span>项目目录</span>
             <div className="inline-input">
               <input

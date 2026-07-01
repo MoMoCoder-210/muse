@@ -5,7 +5,6 @@ import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsPage } from "./components/settings/SettingsPage";
-import type { ProjectInfo } from "./types/project";
 
 type ViewMode = "home" | "projects";
 
@@ -21,7 +20,7 @@ export default function App() {
       .catch(console.error);
   }, []);
 
-  const handleCreated = useCallback((project: ProjectInfo) => {
+  const handleCreated = useCallback(() => {
     setCreateModalOpen(false);
     setView("projects");
   }, []);

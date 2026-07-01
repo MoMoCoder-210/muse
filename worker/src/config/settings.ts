@@ -77,8 +77,8 @@ export class SettingsManager {
 }
 
 // ── 工具：深合并（target 为默认值，source 为用户配置） ──────────────
-function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
-  const result = structuredClone(target);
+function deepMerge<T extends object>(target: T, source: Partial<T>): T {
+  const result = structuredClone(target) as any;
   for (const key of Object.keys(source) as (keyof T)[]) {
     const srcVal = source[key];
     const tgtVal = result[key];
@@ -93,9 +93,9 @@ function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial
       result[key] = deepMerge(
         tgtVal as Record<string, unknown>,
         srcVal as Record<string, unknown>
-      ) as T[keyof T];
+      ) as any;
     } else if (srcVal !== undefined) {
-      result[key] = srcVal as T[keyof T];
+      result[key] = srcVal;
     }
   }
   return result;

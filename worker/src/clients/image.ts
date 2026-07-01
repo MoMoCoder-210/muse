@@ -16,7 +16,7 @@ import { dirname } from "path";
 import type { ImageModelConfig } from "../config/defaults.js";
 
 export interface ImageGenerateOptions {
-  /** 覆盖配置中的 size */
+  /** 生图尺寸，默认 1024x1024；调用时可覆盖 */
   size?: string;
   /** 是否添加水印（方舟扩展参数） */
   watermark?: boolean;
@@ -64,7 +64,7 @@ export class ImageClient {
       throw new Error("ImageClient: apiKey is not configured");
     }
 
-    const size = (options.size ?? this.config.size) as
+    const size = (options.size ?? "1024x1024") as
       | "256x256" | "512x512" | "1024x1024" | "1792x1024" | "1024x1792"
       | (string & {});
 
@@ -82,6 +82,10 @@ export class ImageClient {
       } as Parameters<OpenAI["images"]["generate"]>[0],
       { signal: options.signal }
     );
+
+    if (!("data" in response) || !response.data) {
+      throw new Error("ImageClient: unexpected streaming response");
+    }
 
     const url = response.data[0]?.url;
     if (!url) {

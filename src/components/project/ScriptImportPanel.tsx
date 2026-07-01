@@ -41,9 +41,10 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
 
     setLoading(true);
     try {
+      const sourceType = tab === "file" ? "txt" : "paste";
       await importScript({
         project_id: project.id,
-        source_type: tab,
+        source_type: sourceType,
         content: tab === "paste" ? pasteText.trim() : undefined,
         file_path: tab === "file" ? filePath : undefined,
       });

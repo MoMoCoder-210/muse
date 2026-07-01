@@ -11,7 +11,6 @@ export interface ImageModelConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-  size: string;
   timeoutMs: number;
 }
 
@@ -19,7 +18,6 @@ export interface VoiceModelConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-  voice: string;
   speed: number;
   timeoutMs: number;
 }
@@ -43,14 +41,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     apiKey: "",
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     model: "doubao-seedream-4-5-251128",
-    size: "1024x1024",
     timeoutMs: 120000,
   },
   voice: {
     apiKey: "",
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     model: "doubao-tts",
-    voice: "zh_female_shuangkuaisisi_moon_bigtts",
     speed: 1.0,
     timeoutMs: 60000,
   },

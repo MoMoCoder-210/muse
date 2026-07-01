@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { ProjectInfo } from "../../types/project";
 import { getProject } from "../../services/tauri";
 import { WorkflowBoard } from "./WorkflowBoard";
