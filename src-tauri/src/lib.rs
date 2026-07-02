@@ -45,6 +45,9 @@ pub fn run() {
             commands::start_worker,
             commands::stop_worker,
             commands::delete_project,
+            commands::delete_clips,
+            commands::update_clip,
+            commands::split_clip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

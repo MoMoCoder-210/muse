@@ -10,6 +10,9 @@ import type {
   ImportScriptResult,
   Clip,
   ScriptSource,
+  UpdateClipInput,
+  SplitClipInput,
+  SplitClipResult,
 } from "../types/project";
 
 export async function getAppVersion(): Promise<string> {
@@ -46,6 +49,24 @@ export async function getScriptSource(projectId: string): Promise<ScriptSource |
 
 export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<void> {
   return invoke<void>("delete_project", { projectId, deleteFiles });
+}
+
+// ── 片段操作（模块 02 第 9-10 节） ──────────────────────────
+// @author yt @date 20260702 新增片段级写操作 IPC
+
+/** 批量软删除片段，支持单条（传长度1数组）或多条 */
+export async function deleteClips(clipIds: string[]): Promise<void> {
+  return invoke<void>("delete_clips", { input: { clip_ids: clipIds } });
+}
+
+/** 更新片段标题/摘要/正文，返回更新后的片段 */
+export async function updateClip(input: UpdateClipInput): Promise<Clip> {
+  return invoke<Clip>("update_clip", { input });
+}
+
+/** 在指定字符位置把一个片段拆成两个，返回两段 id */
+export async function splitClip(input: SplitClipInput): Promise<SplitClipResult> {
+  return invoke<SplitClipResult>("split_clip", { input });
 }
 
 export async function ensureWorkerAndImportScript(

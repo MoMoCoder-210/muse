@@ -21,8 +21,11 @@ export type ScriptSource = {
   project_id: string;
   source_type: "paste" | "txt";
   file_name: string | null;
-  raw_content: string;
-  normalized_content: string;
+  // raw_content / normalized_content 由 Rust 端 get_script_source 不返回（避免大文本传输），
+  // 前端如需原文应走专用命令；这里保留为可选以匹配实际返回。
+  // @author yt @date 20260702 修正类型与实际返回不一致的问题
+  raw_content?: string;
+  normalized_content?: string;
   split_status: "pending" | "running" | "success" | "failed";
   error_message: string | null;
   retry_count: number;
@@ -63,4 +66,31 @@ export type ImportScriptInput = {
 
 export type ImportScriptResult = {
   source_id: string;
+};
+
+// ── 片段操作（模块 02 第 9-10 节） ─────────────────────────
+// @author yt @date 20260702 新增片段级写操作类型
+
+/** 批量删除片段（软删除） */
+export type DeleteClipsInput = {
+  clip_ids: string[];
+};
+
+/** 更新片段，三个内容字段均可选，传哪个改哪个 */
+export type UpdateClipInput = {
+  clip_id: string;
+  title?: string;
+  summary?: string;
+  source_text?: string;
+};
+
+/** 在原 source_text 的第 split_position 个字符处拆成两段 */
+export type SplitClipInput = {
+  clip_id: string;
+  split_position: number;
+};
+
+export type SplitClipResult = {
+  first_clip_id: string;
+  second_clip_id: string;
 };

@@ -40,65 +40,37 @@ pub fn init_db(db_path: &Path) -> Result<Connection, DbError> {
     Ok(conn)
 }
 
-/// 执行数据库迁移。
+/// 执行数据库建表。
 ///
-/// 读取 migrations 目录下的 SQL 文件，按版本号顺序执行。
+/// 读取 migrations 目录下所有 .sql 文件，逐文件执行。
+/// 所有建表语句均使用 CREATE TABLE IF NOT EXISTS，可安全重复执行。
 pub fn run_migrations(conn: &Connection, migrations_dir: &Path) -> Result<(), DbError> {
-    // 创建 schema_version 表（如果不存在）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version    INTEGER PRIMARY KEY,
-            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )",
-        [],
-    )
-    .map_err(|e| DbError::Migration(e.to_string()))?;
-
-    // 获取当前版本
-    let current_version: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    // 读取迁移文件
     if !migrations_dir.exists() {
         log::warn!("Migrations directory not found: {:?}", migrations_dir);
         return Ok(());
     }
 
-    let mut migrations: Vec<(i64, String)> = Vec::new();
+    let mut files: Vec<String> = Vec::new();
     for entry in std::fs::read_dir(migrations_dir)
         .map_err(|e| DbError::Migration(e.to_string()))?
     {
         let entry = entry.map_err(|e| DbError::Migration(e.to_string()))?;
         let file_name = entry.file_name().to_string_lossy().to_string();
-
-        // 解析文件名中的版本号 (如 001_initial.sql -> 1)
-        if let Some(version_str) = file_name.split('_').next() {
-            if let Ok(version) = version_str.parse::<i64>() {
-                if version > current_version {
-                    let sql = std::fs::read_to_string(entry.path())
-                        .map_err(|e| DbError::Migration(e.to_string()))?;
-                    migrations.push((version, sql));
-                }
-            }
+        if file_name.ends_with(".sql") {
+            files.push(file_name);
         }
     }
 
-    migrations.sort_by_key(|(v, _)| *v);
+    files.sort();
 
-    for (version, sql) in migrations {
-        log::info!("Applying migration {}", version);
+    for file_name in &files {
+        let file_path = migrations_dir.join(file_name);
+        let sql = std::fs::read_to_string(&file_path)
+            .map_err(|e| DbError::Migration(format!("读取 {} 失败: {}", file_name, e)))?;
+
+        log::info!("执行建表脚本: {}", file_name);
         conn.execute_batch(&sql)
-            .map_err(|e| DbError::Migration(format!("migration {} failed: {}", version, e)))?;
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (?1)",
-            rusqlite::params![version],
-        )
-        .map_err(|e| DbError::Migration(e.to_string()))?;
+            .map_err(|e| DbError::Migration(format!("{} 执行失败: {}", file_name, e)))?;
     }
 
     Ok(())

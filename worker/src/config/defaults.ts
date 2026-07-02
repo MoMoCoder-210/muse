@@ -15,7 +15,9 @@ export const DEFAULT_TEXT_CONFIG: TextModelConfig = {
   model: "doubao-pro-32k-241215",
   maxTokens: 4096,
   temperature: 0.7,
-  timeoutMs: 60_000,
+  // 分集等场景需原样输出长文本，输出 token 量大，60s 一次性返回易超时
+  // @author yt @date 20260702 由 60s 调至 120s，与 image 对齐
+  timeoutMs: 120_000,
 };
 
 // ── 生图模型 ──────────────────────────────────────────────

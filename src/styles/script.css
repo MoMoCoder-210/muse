@@ -77,12 +77,12 @@
 
 /* ── 片段列表面板 ─────────────────────────────── */
 .clip-list-panel {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   height: 100%;
   min-height: 0;
-  padding: 20px;
+  padding: 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 18px;
   background: var(--bg-surface-deep);
@@ -114,32 +114,43 @@
 
 /* 空状态 */
 .empty-clip-list {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
   text-align: center;
-  padding: 40px 0;
   font-size: var(--font-size-sm);
 }
 
 /* 片段列表 */
 .clip-list {
-  display: grid;
-  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .clip-item {
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: var(--step-pending-bg);
+  border: 1px solid var(--border-faint);
+  border-radius: 12px;
+  background: transparent;
   overflow: hidden;
+  transition: border-color 120ms ease;
+}
+
+.clip-item:hover {
+  border-color: var(--border-base);
 }
 
 .clip-item-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 6px 8px;
   cursor: pointer;
   user-select: none;
   transition: background 120ms ease;
@@ -151,13 +162,14 @@
 
 .clip-index {
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
-  min-width: 48px;
 }
 
 .clip-title {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 260px;
   font-size: var(--font-size-base);
   color: var(--text-primary);
   overflow: hidden;
@@ -169,6 +181,7 @@
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   white-space: nowrap;
+  margin-left: auto;
 }
 
 /* 片段状态标签 */
@@ -181,8 +194,74 @@
 
 .clip-status--pending      { background: var(--chip-bg);    color: var(--chip-text); }
 .clip-status--script_ready { background: var(--badge-bg);   color: var(--badge-text); }
+.clip-status--asset_ready  { background: var(--badge-bg);   color: var(--badge-text); }
+.clip-status--storyboard_ready { background: var(--badge-bg); color: var(--badge-text); }
+.clip-status--media_ready  { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--done         { background: var(--chip-bg);    color: var(--text-success); }
 .clip-status--failed       { background: var(--chip-bg);    color: var(--text-muted); }
+
+/* 自定义 checkbox（列表项 + 全选，暗色主题 accent 配色） */
+.clip-item-header input[type="checkbox"],
+.clip-select-all input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 1.5px solid var(--border-base);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms ease, background 120ms ease;
+  flex-shrink: 0;
+}
+
+.clip-item-header input[type="checkbox"]:hover,
+.clip-select-all input[type="checkbox"]:hover {
+  border-color: var(--border-accent);
+}
+
+.clip-item-header input[type="checkbox"]:checked,
+.clip-select-all input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.clip-item-header input[type="checkbox"]:checked::after,
+.clip-select-all input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* 标题编辑图标按钮 */
+.clip-edit-title-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.clip-edit-title-btn:hover {
+  color: var(--text-primary);
+  background: var(--chip-bg);
+}
 
 .clip-expand-icon {
   color: var(--text-muted);
@@ -214,4 +293,86 @@
   padding: 12px;
   background: var(--bg-canvas);
   border-radius: 10px;
+}
+
+/* ── 片段选择/工具栏/标题编辑/拆分（模块 02 第 9 节） ──────── */
+/* @author yt @date 20260702 新增片段编辑交互样式 */
+
+/* 选中态片段高亮 */
+.clip-item--selected {
+  border-color: var(--border-accent);
+  background: var(--badge-bg);
+}
+
+/* 标题编辑 inline input */
+.clip-title-input {
+  flex: 0 1 auto;
+  max-width: 260px;
+  min-width: 80px;
+  border: 1px solid var(--focus-border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  padding: 2px 6px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  font-family: var(--font-family);
+}
+
+/* 额外信息区（横幅 + 工具栏） */
+.clip-list-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 拆分进行中横幅 */
+.split-running-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-sm);
+}
+
+/* 旋转加载图标 */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--badge-text);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: clip-spinner 0.8s linear infinite;
+  opacity: 0.7;
+}
+
+@keyframes clip-spinner {
+  to { transform: rotate(360deg); }
+}
+
+/* 片段列表工具栏 */
+.clip-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 2px;
+  font-size: var(--font-size-sm);
+}
+
+.clip-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.clip-selected-count {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
 }

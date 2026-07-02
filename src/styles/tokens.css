@@ -85,6 +85,7 @@
   --overlay-modal:          rgba(2, 6, 23, 0.72);
 
   /* 工作流步骤 */
+  --step-active-bg:         rgba(var(--accent-primary-rgb), 0.16);
   --step-done-bg:           rgba(var(--accent-primary-rgb), 0.28);
   --step-done-bg-end:       rgba(15, 23, 42, 0.68);
   --step-done-border:       rgba(var(--accent-primary-rgb), 0.42);
@@ -137,20 +138,28 @@
   --color-white:            #ffffff;
 
   /* ── 字体 ──
-     5 个字号刻度：
+     10 个字号刻度：
+       xxs      11px  导航栏分组标题（极小）
        xs       12px  badge、状态标签、辅助说明
        sm       13px  次级标签（home-meta、表单字段标签）
-       base     15px  正文、列表项标题
        control  14px  输入框、下拉框、所有普通按钮
+       base     15px  正文、列表项标题
+       md       16px  摘要卡片数值、设置图标按钮
+       lg       18px  确认对话框标题
+       xl       20px  设置页大标题
        section  30px  二级标题
        icon     24px  图标按钮字符
        hero     clamp 首页大标题
   */
   --font-family:          "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-size-xxs:        11px;
   --font-size-xs:         12px;
   --font-size-sm:         13px;
-  --font-size-base:       15px;
   --font-size-control:    14px;
+  --font-size-base:       15px;
+  --font-size-md:         16px;
+  --font-size-lg:         18px;
+  --font-size-xl:         20px;
   --font-size-section:    30px;
   --font-size-icon:       24px;
   --font-size-hero:       clamp(48px, 8vw, 78px);

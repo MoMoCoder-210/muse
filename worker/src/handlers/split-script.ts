@@ -1,13 +1,25 @@
 /**
  * split_script 任务 handler
- * 基于模块 02 第 4 节 "规则拆分"
+ * 基于模块 02 第 4 节 "规则拆分" + 第 5 节 "模型智能拆分"
  *
- * 本期只实现规则拆分，模型智能拆分留 TODO。
+ * 两段式拆分：
+ *   1. 规则拆分（正则匹配集数标志），失败时回退模型拆分
+ *   2. 模型拆分按文本长度选择策略：
+ *      - ≤1500 字且无集数关键字 → 整体返回，不拆分
+ *      - ≤6000 字 → 单次调用 LLM
+ *      - >6000 字 → 按段落边界分块，逐批调用，尾集回收（carry-over）
+ *
+ * @author yt
+ * @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { randomUUID } from "crypto";
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import type { TaskContext } from "../types.js";
+import type { ChatMessage } from "../clients/text.js";
 import { logLine } from "../logger.js";
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
@@ -40,6 +52,36 @@ type ClipDraft = {
   wordCount: number;
 };
 
+// ─── 模型拆分阈值（可配置） ────────────────────────────────────────
+/** 模型拆分总字数上限（超过则拒绝，要求用户精简） */
+const MODEL_SPLIT_MAX_WORDS = 100000;
+/** 短文本阈值：≤此字数且无集数关键字 → 整体返回不拆分 */
+const SHORT_TEXT_THRESHOLD = 1500;
+/** 单次调用阈值：≤此字数 → 单次调用 LLM */
+const SINGLE_CALL_THRESHOLD = 6000;
+/** 分块字符上限：每个文本块不超过此字符数 */
+const CHUNK_MAX_CHARS = 6000;
+/** 尾集回收阈值：非末批尾集字数 < 此值则回收，拼到下一批开头 */
+const CARRY_OVER_THRESHOLD = 800;
+
+// 说明：temperature / maxTokens / timeoutMs / model 等调用参数全部走 settings.json 配置，
+//       本文件不再硬编码覆盖。配置由 SettingsManager 加载，经 TextClient 注入。
+// @author yt @date 20260702 移除 MODEL_MAX_TOKENS_* 硬编码，参数统一走配置
+
+// ─── 分块追加提示 ────────────────────────────────────────────────
+/** 非末批追加提示：要求尾集字数与前一致，便于衔接下一批 */
+const MID_BATCH_HINT =
+  "注意：这是一段较长剧本的中间部分，最后一集的字数应与前面各集保持一致，" +
+  "如果剩余内容不足以凑成完整一集，就把剩余内容整体作为最后一集输出，不要强行凑数。";
+
+/** 末批追加提示：要求各集字数均衡，避免最后一集过短 */
+const LAST_BATCH_HINT =
+  "注意：这是剧本的最后一段，请确保各集字数尽量均衡，避免出现某一集字数过少的情况。";
+
+/** JSON 修复重试提示词 */
+const JSON_REPAIR_HINT =
+  "请将以上内容转为标准的 JSON 数组，不要包含任何 Markdown 符号或解释性文字，直接输出 JSON 数组本身。";
+
 // ─── 规则拆分 ─────────────────────────────────────────────────────
 
 /**
@@ -68,6 +110,13 @@ function hasSettingKeywords(text: string): boolean {
 }
 
 /**
+ * 检查文本是否包含任意集数标志（用于短文本不拆分判定）。
+ */
+function hasEpisodeMarkers(text: string): boolean {
+  return EPISODE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
  * 统计语义字数（中文字、英文单词、标点各算1）。
  */
 function countWords(text: string): number {
@@ -86,7 +135,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
   // 剔除设定部分
   if (hasSettingKeywords(workText)) {
-    logLine("split-script", "INFO", "Setting keywords detected, trimming preamble");
+    logLine("split-script", "INFO", "检测到设定关键词，剔除前言部分");
     const markers = findEpisodeMarkers(workText);
     if (markers.length > 0) {
       workText = workText.slice(markers[0]);
@@ -95,11 +144,11 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
   const markers = findEpisodeMarkers(workText);
   if (markers.length === 0) {
-    logLine("split-script", "INFO", "Rule split: no episode markers found in text");
+    logLine("split-script", "INFO", "规则拆分：未发现集数标志");
     return null;
   }
 
-  logLine("split-script", "INFO", `Rule split: found ${markers.length} episode markers`);
+  logLine("split-script", "INFO", `规则拆分：发现 ${markers.length} 个集数标志`);
 
   const clips: ClipDraft[] = [];
 
@@ -132,13 +181,13 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
   // 成功判定
   if (clips.length === 0) {
-    logLine("split-script", "INFO", "Rule split: no clips produced after parsing");
+    logLine("split-script", "INFO", "规则拆分：解析后无有效片段");
     return null;
   }
 
   const shortClips = clips.filter((c) => c.wordCount < 50);
   if (shortClips.length > 0) {
-    logLine("split-script", "INFO", `Rule split: ${shortClips.length} clip(s) have fewer than 50 words, rejecting`);
+    logLine("split-script", "INFO", `规则拆分：${shortClips.length} 个片段字数不足50，放弃`);
     return null;
   }
 
@@ -146,7 +195,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
   const totalWords = countWords(workText);
   const coverage = totalWords > 0 ? totalClipWords / totalWords : 0;
   if (totalWords > 0 && coverage < 0.8) {
-    logLine("split-script", "INFO", `Rule split: coverage ${(coverage * 100).toFixed(1)}% < 80%, rejecting`);
+    logLine("split-script", "INFO", `规则拆分：覆盖率 ${(coverage * 100).toFixed(1)}% 低于80%，放弃`);
     return null;
   }
 
@@ -189,6 +238,97 @@ function insertClips(
   })();
 }
 
+// ─── 提示词加载 ────────────────────────────────────────────────────
+
+/**
+ * 加载分集系统提示词（prompts/split.md）。
+ *
+ * 兼容两种运行形态：
+ *   - dev（tsx 直跑 src）：模块位于 src/handlers/，提示词在 src/prompts/
+ *   - prod（node 跑 dist）：模块位于 dist/handlers/，若构建未复制 prompts，
+ *     回退到源码目录 src/prompts/。
+ *
+ * @author yt @date 20260702 提示词与代码解耦，改读 split.md
+ */
+function loadSplitPrompt(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(moduleDir, "../prompts/split.md"),        // dev: src/handlers → src/prompts
+    join(moduleDir, "../../src/prompts/split.md"),  // prod fallback: dist/handlers → src/prompts
+    join(moduleDir, "../../prompts/split.md"),      // 其他布局兜底
+  ];
+  for (const p of candidates) {
+    try {
+      return readFileSync(p, "utf-8");
+    } catch {
+      // 继续尝试下一个候选路径
+    }
+  }
+  throw new Error("分集提示词加载失败：prompts/split.md 未找到");
+}
+
+/** 系统提示词（进程级缓存，首次调用时加载） */
+let splitPromptCache: string | null = null;
+function getSplitPrompt(): string {
+  if (splitPromptCache === null) {
+    splitPromptCache = loadSplitPrompt();
+    logLine("split-script", "INFO", "分集系统提示词已加载（prompts/split.md）");
+  }
+  return splitPromptCache;
+}
+
+// ─── 分块工具 ─────────────────────────────────────────────────────
+
+/**
+ * 按段落换行符边界将文本切分为多个块，每块不超过 maxChars 字符。
+ *
+ * 分块规则：
+ *   - 以 \n 为段落边界，逐段累加；累加后超出上限则当前块封口，新开块。
+ *   - 单个段落本身超长（极端情况）时硬切，保证不超限，并记录告警。
+ *
+ * @author yt @date 20260702 长文本分块处理
+ */
+function chunkText(text: string, maxChars: number): string[] {
+  const paragraphs = text.split("\n");
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const para of paragraphs) {
+    const candidate = current ? current + "\n" + para : para;
+
+    if (candidate.length > maxChars && current) {
+      // 当前块已满，封口并新开
+      chunks.push(current);
+      current = para;
+    } else {
+      current = candidate;
+    }
+
+    // 单段超长硬切兜底
+    while (current.length > maxChars) {
+      logLine(
+        "split-script",
+        "WARN",
+        `段落超长（${current.length} > ${maxChars} 字符），硬切兜底`,
+      );
+      chunks.push(current.slice(0, maxChars));
+      current = current.slice(maxChars);
+    }
+    if (current.length === 0) {
+      // 硬切后剩余为空，重置以便下一段累加
+      current = "";
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+// ─── 模型输出解析 ──────────────────────────────────────────────────
+
 function stripCodeFences(text: string): string {
   const trimmed = text.trim();
   if (!trimmed.startsWith("```")) {
@@ -200,7 +340,13 @@ function stripCodeFences(text: string): string {
     .trim();
 }
 
-function parseModelClips(raw: string, originalText: string): ClipDraft[] {
+/**
+ * 解析模型返回的 JSON 数组为 ClipDraft[]。
+ * 仅做格式校验，覆盖率校验由 validateCoverage 统一处理（分块场景需对整文校验）。
+ *
+ * @author yt @date 20260702 移除整文覆盖率校验，外移到 validateCoverage
+ */
+function parseModelClips(raw: string): ClipDraft[] {
   let payload: unknown;
   try {
     payload = JSON.parse(stripCodeFences(raw));
@@ -212,7 +358,7 @@ function parseModelClips(raw: string, originalText: string): ClipDraft[] {
     throw new Error("模型拆分返回格式无效：期望非空 JSON 数组");
   }
 
-  const clips = payload.map((item, index) => {
+  return payload.map((item, index) => {
     if (typeof item !== "object" || item === null) {
       throw new Error(`模型拆分第 ${index + 1} 条不是有效对象`);
     }
@@ -233,18 +379,144 @@ function parseModelClips(raw: string, originalText: string): ClipDraft[] {
         : countWords(sourceText),
     };
   });
-
-  const totalClipWords = clips.reduce((sum, clip) => sum + clip.wordCount, 0);
-  const originalWords = countWords(originalText);
-  if (originalWords > 0 && totalClipWords / originalWords < 0.8) {
-    throw new Error("模型拆分结果覆盖率不足");
-  }
-
-  return clips;
 }
 
-const MODEL_SPLIT_MAX_WORDS = 100000;
+/**
+ * 校验拆分结果对原文的覆盖率，低于 80% 视为模型漏内容，抛错。
+ */
+function validateCoverage(clips: ClipDraft[], originalText: string): void {
+  const totalClipWords = clips.reduce((sum, clip) => sum + clip.wordCount, 0);
+  const originalWords = countWords(originalText);
+  if (originalWords > 0) {
+    const coverage = totalClipWords / originalWords;
+    if (coverage < 0.8) {
+      throw new Error(
+        `模型拆分结果覆盖率不足：${totalClipWords}/${originalWords} = ${(coverage * 100).toFixed(1)}%`,
+      );
+    }
+  }
+}
 
+/**
+ * 全局重排 sortIndex，使其从 1 开始连续递增。
+ */
+function reindexClips(clips: ClipDraft[]): ClipDraft[] {
+  return clips.map((clip, index) => ({ ...clip, sortIndex: index + 1 }));
+}
+
+// ─── 模型拆分 ─────────────────────────────────────────────────────
+
+/**
+ * 单次调用文本模型拆分当前批次文本。
+ *
+ * 流程：
+ *   1. 用系统提示词（split.md）+ 批次追加提示拼接 system 消息
+ *   2. 流式调用 textClient.chatStream（避免长输出一次性返回触发整体超时）
+ *   3. 解析 JSON；解析失败时执行一次 JSON 修复重试（同样走流式）
+ *
+ * 调用参数（temperature / maxTokens / model / timeoutMs）全部由 settings.json 配置，
+ * 本函数不再传入任何覆盖值，TextClient 内部使用 this.config。
+ *
+ * @param batchHint 批次追加提示（非末批 / 末批 / 单次）
+ * @author yt @date 20260702 提示词改读 split.md，新增 JSON 修复重试
+ * @author yt @date 20260702 chat 改 chatStream，规避长输出 HTTP 超时；补充调用日志
+ * @author yt @date 20260702 移除 temperature/maxTokens 硬编码，参数统一走 settings.json
+ */
+async function callModelOnce(
+  ctx: TaskContext,
+  text: string,
+  batchHint: string,
+): Promise<ClipDraft[]> {
+  const textClient = ctx.clients?.text;
+  if (!textClient) {
+    throw new Error("模型拆分不可用：文本模型客户端未初始化");
+  }
+
+  const systemContent = `${getSplitPrompt()}\n\n${batchHint}`;
+  const messages: ChatMessage[] = [
+    { role: "system", content: systemContent },
+    { role: "user", content: text },
+  ];
+
+  logLine(
+    "split-script",
+    "INFO",
+    `调用模型拆分(流式) 输入=${text.length}字符（temperature/maxTokens/model 走 settings.json 配置）`,
+  );
+
+  // 流式调用：长输出场景下 token 持续返回，连接保持活跃，避免整体 HTTP 超时
+  // 调用参数不传，TextClient 内部使用 this.config（即 settings.json 配置）
+  // onChunk 每 1000 字打一次进度日志，便于诊断卡顿
+  const result = await textClient.chatStream(
+    messages,
+    buildStreamProgressLogger("模型拆分"),
+    { signal: ctx.signal },
+  );
+
+  logLine(
+    "split-script",
+    "INFO",
+    `模型拆分返回完成 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`,
+  );
+
+  try {
+    return parseModelClips(result.content);
+  } catch (parseError) {
+    // 一次 JSON 修复重试
+    const reason = parseError instanceof Error ? parseError.message : String(parseError);
+    logLine("split-script", "WARN", `模型输出 JSON 解析失败（${reason}），执行一次修复重试`);
+
+    const repairMessages: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: result.content },
+      { role: "user", content: JSON_REPAIR_HINT },
+    ];
+
+    logLine("split-script", "INFO", `调用模型修复重试(流式)`);
+    const repairResult = await textClient.chatStream(
+      repairMessages,
+      buildStreamProgressLogger("模型拆分修复"),
+      { signal: ctx.signal },
+    );
+    logLine(
+      "split-script",
+      "INFO",
+      `模型修复重试返回完成 输出=${repairResult.content.length}字符`,
+    );
+
+    return parseModelClips(repairResult.content);
+  }
+}
+
+/**
+ * 构造流式进度日志回调：每累计 1000 字符打一次 INFO 日志。
+ * 用于在流式返回过程中观察是否卡顿。
+ *
+ * @author yt @date 20260702
+ */
+function buildStreamProgressLogger(label: string): (delta: string) => void {
+  let received = 0;
+  let lastLogged = 0;
+  return (delta: string) => {
+    received += delta.length;
+    if (received - lastLogged >= 1000) {
+      logLine("split-script", "INFO", `${label}流式进度：已接收 ${received} 字符`);
+      lastLogged = received;
+    }
+  };
+}
+
+/**
+ * 模型智能拆分：按文本长度选择策略。
+ *
+ * 策略：
+ *   1. ≤1500 字 且无集数关键字 → 整体返回，不拆分
+ *   2. ≤6000 字 → 单次调用 LLM
+ *   3. >6000 字 → 按段落边界分块（每块 ≤6000 字符），逐批调用，
+ *      非末批尾集 <800 字则回收（carry-over）拼到下一批开头重新处理。
+ *
+ * @author yt @date 20260702 重构为三档策略 + carry-over
+ */
 async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
   const textClient = ctx.clients?.text;
   if (!textClient) {
@@ -253,7 +525,9 @@ async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> 
 
   const wordCount = countWords(text);
 
-  if (wordCount < 1500) {
+  // 策略 1：短文本且无集数关键字 → 整体返回，不拆分
+  if (wordCount <= SHORT_TEXT_THRESHOLD && !hasEpisodeMarkers(text)) {
+    logLine("split-script", "INFO", `模型拆分：短文本且无集数标志（${wordCount} 字），整体返回不拆分`);
     return [{
       sortIndex: 1,
       title: "",
@@ -269,28 +543,71 @@ async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> 
     );
   }
 
-  const prompt = [
-    "你是一个影视剧本拆分助手。",
-    "请把输入剧本拆成有序片段，输出必须是 JSON 数组。",
-    "每个元素只能包含 title、summary、wordCount、content 这四个字段。",
-    "content 必须保留原文，不要改写，不要补写。",
-    "如果原文存在集数边界，按自然集数切分；如果没有，按语义完整性切分成多个片段。",
-    "不要输出 Markdown，不要输出解释文字。",
-  ].join("\n");
+  // 策略 2：≤6000 字 → 单次调用
+  if (wordCount <= SINGLE_CALL_THRESHOLD) {
+    logLine("split-script", "INFO", `模型拆分：单次调用（${wordCount} 字）`);
+    const clips = await callModelOnce(ctx, text, LAST_BATCH_HINT);
+    validateCoverage(clips, text);
+    return reindexClips(clips);
+  }
 
-  const result = await textClient.chat(
-    [
-      { role: "system", content: prompt },
-      { role: "user", content: text },
-    ],
-    {
-      temperature: 0.2,
-      maxTokens: 4096,
-      signal: ctx.signal,
+  // 策略 3：>6000 字 → 分块处理 + carry-over
+  logLine("split-script", "INFO", `模型拆分：分块处理（${wordCount} 字），分块上限 ${CHUNK_MAX_CHARS} 字符`);
+  const chunks = chunkText(text, CHUNK_MAX_CHARS);
+  logLine("split-script", "INFO", `文本切分为 ${chunks.length} 块`);
+
+  const allClips: ClipDraft[] = [];
+  let carryOver = "";
+
+  for (let i = 0; i < chunks.length; i++) {
+    const isLastBatch = i === chunks.length - 1;
+    const batchInput = carryOver ? carryOver + "\n" + chunks[i] : chunks[i];
+    const carryChars = carryOver.length;
+    carryOver = "";
+
+    const hint = isLastBatch ? LAST_BATCH_HINT : MID_BATCH_HINT;
+    logLine(
+      "split-script",
+      "INFO",
+      `处理第 ${i + 1}/${chunks.length} 块：输入 ${batchInput.length} 字符` +
+        (carryChars > 0 ? `（含回收 ${carryChars} 字符）` : "") +
+        `，${isLastBatch ? "末批" : "非末批"}`,
+    );
+
+    const batchClips = await callModelOnce(ctx, batchInput, hint);
+
+    // 尾集回收（仅非末批，且本批有多集可回收）
+    if (!isLastBatch && batchClips.length > 1) {
+      const lastClip = batchClips[batchClips.length - 1];
+      if (lastClip.wordCount < CARRY_OVER_THRESHOLD) {
+        logLine(
+          "split-script",
+          "INFO",
+          `第 ${i + 1} 批尾集过短（${lastClip.wordCount} 字 < ${CARRY_OVER_THRESHOLD}），回收至下一批开头重新处理`,
+        );
+        carryOver = lastClip.sourceText;
+        batchClips.pop();
+      }
     }
-  );
 
-  return parseModelClips(result.content, text);
+    allClips.push(...batchClips);
+  }
+
+  // 兜底：末批处理后理论上无残留 carryOver，防御性处理
+  if (carryOver) {
+    logLine("split-script", "WARN", `存在未回收的尾集内容（${carryOver.length} 字符），作为单独一集附加`);
+    allClips.push({
+      sortIndex: allClips.length + 1,
+      title: "",
+      summary: "",
+      sourceText: carryOver.trim(),
+      wordCount: countWords(carryOver),
+    });
+  }
+
+  logLine("split-script", "INFO", `分块拆分完成：共 ${allClips.length} 集`);
+  validateCoverage(allClips, text);
+  return reindexClips(allClips);
 }
 
 // ─── handler 入口 ─────────────────────────────────────────────────
@@ -316,7 +633,11 @@ export async function splitScriptWithInput(
 ): Promise<string> {
   const { db, emit } = ctx;
 
-  logLine("split-script", "INFO", `Starting split: projectId=${input.projectId} sourceId=${input.sourceId} forceAi=${input.forceAi ?? false}`);
+  logLine(
+    "split-script",
+    "INFO",
+    `开始拆分 projectId=${input.projectId} sourceId=${input.sourceId} forceAi=${input.forceAi ?? false}`,
+  );
 
   // 读取剧本内容
   const source = db
@@ -324,13 +645,13 @@ export async function splitScriptWithInput(
     .get(input.sourceId) as { normalized_content: string } | undefined;
 
   if (!source) {
-    logLine("split-script", "ERROR", `ScriptSource not found: ${input.sourceId}`);
+    logLine("split-script", "ERROR", `剧本源不存在：${input.sourceId}`);
     throw new Error(`ScriptSource not found: ${input.sourceId}`);
   }
 
   const text = source.normalized_content;
   const wordCount = countWords(text);
-  logLine("split-script", "INFO", `Script loaded: ${wordCount} words, ${text.length} chars`);
+  logLine("split-script", "INFO", `剧本已加载：${wordCount} 字，${text.length} 字符`);
 
   // 标记 running
   db.prepare(
@@ -340,7 +661,7 @@ export async function splitScriptWithInput(
   const ruleClips = input.forceAi ? null : ruleSplit(text);
 
   if (ruleClips) {
-    logLine("split-script", "INFO", `Rule split succeeded: ${ruleClips.length} clips`);
+    logLine("split-script", "INFO", `规则拆分成功：共 ${ruleClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, ruleClips);
     emit({ type: "task_success", taskId: "" });
     return JSON.stringify({
@@ -350,11 +671,15 @@ export async function splitScriptWithInput(
     });
   }
 
-  logLine("split-script", "INFO", `Rule split ${input.forceAi ? "skipped (forceAi)" : "failed"}, falling back to model split`);
+  logLine(
+    "split-script",
+    "INFO",
+    `规则拆分${input.forceAi ? "已跳过(forceAi)" : "失败"}，回退模型拆分`,
+  );
 
   try {
     const modelClips = await modelSplit(ctx, text);
-    logLine("split-script", "INFO", `Model split succeeded: ${modelClips.length} clips`);
+    logLine("split-script", "INFO", `模型拆分成功：共 ${modelClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, modelClips);
     emit({ type: "task_success", taskId: "" });
     return JSON.stringify({
@@ -364,7 +689,7 @@ export async function splitScriptWithInput(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logLine("split-script", "ERROR", `Model split failed: ${errorMessage}`);
+    logLine("split-script", "ERROR", `模型拆分失败：${errorMessage}`);
     db.prepare(
       "UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(errorMessage, input.sourceId);

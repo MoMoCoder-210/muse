@@ -25,7 +25,7 @@
 
 .settings-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
 }
@@ -57,7 +57,7 @@
 
 .settings-nav-caption {
   padding: 0 10px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xxs);
   color: var(--text-muted);
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -89,12 +89,12 @@
 }
 
 .settings-nav-label {
-  font-size: 14px;
+  font-size: var(--font-size-control);
   font-weight: var(--font-weight-semibold);
 }
 
 .settings-nav-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 
@@ -110,18 +110,18 @@
 }
 
 .settings-summary-label {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 
 .settings-basic-grid .summary-card strong {
-  font-size: 16px;
+  font-size: var(--font-size-md);
 }
 
 .settings-basic-grid .summary-card small {
   display: block;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .settings-basic-placeholder {
@@ -235,7 +235,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--font-size-md);
   transition: background 120ms ease, color 120ms ease;
 }
 
@@ -294,7 +294,7 @@
   border-radius: 0 0 22px 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--font-size-md);
   transition: background 120ms ease, color 120ms ease;
 }
 

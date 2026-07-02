@@ -106,7 +106,7 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
                 placeholder="选择 .txt 剧本文件"
                 className="file-path-display"
               />
-              <button type="button" className="ghost-button" onClick={handlePickFile}>
+              <button type="button" className="ghost-button btn-sm" onClick={handlePickFile}>
                 选择文件
               </button>
             </div>
@@ -120,7 +120,7 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
       <div className="import-actions">
         <button
           type="button"
-          className="primary-button"
+          className="primary-button btn-sm"
           onClick={handleImport}
           disabled={loading}
         >

@@ -4,25 +4,72 @@ type WorkflowBoardProps = {
   currentStep: string;
 };
 
-function compareStep(current: string, target: string): boolean {
-  const steps = WORKFLOW_STEPS as readonly string[];
-  const currentIndex = steps.indexOf(current);
-  const targetIndex = steps.indexOf(target);
-  if (currentIndex === -1 || targetIndex === -1) return false;
-  return targetIndex <= currentIndex;
+/**
+ * 将 projects.current_step（英文标识）映射到工作流阶段索引。
+ *
+ * 映射规则（WORKFLOW_STEPS 的 id 即阶段标识）：
+ *   project / split / script  → 0（剧本管理进行中：导入→拆分→看片段）
+ *   asset                     → 1（资产管理进行中）
+ *   storyboard                → 2（分镜编辑进行中）
+ *   voice / video             → 3（视频编辑进行中）
+ *   export                    → 4（视频合成进行中）
+ *   未知值                    → 0（保守归到第一阶段）
+ *
+ * 返回的是"当前正在进行的阶段索引"。
+ *
+ * @author yt @date 20260702 修复中文 label 与英文 step 不匹配导致步骤板全灰
+ * @author yt @date 20260702 修复 script 误映射到 1（资产管理），应为 0（剧本管理）
+ */
+function stepToStageIndex(current: string): number {
+  switch (current) {
+    case "project":
+    case "split":
+    case "script":
+      return 0;
+    case "asset":
+      return 1;
+    case "storyboard":
+      return 2;
+    case "voice":
+    case "video":
+      return 3;
+    case "export":
+      return 4;
+    default:
+      return 0;
+  }
 }
 
 export function WorkflowBoard({ currentStep }: WorkflowBoardProps) {
+  const activeIndex = stepToStageIndex(currentStep);
+
   return (
     <div className="workflow-board">
-      {WORKFLOW_STEPS.map((step) => (
-        <div
-          key={step}
-          className={`workflow-step ${compareStep(currentStep, step) ? "done" : ""}`}
-        >
-          <span>{step}</span>
-        </div>
-      ))}
+      {WORKFLOW_STEPS.map((step, index) => {
+        const state =
+          index < activeIndex ? "done" : index === activeIndex ? "active" : "pending";
+        return (
+          <div
+            key={step.id}
+            className={`workflow-step workflow-step--${state}`}
+            onClick={() => {
+              // TODO: 切换到对应工作流页面
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                // TODO: 切换到对应工作流页面
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            title={`前往「${step.label}」`}
+          >
+            <span className="workflow-step-index">{index + 1}</span>
+            <span className="workflow-step-label">{step.label}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

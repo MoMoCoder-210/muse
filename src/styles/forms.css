@@ -157,7 +157,8 @@
   color: var(--select-active-text);
 }
 
-/* Tab 切换条 */
+/* Tab 切换条
+ * 注意：此选择器被 ScriptImportPanel 使用，新增同名样式请确认不冲突 */
 .import-tabs {
   display: flex;
   gap: 4px;
@@ -168,19 +169,25 @@
 }
 
 .tab-btn {
-  min-height: 34px;
+  min-height: 30px;
   padding: 6px 16px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 9px;
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  transition: background 120ms ease, color 120ms ease;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
+.tab-btn:hover {
+  color: var(--text-secondary);
+}
+
+/* 选中态：用 segmented-active token，与项目内分段控件风格统一 */
 .tab-btn.active {
-  background: var(--bg-surface-modal);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-select-menu);
+  background: var(--segmented-active-bg);
+  color: var(--color-white);
+  border-color: var(--segmented-active-border);
 }

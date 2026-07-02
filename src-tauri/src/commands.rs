@@ -51,6 +51,37 @@ pub struct ClipInfo {
     pub updated_at: String,
 }
 
+/// 批量删除片段输入
+/// @author yt @date 20260702
+#[derive(Debug, Deserialize)]
+pub struct DeleteClipsInput {
+    pub clip_ids: Vec<String>,
+}
+
+/// 更新片段输入，三个内容字段均可选，传哪个改哪个
+/// @author yt @date 20260702
+#[derive(Debug, Deserialize)]
+pub struct UpdateClipInput {
+    pub clip_id: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub source_text: Option<String>,
+}
+
+/// 片段拆分输入：在原 source_text 的第 split_position 个字符处拆成两段
+/// @author yt @date 20260702
+#[derive(Debug, Deserialize)]
+pub struct SplitClipInput {
+    pub clip_id: String,
+    pub split_position: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SplitClipResult {
+    pub first_clip_id: String,
+    pub second_clip_id: String,
+}
+
 pub fn prepare_app_runtime(app: &tauri::AppHandle) -> Result<(), String> {
     let db_path = crate::app_paths::app_db_path(app)?;
     ensure_project_schema(&db_path, app)
@@ -553,7 +584,9 @@ pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipI
         .prepare(
             "SELECT id, project_id, source_id, sort_index, title, summary, source_text,
                     estimated_duration, status, current_step, created_at, updated_at
-             FROM clips WHERE project_id = ?1 ORDER BY sort_index ASC",
+             FROM clips
+             WHERE project_id = ?1 AND deleted_at IS NULL
+             ORDER BY sort_index ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -678,4 +711,231 @@ fn normalize_text(text: &str) -> String {
         .filter(|&c| c != '\u{200B}' && c != '\u{200C}' && c != '\u{200D}' && c != '\u{FEFF}')
         .collect();
     text.trim().to_string()
+}
+
+/// 批量软删除片段。
+///
+/// 仅置 deleted_at，不物理删除。模块 02 第 9.2 节要求的下游任务/资产清理
+/// （ClipScript/Storyboard/Asset）待相关表建立后补全。
+///
+/// @author yt @date 20260702
+#[tauri::command]
+pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<(), String> {
+    if input.clip_ids.is_empty() {
+        return Ok(());
+    }
+    let mut conn = open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for id in &input.clip_ids {
+        tx.execute(
+            "UPDATE clips
+             SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    log::info!("Clips soft-deleted: count={}", input.clip_ids.len());
+    Ok(())
+}
+
+/// 更新片段的标题/摘要/正文。传哪个字段改哪个。
+///
+/// 若 source_text 变更，触发该片段下游失效：status 重置为 pending、current_step 回退。
+/// 模块 02 第 9.2 节要求的 ClipScript/Storyboard 失效标记待相关表建立后补全。
+///
+/// @author yt @date 20260702
+#[tauri::command]
+pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
+    let mut conn = open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 校验片段存在且未删除
+    let exists: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![&input.clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if exists == 0 {
+        return Err(format!("片段不存在或已删除：{}", input.clip_id));
+    }
+
+    // 动态拼接 SET 子句
+    let mut sets: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    if let Some(t) = &input.title {
+        sets.push("title = ?".to_string());
+        params.push(Box::new(t.clone()));
+    }
+    if let Some(s) = &input.summary {
+        sets.push("summary = ?".to_string());
+        params.push(Box::new(s.clone()));
+    }
+    let source_changed = input.source_text.is_some();
+    if let Some(st) = &input.source_text {
+        sets.push("source_text = ?".to_string());
+        params.push(Box::new(st.clone()));
+    }
+    // 正文变更触发下游失效：状态重置
+    if source_changed {
+        sets.push("status = 'pending'".to_string());
+        sets.push("current_step = 'project'".to_string());
+    }
+    sets.push("updated_at = datetime('now')".to_string());
+
+    let placeholders = sets.join(", ");
+    let sql = format!("UPDATE clips SET {} WHERE id = ?", placeholders);
+    params.push(Box::new(input.clip_id.clone()));
+
+    // rusqlite 需 &[&dyn ToSql]
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    tx.execute(&sql, param_refs.as_slice())
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    // 返回最新行
+    let clip = conn
+        .query_row(
+            "SELECT id, project_id, source_id, sort_index, title, summary, source_text,
+                    estimated_duration, status, current_step, created_at, updated_at
+             FROM clips WHERE id = ?1",
+            rusqlite::params![&input.clip_id],
+            |row| {
+                Ok(ClipInfo {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    source_id: row.get(2)?,
+                    sort_index: row.get(3)?,
+                    title: row.get(4)?,
+                    summary: row.get(5)?,
+                    source_text: row.get(6)?,
+                    estimated_duration: row.get(7)?,
+                    status: row.get(8)?,
+                    current_step: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(clip)
+}
+
+/// 在指定字符位置把一个片段拆成两个。
+///
+/// 原片段保留 id，source_text 更新为前半段；新增一个片段承载后半段，
+/// sort_index 为原 sort_index + 1，其后所有片段 sort_index 顺延 +1。
+/// 两段状态均重置为 pending（下游失效）。
+///
+/// split_position 为字符位置（按 Unicode scalar 计数），范围 (0, source_text 字符数)。
+///
+/// @author yt @date 20260702
+#[tauri::command]
+pub fn split_clip(
+    input: SplitClipInput,
+    app: tauri::AppHandle,
+) -> Result<SplitClipResult, String> {
+    let mut conn = open_app_conn(&app)?;
+
+    // 读取原片段
+    let (project_id, source_id, sort_index, title, source_text): (
+        String,
+        Option<String>,
+        i64,
+        String,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT project_id, source_id, sort_index, title, source_text
+             FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![&input.clip_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    // 按字符切分（非字节），避免截断 UTF-8
+    let total_chars = source_text.chars().count() as i64;
+    if input.split_position <= 0 || input.split_position >= total_chars {
+        return Err(format!(
+            "拆分位置越界：split_position={}，有效范围 (0, {})",
+            input.split_position, total_chars
+        ));
+    }
+
+    let pos = input.split_position as usize;
+    let first_text: String = source_text.chars().take(pos).collect::<String>().trim().to_string();
+    let second_text: String = source_text
+        .chars()
+        .skip(pos)
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if first_text.is_empty() || second_text.is_empty() {
+        return Err("拆分后某一段为空，请调整拆分位置".to_string());
+    }
+
+    let second_id = uuid::Uuid::new_v4().to_string();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 原片段更新为前半段，状态重置
+    tx.execute(
+        "UPDATE clips
+         SET source_text = ?1, status = 'pending', current_step = 'project',
+             updated_at = datetime('now')
+         WHERE id = ?2",
+        rusqlite::params![&first_text, &input.clip_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 后续片段 sort_index 顺延
+    tx.execute(
+        "UPDATE clips
+         SET sort_index = sort_index + 1, updated_at = datetime('now')
+         WHERE project_id = ?1 AND sort_index > ?2 AND deleted_at IS NULL",
+        rusqlite::params![&project_id, sort_index],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 插入后半段新片段
+    tx.execute(
+        "INSERT INTO clips
+            (id, project_id, source_id, sort_index, title, summary, source_text, status, current_step)
+         VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, 'pending', 'project')",
+        rusqlite::params![
+            &second_id,
+            &project_id,
+            &source_id,
+            sort_index + 1,
+            &title,
+            &second_text,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    log::info!(
+        "Clip split: origin={} -> first={}, second={}, pos={}",
+        input.clip_id,
+        input.clip_id,
+        second_id,
+        input.split_position
+    );
+
+    Ok(SplitClipResult {
+        first_clip_id: input.clip_id,
+        second_clip_id: second_id,
+    })
 }
