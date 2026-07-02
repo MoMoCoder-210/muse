@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { DEFAULT_SETTINGS, type AppSettings } from "./defaults.js";
+import { logLine } from "../logger.js";
 
 export class SettingsManager {
   private configPath: string;
@@ -34,7 +35,7 @@ export class SettingsManager {
       const parsed = JSON.parse(raw) as Partial<AppSettings>;
       return deepMerge(DEFAULT_SETTINGS, parsed);
     } catch (err) {
-      console.error(`[Settings] Failed to load ${this.configPath}:`, err);
+      logLine("配置", "WARN", `配置加载失败 ${this.configPath}：${err instanceof Error ? err.message : String(err)}，使用默认值`);
       return structuredClone(DEFAULT_SETTINGS);
     }
   }

@@ -11,6 +11,7 @@
  */
 
 import type { ApiType } from "./types.js";
+import { logLine } from "./logger.js";
 
 interface TokenBucket {
   capacity: number;       // 桶容量（QPS * 1s 的 token 数）
@@ -119,7 +120,7 @@ export class RateLimiterImpl {
     const backoffMs = Math.round(baseBackoff + jitter);
 
     bucket.backoffUntil = Date.now() + backoffMs;
-    console.warn(`[RateLimiter] ${apiType} rate limited, backoff ${backoffMs}ms (attempt ${attempts})`);
+    logLine("限流", "WARN", `${apiType} 触发限流退避 ${backoffMs}ms（第 ${attempts} 次）`);
   }
 
   /**
@@ -129,7 +130,7 @@ export class RateLimiterImpl {
     const bucket = this.buckets.get(apiType);
     if (!bucket) return;
     bucket.paused = true;
-    console.error(`[RateLimiter] ${apiType} quota exhausted, paused`);
+    logLine("限流", "ERROR", `${apiType} 配额耗尽，已暂停`);
   }
 
   /**
@@ -141,7 +142,7 @@ export class RateLimiterImpl {
     bucket.paused = false;
     bucket.backoffUntil = 0;
     this.backoffAttempts.set(apiType, 0);
-    console.info(`[RateLimiter] ${apiType} resumed`);
+    logLine("限流", "INFO", `${apiType} 已恢复`);
   }
 
   /**

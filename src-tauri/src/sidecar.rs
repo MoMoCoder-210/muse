@@ -71,18 +71,18 @@ fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
             "log" => {
                 let level = msg.get("level").and_then(|v| v.as_str()).unwrap_or("INFO");
                 let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
-                crate::project_log::append_log(log_path, "worker", &level.to_uppercase(), message);
+                crate::project_log::append_log(log_path, "主进程", &level.to_uppercase(), message);
             }
             "error" => {
                 let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
-                crate::project_log::append_log(log_path, "worker", "ERROR", message);
+                crate::project_log::append_log(log_path, "主进程", "ERROR", message);
             }
             _ => {
-                crate::project_log::append_log(log_path, "worker:stdout", "INFO", text);
+                crate::project_log::append_log(log_path, "主进程(stdout)", "INFO", text);
             }
         }
     } else {
-        crate::project_log::append_log(log_path, "worker:stdout", "INFO", text);
+        crate::project_log::append_log(log_path, "主进程(stdout)", "INFO", text);
     }
 }
 
@@ -166,14 +166,14 @@ impl SidecarManager {
 
         // 启动前检查 worker 文件是否存在，避免静默失败
         if !worker_path.exists() {
-            let msg = format!("Worker script not found: {}", worker_path.display());
+            let msg = format!("Worker 脚本不存在：{}", worker_path.display());
             if !log_path.is_empty() {
-                crate::project_log::append_log(Path::new(log_path), "sidecar", "ERROR", &msg);
+                crate::project_log::append_log(Path::new(log_path), "子进程", "ERROR", &msg);
             }
             return Err(SidecarError::StartFailed(msg));
         }
 
-        log::info!("Worker script resolved to: {}", worker_path.display());
+        log::info!("Worker 脚本路径：{}", worker_path.display());
 
         let mut child = Command::new("node")
             .arg(&worker_path)
@@ -181,6 +181,7 @@ impl SidecarManager {
             .args(["--workspace", workspace_path])
             .args(["--config", config_path])
             .args(["--log", log_path])
+            .env("LOG_LEVEL", "debug")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -201,7 +202,7 @@ impl SidecarManager {
             let processor: LogLineProcessor = Box::new(move |text: &str| {
                 parse_stdout_line(&log_path_clone, text);
             });
-            let handle = spawn_log_reader(stdout, log_path_arc, "worker:stdout", "INFO", Some(processor));
+            let handle = spawn_log_reader(stdout, log_path_arc, "主进程(stdout)", "INFO", Some(processor));
             self.log_handles.push(handle);
         }
 
@@ -211,12 +212,12 @@ impl SidecarManager {
         if !log_path.is_empty() {
             crate::project_log::append_log(
                 Path::new(log_path),
-                "sidecar",
+                "子进程",
                 "INFO",
-                &format!("Worker started, workerId={}", self.worker_id),
+                &format!("Worker 已启动，workerId={}", self.worker_id),
             );
         }
-        log::info!("Sidecar worker started, workerId: {}", self.worker_id);
+        log::info!("子进程已启动，workerId: {}", self.worker_id);
         Ok(())
     }
 
@@ -248,7 +249,7 @@ impl SidecarManager {
                 Ok(Some(_)) => break,
                 Ok(None) => {
                     if start.elapsed() > timeout {
-                        log::warn!("Worker did not shut down in time, killing");
+                        log::warn!("Worker 未按时关闭，强制终止");
                         let _ = child.kill();
                         break;
                     }
@@ -273,12 +274,12 @@ impl SidecarManager {
         if !self.log_path.is_empty() {
             crate::project_log::append_log(
                 Path::new(&self.log_path),
-                "sidecar",
+                "子进程",
                 "INFO",
-                "Worker shut down",
+                "Worker 已关闭",
             );
         }
-        log::info!("Sidecar worker shut down");
+        log::info!("子进程已关闭");
         Ok(())
     }
 
@@ -299,7 +300,7 @@ impl SidecarManager {
         }
 
         if self.restart_count >= MAX_RESTART_COUNT {
-            log::error!("Max restart count ({}) exceeded", MAX_RESTART_COUNT);
+            log::error!("超过最大重启次数（{}）", MAX_RESTART_COUNT);
             return Err(SidecarError::MaxRestartsExceeded);
         }
 
@@ -327,7 +328,7 @@ impl SidecarManager {
         self.worker_id = uuid::Uuid::new_v4().to_string();
 
         log::info!(
-            "Restarting worker (attempt {}/{})",
+            "重启 Worker（第 {}/{} 次）",
             self.restart_count,
             MAX_RESTART_COUNT
         );
@@ -372,7 +373,7 @@ impl SidecarManager {
         )
         .map_err(|e| SidecarError::Crashed(format!("failed to cleanup locks: {}", e)))?;
 
-        log::info!("Cleaned up locks for worker {}", self.worker_id);
+        log::info!("已清理 Worker {} 的锁", self.worker_id);
         Ok(())
     }
 

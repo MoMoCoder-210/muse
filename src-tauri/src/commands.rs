@@ -19,6 +19,7 @@ pub struct ProjectInfo {
     pub workspace_path: String,
     pub status: String,
     pub current_step: String,
+    pub style_mode: String,
     pub created_at: String,
 }
 
@@ -201,7 +202,7 @@ pub fn create_project(
 ) -> Result<ProjectInfo, String> {
     let project_id = uuid::Uuid::new_v4().to_string();
     let input_mode = input.input_mode.unwrap_or_else(|| "empty".to_string());
-    let style_mode = input.style_mode.unwrap_or_else(|| "RS".to_string());
+    let style_mode = input.style_mode.unwrap_or_else(|| "国漫".to_string());
     let workspace = resolve_workspace_path(&input.workspace_path, &input.name, &project_id);
 
     let dirs = [
@@ -226,9 +227,9 @@ pub fn create_project(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
         &log_path,
-        "project",
+        "项目",
         "INFO",
-        &format!("Creating project name={} mode={} style={}", input.name, input_mode, style_mode),
+        &format!("创建项目 name={} mode={} style={}", input.name, input_mode, style_mode),
     );
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -262,12 +263,12 @@ pub fn create_project(
     std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
         .map_err(|e| format!("Failed to write manifest.json: {}", e))?;
 
-    log::info!("Project created: {} at {}", project_id, workspace.display());
+    log::info!("项目创建成功：{} at {}", project_id, workspace.display());
     crate::project_log::append_log(
         &log_path,
-        "project",
+        "项目",
         "INFO",
-        &format!("Project created projectId={}", project_id),
+        &format!("项目已创建 projectId={}", project_id),
     );
 
     Ok(ProjectInfo {
@@ -277,6 +278,7 @@ pub fn create_project(
         workspace_path: workspace.to_string_lossy().to_string(),
         status: "active".to_string(),
         current_step: "project".to_string(),
+        style_mode,
         created_at: now,
     })
 }
@@ -285,7 +287,7 @@ pub fn create_project(
 pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectInfo, String> {
     let conn = open_app_conn(&app)?;
     conn.query_row(
-        "SELECT id, name, description, workspace_path, status, current_step, created_at
+        "SELECT id, name, description, workspace_path, status, current_step, style_mode, created_at
          FROM projects WHERE id = ?1",
         rusqlite::params![&project_id],
         |row| {
@@ -296,7 +298,8 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
                 workspace_path: row.get(3)?,
                 status: row.get(4)?,
                 current_step: row.get(5)?,
-                created_at: row.get(6)?,
+                style_mode: row.get(6)?,
+                created_at: row.get(7)?,
             })
         },
     )
@@ -308,7 +311,7 @@ pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> 
     let conn = open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, workspace_path, status, current_step, created_at
+            "SELECT id, name, description, workspace_path, status, current_step, style_mode, created_at
              FROM projects ORDER BY created_at DESC",
         )
         .map_err(|e| e.to_string())?;
@@ -322,7 +325,8 @@ pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> 
                 workspace_path: row.get(3)?,
                 status: row.get(4)?,
                 current_step: row.get(5)?,
-                created_at: row.get(6)?,
+                style_mode: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -346,9 +350,9 @@ pub fn start_worker(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
         &log_path,
-        "project",
+        "项目",
         "INFO",
-        &format!("Starting worker for projectId={}", project_id),
+        &format!("启动 Worker projectId={}", project_id),
     );
 
     let mut manager = state.lock().map_err(|e| e.to_string())?;
@@ -447,9 +451,9 @@ pub fn delete_project(
 
     crate::project_log::append_log(
         &log_path,
-        "project",
+        "项目",
         "INFO",
-        &format!("Project deleted: projectId={} deleteFiles={}", project_id, delete_files),
+        &format!("项目已删除：projectId={} deleteFiles={}", project_id, delete_files),
     );
 
     // 可选：删除工作区文件
@@ -457,20 +461,20 @@ pub fn delete_project(
         let ws = std::path::Path::new(&workspace_path);
         if ws.exists() {
             std::fs::remove_dir_all(ws).map_err(|e| {
-                let msg = format!("Failed to delete workspace: {}", e);
-                crate::project_log::append_log(&log_path, "project", "ERROR", &msg);
+                let msg = format!("删除工作区失败：{}", e);
+                crate::project_log::append_log(&log_path, "项目", "ERROR", &msg);
                 msg
             })?;
             crate::project_log::append_log(
                 &log_path,
-                "project",
+                "项目",
                 "INFO",
-                &format!("Workspace removed: {}", workspace_path),
+                &format!("工作区已删除：{}", workspace_path),
             );
         }
     }
 
-    log::info!("Project deleted: {} (files={})", project_id, delete_files);
+    log::info!("项目已删除：{} (files={})", project_id, delete_files);
     Ok(())
 }
 
@@ -500,7 +504,7 @@ pub fn save_settings(
 
     let content = serde_json::to_string_pretty(&normalized_settings).map_err(|e| e.to_string())?;
     std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
-    log::info!("Settings saved to {:?}", settings_path);
+    log::info!("配置已保存到 {:?}", settings_path);
 
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     if manager.is_running() {
@@ -564,13 +568,13 @@ pub fn import_script(
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    log::info!("Script imported: source_id={}, task_id={}", source_id, task_id);
+    log::info!("剧本已导入：source_id={}, task_id={}", source_id, task_id);
     crate::project_log::append_log(
         &log_path,
-        "script",
+        "剧本",
         "INFO",
         &format!(
-            "Script queued sourceId={} taskId={} sourceType={}",
+            "剧本已入队 sourceId={} taskId={} sourceType={}",
             source_id, task_id, input.source_type
         ),
     );
@@ -736,7 +740,7 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
         .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-    log::info!("Clips soft-deleted: count={}", input.clip_ids.len());
+    log::info!("片段已软删除：{} 条", input.clip_ids.len());
     Ok(())
 }
 

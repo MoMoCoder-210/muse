@@ -44,7 +44,7 @@ function sendMessage(msg: WorkerMessage): void {
 
 // 发送日志
 function sendLog(level: "info" | "warn" | "error", message: string): void {
-  logLine("worker", level.toUpperCase() as "INFO" | "WARN" | "ERROR", message);
+  logLine("主进程", level.toUpperCase() as "INFO" | "WARN" | "ERROR", message);
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
 }
 
@@ -64,17 +64,17 @@ function sendHeartbeat(): void {
 async function handleCommand(cmd: WorkerCommand): Promise<void> {
   // 验证协议版本
   if (cmd.version !== PROTOCOL_VERSION) {
-    sendLog("error", `Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${cmd.version}`);
+    sendLog("error", `协议版本不匹配：期望 ${PROTOCOL_VERSION}，实际 ${cmd.version}`);
     return;
   }
 
   switch (cmd.cmd) {
     case "enqueue":
-      sendLog("info", `Enqueue task: ${cmd.taskId}`);
+      sendLog("info", `任务入队：${cmd.taskId}`);
       break;
 
     case "cancel":
-      sendLog("info", `Cancel task: ${cmd.taskId}`);
+      sendLog("info", `取消任务：${cmd.taskId}`);
       // TODO: 标记任务为 cancelled
       break;
 
@@ -89,20 +89,20 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
     case "reload_config":
       if (clients) {
         clients.reload();
-        sendLog("info", "Config reloaded");
+        sendLog("info", "配置已重新加载");
       } else {
-        sendLog("warn", "reload_config: clients not initialized");
+        sendLog("warn", "重载配置失败：客户端未初始化");
       }
       break;
 
     default:
-      sendLog("warn", `Unknown command: ${(cmd as any).cmd}`);
+      sendLog("warn", `未知命令：${(cmd as any).cmd}`);
   }
 }
 
 // 处理优雅关闭
 async function handleShutdown(timeoutMs: number): Promise<void> {
-  sendLog("info", `Shutdown received, timeout: ${timeoutMs}ms`);
+  sendLog("info", `收到关闭指令，超时：${timeoutMs}ms`);
   running = false;
 
   // 停止任务循环
@@ -136,7 +136,7 @@ async function handleShutdown(timeoutMs: number): Promise<void> {
     db.close();
   }
 
-  sendLog("info", "Worker shutdown complete");
+  sendLog("info", "Worker 已关闭");
   process.exit(0);
 }
 
@@ -157,15 +157,15 @@ async function main(): Promise<void> {
   }
 
   configureLogger(logPath);
-  logLine("worker", "INFO", `Worker booting db=${dbPath || "<empty>"} workspace=${workspacePath || "<empty>"}`);
+  logLine("主进程", "DEBUG", `Worker 启动 db=${dbPath || "无"} workspace=${workspacePath || "无"}`);
 
   // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
   if (configPath) {
     settings = new SettingsManager(configPath);
     clients = createClients(settings);
-    sendLog("info", `Config loaded: ${configPath}`);
+    sendLog("info", `配置已加载：${configPath}`);
   } else {
-    sendLog("warn", "No config path provided, API clients not initialized");
+    sendLog("warn", "未提供配置路径，API 客户端未初始化");
   }
 
   // 初始化数据库
@@ -173,21 +173,21 @@ async function main(): Promise<void> {
     // 启动诊断：检查 DB 文件是否可访问
     const { existsSync } = await import("fs");
     if (!existsSync(dbPath)) {
-      logLine("worker", "WARN", `DB file does not exist yet: ${dbPath} (will be created on init)`);
+      logLine("主进程", "WARN", `数据库文件不存在：${dbPath}（初始化时将创建）`);
     }
 
     db = initDatabase(dbPath);
-    logLine("worker", "INFO", `Database connected: ${dbPath}`);
+    logLine("主进程", "DEBUG", `数据库已连接：${dbPath}`);
 
     // 检查启动时是否有遗留的 running 任务（上次崩溃未回退）
     const staleRunning = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'running'").get() as { cnt: number };
     if (staleRunning.cnt > 0) {
-      logLine("worker", "WARN", `Found ${staleRunning.cnt} stale running task(s), resetting to pending`);
+      logLine("主进程", "WARN", `发现 ${staleRunning.cnt} 个残留运行任务，已重置为待处理`);
       db.prepare("UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE status = 'running'").run();
     }
 
     const pendingCount = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number };
-    logLine("worker", "INFO", `Pending tasks at startup: ${pendingCount.cnt}`);
+    logLine("主进程", "DEBUG", `启动时待处理任务：${pendingCount.cnt}`);
 
     rateLimiter = new RateLimiterImpl();
     // TaskRunner 内置心跳定时器，通过 onHeartbeat 回调将心跳发送出去
@@ -195,13 +195,13 @@ async function main(): Promise<void> {
 
     // 注册任务处理器
     taskRunner.registerHandler("split_script", splitScriptHandler);
-    logLine("worker", "INFO", "Registered handlers: split_script");
+    logLine("主进程", "DEBUG", "已注册处理器：split_script");
     // TODO: 后续模块注册
     // taskRunner.registerHandler("generate_script", generateScriptHandler);
 
-    sendLog("info", `Database initialized: ${dbPath}`);
+    sendLog("info", `数据库初始化完成：${dbPath}`);
   } else {
-    sendLog("warn", "No database path provided, worker running in idle mode");
+    sendLog("warn", "未提供数据库路径，Worker 以空闲模式运行");
   }
 
   // 发送 ready 消息
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
   // 启动任务循环
   if (taskRunner) {
     taskRunner.start().catch((err) => {
-      sendLog("error", `Task runner error: ${err.message}`);
+      sendLog("error", `任务执行器错误：${err.message}`);
     });
   }
 
@@ -233,21 +233,21 @@ async function main(): Promise<void> {
     try {
       const cmd = JSON.parse(line) as WorkerCommand;
       handleCommand(cmd).catch((err) => {
-        sendLog("error", `Command handler error: ${err.message}`);
+        sendLog("error", `命令处理错误：${err.message}`);
       });
     } catch (err) {
-      sendLog("error", `Failed to parse command: ${line}`);
+      sendLog("error", `命令解析失败：${line}`);
     }
   });
 
   rl.on("close", async () => {
-    sendLog("info", "stdin closed, shutting down");
+    sendLog("info", "stdin 已关闭，正在退出");
     await handleShutdown(30000);
   });
 
   // 处理未捕获异常
   process.on("uncaughtException", (err) => {
-    logLine("worker", "ERROR", `Uncaught exception: ${err.message}\n${err.stack || ""}`);
+    logLine("主进程", "ERROR", `未捕获异常：${err.message}\n${err.stack || ""}`);
     sendMessage({
       version: PROTOCOL_VERSION,
       msg: "error",
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logLine("worker", "ERROR", `Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+  logLine("主进程", "ERROR", `致命错误：${err instanceof Error ? err.message : String(err)}`);
   console.error("Fatal error:", err);
   process.exit(1);
 });

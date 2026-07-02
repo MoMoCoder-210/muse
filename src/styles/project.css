@@ -116,6 +116,16 @@
   white-space: nowrap;
 }
 
+.style-tag {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .project-item p {
   margin: 3px 0 0;
   color: var(--text-muted);

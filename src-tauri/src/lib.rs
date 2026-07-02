@@ -17,14 +17,14 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir =
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
-            log::info!("Application data directory: {:?}", app_data_dir);
+            log::info!("应用数据目录：{:?}", app_data_dir);
 
             let log_path = project_log::log_path_for_app_data(&app_data_dir);
-            project_log::append_log(&log_path, "app", "INFO", "Application starting");
+            project_log::append_log(&log_path, "应用", "INFO", "应用启动");
 
             commands::prepare_app_runtime(app.handle()).map_err(std::io::Error::other)?;
-            log::info!("Application database prepared at startup");
-            project_log::append_log(&log_path, "app", "INFO", "Database prepared");
+            log::info!("应用数据库启动时已就绪");
+            project_log::append_log(&log_path, "应用", "INFO", "数据库就绪");
 
             let sidecar_manager: sidecar::SharedSidecarManager =
                 std::sync::Mutex::new(sidecar::SidecarManager::new());

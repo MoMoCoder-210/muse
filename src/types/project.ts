@@ -5,6 +5,7 @@ export type ProjectInfo = {
   workspace_path: string;
   status: string;
   current_step: string;
+  style_mode: string;
   created_at: string;
 };
 

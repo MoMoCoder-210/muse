@@ -13,10 +13,10 @@ CREATE TABLE IF NOT EXISTS projects (
     name                      TEXT NOT NULL,
     description               TEXT NOT NULL DEFAULT '',
     workspace_path            TEXT NOT NULL,
-    -- empty | script
+    -- empty | script | manual
     input_mode                TEXT NOT NULL DEFAULT 'empty',
-    -- RS | TS | ZH
-    style_mode                TEXT NOT NULL DEFAULT 'RS',
+    -- 国漫 | 动漫 | 日漫 | 韩漫 | 二次元 | 真人
+    style_mode                TEXT NOT NULL DEFAULT '国漫',
     -- active | archived | failed
     status                    TEXT NOT NULL DEFAULT 'active',
     -- 聚合值（所有片段中最慢的步骤）

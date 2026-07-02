@@ -86,7 +86,7 @@ export class TextClient {
     const startedAt = Date.now();
 
     logLine(
-      "text-client",
+      "大模型",
       "INFO",
       `开始调用(非流式) model=${model} 消息数=${messages.length} 输入=${inputChars}字符 maxTokens=${maxTokens} temperature=${temperature}`,
     );
@@ -114,7 +114,7 @@ export class TextClient {
       const inputTokens = response.usage?.prompt_tokens ?? 0;
       const outputTokens = response.usage?.completion_tokens ?? 0;
       logLine(
-        "text-client",
+        "大模型",
         "INFO",
         `调用完成(非流式) 耗时=${elapsedMs}ms 输出=${choice.message.content.length}字符 inputTokens=${inputTokens} outputTokens=${outputTokens} model=${response.model}`,
       );
@@ -129,7 +129,7 @@ export class TextClient {
       const elapsedMs = Date.now() - startedAt;
       const msg = err instanceof Error ? err.message : String(err);
       logLine(
-        "text-client",
+        "大模型",
         "ERROR",
         `调用失败(非流式) 耗时=${elapsedMs}ms 错误=${msg}`,
       );
@@ -164,7 +164,7 @@ export class TextClient {
     const startedAt = Date.now();
 
     logLine(
-      "text-client",
+      "大模型",
       "INFO",
       `开始调用(流式) model=${model} 消息数=${messages.length} 输入=${inputChars}字符 maxTokens=${maxTokens} temperature=${temperature}`,
     );
@@ -207,7 +207,7 @@ export class TextClient {
 
       const elapsedMs = Date.now() - startedAt;
       logLine(
-        "text-client",
+        "大模型",
         "INFO",
         `调用完成(流式) 耗时=${elapsedMs}ms 输出=${fullContent.length}字符 inputTokens=${inputTokens} outputTokens=${outputTokens} model=${respModel}`,
       );
@@ -217,7 +217,7 @@ export class TextClient {
       const elapsedMs = Date.now() - startedAt;
       const msg = err instanceof Error ? err.message : String(err);
       logLine(
-        "text-client",
+        "大模型",
         "ERROR",
         `调用失败(流式) 耗时=${elapsedMs}ms 已接收=${fullContent.length}字符 错误=${msg}`,
       );

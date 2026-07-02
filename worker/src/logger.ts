@@ -5,16 +5,29 @@ import { dirname } from "path";
 const LOG_MAX_BYTES = 5 * 1024 * 1024;
 const LOG_KEEP_BYTES = 2 * 1024 * 1024;
 
+type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
+
+/** 当前生效的最低日志级别，低于此级别的日志不会写入文件 */
+let minLevel: LogLevel = (() => {
+  const envLevel = (process.env.LOG_LEVEL ?? "").toUpperCase();
+  if (["DEBUG", "INFO", "WARN", "ERROR"].includes(envLevel)) return envLevel as LogLevel;
+  return "INFO";
+})();
+
+const LEVEL_RANK: Record<LogLevel, number> = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
+
 let logPath = "";
 
-export function configureLogger(nextLogPath: string): void {
+export function configureLogger(nextLogPath: string, level?: LogLevel): void {
   logPath = nextLogPath.trim();
+  if (level) minLevel = level;
   if (!logPath) return;
   mkdirSync(dirname(logPath), { recursive: true });
 }
 
-export function logLine(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
+export function logLine(source: string, level: LogLevel, message: string): void {
   if (!logPath) return;
+  if (LEVEL_RANK[level] < LEVEL_RANK[minLevel]) return;
   rotateIfNeeded();
   const line = `[${new Date().toLocaleString("zh-CN", { hour12: false })}] [${level}] [${source}] ${message}\n`;
   appendFileSync(logPath, line, "utf-8");

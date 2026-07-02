@@ -75,8 +75,8 @@ export class TaskRunner {
    */
   async start(): Promise<void> {
     this.running = true;
-    logLine("task-runner", "INFO", `Started workerId=${this.workerId}`);
-    console.log(`[TaskRunner] started, workerId: ${this.workerId}`);
+    logLine("任务调度", "INFO", `已启动，workerId=${this.workerId}`);
+
 
     // 启动心跳定时器
     const heartbeatTimer = setInterval(() => {
@@ -90,8 +90,7 @@ export class TaskRunner {
         await this.processPendingTasks();
         await this.processWaitingRemoteTasks();
       } catch (err) {
-        logLine("task-runner", "ERROR", `Main loop error: ${err instanceof Error ? err.message : String(err)}`);
-        console.error("[TaskRunner] error in main loop:", err);
+        logLine("任务调度", "ERROR", `主循环错误：${err instanceof Error ? err.message : String(err)}`);
       }
 
       if (this.running) {
@@ -100,8 +99,7 @@ export class TaskRunner {
     }
 
     clearInterval(heartbeatTimer);
-    logLine("task-runner", "INFO", "Stopped");
-    console.log("[TaskRunner] stopped");
+    logLine("任务调度", "INFO", "已停止");
   }
 
   /**
@@ -118,8 +116,6 @@ export class TaskRunner {
   private async processPendingTasks(): Promise<void> {
     const tasks = getPendingTasks(this.db);
     if (tasks.length === 0) return;
-
-    logLine("task-runner", "INFO", `Found ${tasks.length} pending task(s)`);
 
     for (const task of tasks) {
       if (!this.running) break;
@@ -168,8 +164,8 @@ export class TaskRunner {
     // 获取 handler
     const handler = this.handlers.get(taskType);
     if (!handler) {
-      const errMsg = `No handler registered for task type: ${taskType}`;
-      logLine("task-runner", "ERROR", errMsg);
+      const errMsg = `未注册任务处理器：${taskType}`;
+      logLine("任务调度", "ERROR", errMsg);
       markTaskFailed(this.db, task.id, errMsg);
       releaseLock(this.db, task.lock_key);
       this.rateLimiter.release(apiType);
@@ -191,16 +187,16 @@ export class TaskRunner {
       clients: this.clients,
     };
 
-    logLine("task-runner", "INFO", `Executing task: id=${task.id} type=${taskType} apiType=${apiType}`);
+    logLine("任务调度", "INFO", `执行任务：id=${task.id} type=${taskType} apiType=${apiType}`);
 
     try {
       const outputJson = await handler(ctx);
-      logLine("task-runner", "INFO", `Task succeeded: id=${task.id} type=${taskType}`);
+      logLine("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
       markTaskSuccess(this.db, task.id, outputJson);
       this.emit({ type: "task_success", taskId: task.id, outputJson });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logLine("task-runner", "ERROR", `Task failed: id=${task.id} type=${taskType} error=${errorMessage}`);
+      logLine("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
 
       // 检查是否是 429 错误
       if (this.isRateLimitError(err)) {
