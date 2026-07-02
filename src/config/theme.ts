@@ -10,6 +10,8 @@
  *
  * 切换主题时，只需在 <html data-theme="light"> 对应的 CSS 块中
  * 重新声明这些变量即可，TS 侧通过 getCssVar() 读取实时值。
+ *
+ * @author yt @date 20260702
  */
 
 // ─────────────────────────────────────────────
@@ -313,6 +315,8 @@ function tokenToCssVar(key: string): string {
 /**
  * 将一个主题的 token 对象注入到 document.documentElement 的 CSS 变量中。
  * 在应用启动时或切换主题时调用。
+ *
+ * @author yt @date 20260702
  */
 export function applyTheme(name: ThemeName = defaultTheme): void {
   const tokens = themes[name];
@@ -326,6 +330,8 @@ export function applyTheme(name: ThemeName = defaultTheme): void {
 /**
  * 从当前 document 中读取某个 CSS 变量的计算值。
  * 供 canvas 动画等 JS 逻辑实时读取主题颜色。
+ *
+ * @author yt @date 20260702
  */
 export function getCssVar(key: keyof ThemeTokens): string {
   return getComputedStyle(document.documentElement)

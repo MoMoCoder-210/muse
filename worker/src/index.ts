@@ -1,6 +1,5 @@
 /**
  * Worker 入口文件 - Node sidecar
- * 基于模块 08 第 12.2 节 "worker 通信协议"
  *
  * 职责：
  * 1. 通过 stdio 与 Tauri 主进程通信（JSON line 协议）
@@ -8,6 +7,8 @@
  * 3. 定期发送心跳（10s 间隔）
  * 4. 接收命令：enqueue / cancel / shutdown / ping
  * 5. 推送事件：task_event / batch_progress / quota_exhausted / log / error
+ *
+ * @author yt @date 20260702
  */
 
 import { randomUUID } from "crypto";
@@ -18,6 +19,7 @@ import { RateLimiterImpl } from "./rate-limiter.js";
 import { PROTOCOL_VERSION } from "./types.js";
 import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
 import { splitScriptHandler } from "./handlers/split-script.js";
+import { generateClipScriptHandler } from "./handlers/generate-clip-script.js";
 import { SettingsManager } from "./config/settings.js";
 import { createClients } from "./clients/index.js";
 import type { ApiClients } from "./clients/index.js";
@@ -37,23 +39,39 @@ let rateLimiter: RateLimiterImpl;
 let settings: SettingsManager;
 let clients: ApiClients;
 
-// 发送消息到 Tauri 主进程（stdout）
+/**
+ * 发送消息到 Tauri 主进程（stdout）
+ *
+ * @author yt @date 20260702
+ */
 function sendMessage(msg: WorkerMessage): void {
   process.stdout.write(JSON.stringify(msg) + "\n");
 }
 
-// 发送日志
+/**
+ * 发送日志
+ *
+ * @author yt @date 20260702
+ */
 function sendLog(level: "info" | "warn" | "error", message: string): void {
   logLine("主进程", level.toUpperCase() as "INFO" | "WARN" | "ERROR", message);
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
 }
 
-// 发送任务事件
+/**
+ * 发送任务事件
+ *
+ * @author yt @date 20260702
+ */
 function emitEvent(event: TaskEvent): void {
   sendMessage({ version: PROTOCOL_VERSION, msg: "task_event", event });
 }
 
-// 发送心跳
+/**
+ * 发送心跳
+ *
+ * @author yt @date 20260702
+ */
 function sendHeartbeat(): void {
   if (!running) return;
   const activeTasks = db ? getRunningTaskCount(db) : 0;
@@ -100,7 +118,11 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
   }
 }
 
-// 处理优雅关闭
+/**
+ * 处理优雅关闭
+ *
+ * @author yt @date 20260702
+ */
 async function handleShutdown(timeoutMs: number): Promise<void> {
   sendLog("info", `收到关闭指令，超时：${timeoutMs}ms`);
   running = false;
@@ -195,7 +217,8 @@ async function main(): Promise<void> {
 
     // 注册任务处理器
     taskRunner.registerHandler("split_script", splitScriptHandler);
-    logLine("主进程", "DEBUG", "已注册处理器：split_script");
+    taskRunner.registerHandler("generate_clip_script", generateClipScriptHandler);
+    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script");
     // TODO: 后续模块注册
     // taskRunner.registerHandler("generate_script", generateScriptHandler);
 

@@ -7,6 +7,13 @@ type ProjectListProps = {
   onRequestDelete: (project: ProjectInfo) => void;
 };
 
+/**
+ * 项目列表组件
+ *
+ * 渲染项目列表项，支持选中、删除操作，空状态提示。
+ *
+ * @author yt @date 20260702
+ */
 export function ProjectList({ projects, selectedProjectId, onSelect, onRequestDelete }: ProjectListProps) {
   if (projects.length === 0) {
     return <div className="empty-panel">还没有项目，先创建一个吧。</div>;

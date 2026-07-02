@@ -11,6 +11,13 @@ type ScriptImportPanelProps = {
 
 type Tab = "paste" | "file";
 
+/**
+ * 剧本导入面板
+ *
+ * 支持粘贴文本或导入 TXT 文件，将剧本内容导入到项目中并触发拆分。
+ *
+ * @author yt @date 20260702
+ */
 export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("paste");

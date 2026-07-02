@@ -11,6 +11,13 @@ type ProjectManagementPageProps = {
   onOpenSettings: () => void;
 };
 
+/**
+ * 项目管理页
+ *
+ * 集成侧边栏、工作区与弹窗的项目管理主界面。
+ *
+ * @author yt @date 20260702
+ */
 export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManagementPageProps) {
   const { projects, loading, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");

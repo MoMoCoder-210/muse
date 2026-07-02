@@ -126,6 +126,13 @@ const VOICE_GROUPS = [
   },
 ];
 
+/**
+ * 设置页面
+ *
+ * 管理应用基础设置与各模型（语言/生图/语音）的 API 配置。
+ *
+ * @author yt @date 20260702
+ */
 export function SettingsPage({ onClose }: SettingsPageProps) {
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState<SettingsSection>("basic");

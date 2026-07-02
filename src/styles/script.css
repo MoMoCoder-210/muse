@@ -193,6 +193,7 @@
 }
 
 .clip-status--pending      { background: var(--chip-bg);    color: var(--chip-text); }
+.clip-status--running       { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--script_ready { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--asset_ready  { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--storyboard_ready { background: var(--badge-bg); color: var(--badge-text); }

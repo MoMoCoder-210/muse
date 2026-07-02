@@ -462,6 +462,17 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* 禁用态：不可点击，灰显 */
+.workflow-step--disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.workflow-step--disabled:hover {
+  background: var(--bg-surface-deep);
+  border-color: var(--border-faint);
+}
+
 /* ── 通用面板头部 ────────────────────────────── */
 .panel-header {
   display: flex;

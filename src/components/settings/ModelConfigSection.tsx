@@ -22,6 +22,13 @@ type ModelConfigSectionProps<T extends object> = {
   onChange: (next: T) => void;
 };
 
+/**
+ * 模型配置区块
+ *
+ * 通用模型配置表单，支持按分组渲染字段，适用于文本/生图/语音等模型设置。
+ *
+ * @author yt @date 20260702
+ */
 export function ModelConfigSection<T extends object>({
   title,
   description,

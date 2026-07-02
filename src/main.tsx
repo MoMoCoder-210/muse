@@ -1,3 +1,10 @@
+/**
+ * 应用入口
+ *
+ * 初始化主题、React Query 客户端并挂载 App 组件。
+ *
+ * @author yt @date 20260702
+ */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

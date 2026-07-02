@@ -2,6 +2,13 @@ import { useCallback, useState } from "react";
 import { listProjects } from "../services/tauri";
 import type { ProjectInfo } from "../types/project";
 
+/**
+ * 项目管理 Hook
+ *
+ * 提供项目列表的加载、缓存与刷新能力。
+ *
+ * @author yt @date 20260702
+ */
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(false);

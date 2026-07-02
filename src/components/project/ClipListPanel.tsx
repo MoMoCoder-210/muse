@@ -4,8 +4,10 @@ import {
   listClips,
   getScriptSource,
   updateClip,
+  generateClipScript,
+  getClipScripts,
 } from "../../services/tauri";
-import type { Clip, ProjectInfo, ScriptSource } from "../../types/project";
+import type { Clip, ClipScriptInfo, ProjectInfo, ScriptSource } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
 
 type ClipListPanelProps = {
@@ -14,6 +16,7 @@ type ClipListPanelProps = {
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理",
+  running: "拆解中",
   script_ready: "剧本就绪",
   asset_ready: "资产就绪",
   storyboard_ready: "分镜就绪",
@@ -33,16 +36,12 @@ const SPLIT_STATUS_LABEL: Record<string, string> = {
  * 片段列表面板（剧本管理阶段）。
  *
  * 功能：
- *   - 剧本拆解状态实时展示（pending/running 显示醒目横幅，3s 轮询）
- *   - 单选/多选/全选，选中后可批量删除、批量拆解
+ *   - 剧本拆解状态实时展示（3s 轮询）
+ *   - 单选/多选/全选，可批量删除、批量拆解
  *   - 列表项含删除、拆解按钮
  *   - 片段标题可点击编辑（回车/失焦保存，Esc 取消）
  *
- * 「拆解」语义：将片段送模型分析，输出摘要+角色/场景/物品+生图提示词（模块03）。
- * 拆解逻辑（generate_clip_script）待模型提示词配置后实现，当前按钮为占位。
- *
- * @author yt @date 20260702 重写：新增选择/删除/拆解/标题编辑
- * @author yt @date 20260702 拆分(切两段)交互移除，改为拆解(片段→资产)占位
+ * @author yt @date 20260702
  */
 export function ClipListPanel({ project }: ClipListPanelProps) {
   const { toast } = useToast();
@@ -54,16 +53,19 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
   const [operating, setOperating] = useState(false);
+  const [clipScripts, setClipScripts] = useState<ClipScriptInfo[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [clipList, src] = await Promise.all([
+      const [clipList, src, csList] = await Promise.all([
         listClips(project.id),
         getScriptSource(project.id),
+        getClipScripts(project.id),
       ]);
       setClips(clipList);
       setSource(src);
+      setClipScripts(csList);
       // 清理已不存在的选中项（删除后可能残留）
       setSelectedIds((prev) => {
         const next = new Set<string>();
@@ -82,10 +84,12 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
 
   // 拆解排队/执行中时轮询
   useEffect(() => {
-    if (source?.split_status !== "pending" && source?.split_status !== "running") return;
+    const hasRunning = source?.split_status === "pending" || source?.split_status === "running"
+      || clipScripts.some((cs) => cs.status === "pending" || cs.status === "running");
+    if (!hasRunning) return;
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, [source?.split_status, load]);
+  }, [source?.split_status, clipScripts, load]);
 
   const isSplitting =
     source?.split_status === "pending" || source?.split_status === "running";
@@ -145,14 +149,23 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     }
   }, [load, toast]);
 
-  // 拆解（片段→资产/提示词）：待模型提示词配置后实现 generate_clip_script 链路
-  // @author yt @date 20260702 当前为占位
-  const handleExtract = useCallback((clipIds: string[]) => {
-    toast(
-      `拆解功能（${clipIds.length} 个片段）即将上线，等待模型提示词配置`,
-      "info",
-    );
-  }, [toast]);
+  /** 触发片段拆解（送模型分析，生成分镜/角色/场景/物品提示词） */
+  const handleExtract = useCallback(async (clipIds: string[]) => {
+    if (clipIds.length === 0) return;
+    setOperating(true);
+    try {
+      for (const clipId of clipIds) {
+        await generateClipScript({ clip_id: clipId });
+      }
+      toast(`已提交 ${clipIds.length} 个片段拆解任务`, "success");
+      await load();
+    } catch (err) {
+      toast("拆解提交失败，请重试", "error");
+      console.error("[ClipListPanel] 拆解提交失败:", err);
+    } finally {
+      setOperating(false);
+    }
+  }, [load, toast]);
 
   const startEditTitle = (clip: Clip) => {
     setEditingTitleId(clip.id);
@@ -311,9 +324,16 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
                     </>
                   )}
                   <span className="clip-wordcount">{clip.source_text.length} 字</span>
-                  <span className={`clip-status clip-status--${clip.status}`}>
-                    {STATUS_LABEL[clip.status] ?? clip.status}
-                  </span>
+                  {clip.status === "running" ? (
+                    <span className="clip-status clip-status--running">
+                      <span className="spinner" aria-hidden style={{ width: 10, height: 10, verticalAlign: "middle", marginRight: 4 }} />
+                      拆解中
+                    </span>
+                  ) : (
+                    <span className={`clip-status clip-status--${clip.status}`}>
+                      {STATUS_LABEL[clip.status] ?? clip.status}
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="primary-button btn-sm"

@@ -18,6 +18,13 @@ type CreateProjectModalProps = {
   onCreated: (project: ProjectInfo) => void;
 };
 
+/**
+ * 创建项目弹窗
+ *
+ * 支持空白项目与剧本导入两种创建模式，包含项目名、目录、风格等配置。
+ *
+ * @author yt @date 20260702
+ */
 export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);

@@ -8,6 +8,8 @@
  * - voice:   1 QPS,  2 并发上限
  * - video:   0.2 QPS (每 5s 一个 token), 1 并发上限
  * - local:   无 QPS 限制, 2 并发上限
+ *
+ * @author yt @date 20260702
  */
 
 import type { ApiType } from "./types.js";
@@ -51,6 +53,8 @@ export class RateLimiterImpl {
 
   /**
    * 补充 token（懒补充方式）
+   *
+   * @author yt @date 20260702
    */
   private refill(bucket: TokenBucket): void {
     const now = Date.now();
@@ -62,6 +66,8 @@ export class RateLimiterImpl {
 
   /**
    * 检查是否可以获取令牌（不实际获取）
+   *
+   * @author yt @date 20260702
    */
   canAcquire(apiType: ApiType): boolean {
     const bucket = this.buckets.get(apiType);
@@ -75,6 +81,8 @@ export class RateLimiterImpl {
 
   /**
    * 获取令牌
+   *
+   * @author yt @date 20260702
    */
   acquire(apiType: ApiType): boolean {
     const bucket = this.buckets.get(apiType);
@@ -91,6 +99,8 @@ export class RateLimiterImpl {
 
   /**
    * 释放令牌
+   *
+   * @author yt @date 20260702
    */
   release(apiType: ApiType): void {
     const bucket = this.buckets.get(apiType);
@@ -100,6 +110,8 @@ export class RateLimiterImpl {
 
   /**
    * 获取当前活跃数
+   *
+   * @author yt @date 20260702
    */
   getActiveCount(apiType: ApiType): number {
     return this.buckets.get(apiType)?.activeCount ?? 0;
@@ -108,6 +120,8 @@ export class RateLimiterImpl {
   /**
    * 报告 429 限流，触发指数退避
    * 退避策略：5±2s → 15±5s → 30±10s
+   *
+   * @author yt @date 20260702
    */
   reportRateLimit(apiType: ApiType): void {
     const bucket = this.buckets.get(apiType);
@@ -125,6 +139,8 @@ export class RateLimiterImpl {
 
   /**
    * 报告配额耗尽，暂停该 API 类型
+   *
+   * @author yt @date 20260702
    */
   reportQuotaExhausted(apiType: ApiType): void {
     const bucket = this.buckets.get(apiType);
@@ -135,6 +151,8 @@ export class RateLimiterImpl {
 
   /**
    * 恢复被暂停的 API 类型
+   *
+   * @author yt @date 20260702
    */
   resume(apiType: ApiType): void {
     const bucket = this.buckets.get(apiType);
@@ -147,6 +165,8 @@ export class RateLimiterImpl {
 
   /**
    * 停止所有 bucket（优雅退出时调用）
+   *
+   * @author yt @date 20260702
    */
   stopAll(): void {
     for (const bucket of this.buckets.values()) {

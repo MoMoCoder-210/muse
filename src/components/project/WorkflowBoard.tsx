@@ -2,6 +2,8 @@ import { WORKFLOW_STEPS } from "../../config/muse";
 
 type WorkflowBoardProps = {
   currentStep: string;
+  /** 禁止点击的阶段索引集合（null 表示加载中，空 set 表示全部可用） */
+  disabledSteps?: Set<number> | null;
 };
 
 /**
@@ -17,8 +19,7 @@ type WorkflowBoardProps = {
  *
  * 返回的是"当前正在进行的阶段索引"。
  *
- * @author yt @date 20260702 修复中文 label 与英文 step 不匹配导致步骤板全灰
- * @author yt @date 20260702 修复 script 误映射到 1（资产管理），应为 0（剧本管理）
+ * @author yt @date 20260702 修复中文 label 与英文 step 不匹配导致步骤板全灰；修复 script 误映射
  */
 function stepToStageIndex(current: string): number {
   switch (current) {
@@ -40,30 +41,34 @@ function stepToStageIndex(current: string): number {
   }
 }
 
-export function WorkflowBoard({ currentStep }: WorkflowBoardProps) {
+export function WorkflowBoard({ currentStep, disabledSteps }: WorkflowBoardProps) {
   const activeIndex = stepToStageIndex(currentStep);
+  const ds = disabledSteps ?? new Set<number>();
 
   return (
     <div className="workflow-board">
       {WORKFLOW_STEPS.map((step, index) => {
         const state =
           index < activeIndex ? "done" : index === activeIndex ? "active" : "pending";
+        const disabled = ds.has(index);
         return (
           <div
             key={step.id}
-            className={`workflow-step workflow-step--${state}`}
+            className={`workflow-step workflow-step--${state}${disabled ? " workflow-step--disabled" : ""}`}
             onClick={() => {
+              if (disabled) return;
               // TODO: 切换到对应工作流页面
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
+                if (disabled) return;
                 // TODO: 切换到对应工作流页面
               }
             }}
             role="button"
-            tabIndex={0}
-            title={`前往「${step.label}」`}
+            tabIndex={disabled ? -1 : 0}
+            title={disabled ? "尚未有片段完成拆解，无法进入" : `前往「${step.label}」`}
           >
             <span className="workflow-step-index">{index + 1}</span>
             <span className="workflow-step-label">{step.label}</span>

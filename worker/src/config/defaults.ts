@@ -3,6 +3,8 @@
  *
  * 所有模型接入均走火山方舟（OpenAI 兼容格式）。
  * apiKey 默认为空，必须通过设置页面填入后才能调用。
+ *
+ * @author yt @date 20260702
  */
 
 // ── 基础连接 ──────────────────────────────────────────────
@@ -15,7 +17,6 @@ export const DEFAULT_TEXT_CONFIG: TextModelConfig = {
   model: "doubao-pro-32k-241215",
   maxTokens: 4096,
   temperature: 0.7,
-  // 分集等场景需原样输出长文本，输出 token 量大，60s 一次性返回易超时
   // @author yt @date 20260702 由 60s 调至 120s，与 image 对齐
   timeoutMs: 120_000,
 };

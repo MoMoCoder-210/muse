@@ -717,12 +717,10 @@ fn normalize_text(text: &str) -> String {
     text.trim().to_string()
 }
 
-/// 批量软删除片段。
-///
-/// 仅置 deleted_at，不物理删除。模块 02 第 9.2 节要求的下游任务/资产清理
-/// （ClipScript/Storyboard/Asset）待相关表建立后补全。
-///
-/// @author yt @date 20260702
+/**
+ * 批量软删除片段
+ * @author yt @date 20260702
+ */
 #[tauri::command]
 pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<(), String> {
     if input.clip_ids.is_empty() {
@@ -744,12 +742,10 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
     Ok(())
 }
 
-/// 更新片段的标题/摘要/正文。传哪个字段改哪个。
-///
-/// 若 source_text 变更，触发该片段下游失效：status 重置为 pending、current_step 回退。
-/// 模块 02 第 9.2 节要求的 ClipScript/Storyboard 失效标记待相关表建立后补全。
-///
-/// @author yt @date 20260702
+/**
+ * 更新片段的标题/摘要/正文
+ * @author yt @date 20260702
+ */
 #[tauri::command]
 pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
     let mut conn = open_app_conn(&app)?;
@@ -829,15 +825,10 @@ pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<Clip
     Ok(clip)
 }
 
-/// 在指定字符位置把一个片段拆成两个。
-///
-/// 原片段保留 id，source_text 更新为前半段；新增一个片段承载后半段，
-/// sort_index 为原 sort_index + 1，其后所有片段 sort_index 顺延 +1。
-/// 两段状态均重置为 pending（下游失效）。
-///
-/// split_position 为字符位置（按 Unicode scalar 计数），范围 (0, source_text 字符数)。
-///
-/// @author yt @date 20260702
+/**
+ * 在指定字符位置把一个片段拆成两个
+ * @author yt @date 20260702
+ */
 #[tauri::command]
 pub fn split_clip(
     input: SplitClipInput,
@@ -942,4 +933,115 @@ pub fn split_clip(
         first_clip_id: input.clip_id,
         second_clip_id: second_id,
     })
+}
+
+// ─── 片段拆解 ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateClipScriptInput {
+    pub clip_id: String,
+}
+
+#[tauri::command]
+pub fn generate_clip_script(input: GenerateClipScriptInput, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let mut conn = open_app_conn(&app)?;
+
+    // 查询片段所属项目和原文
+    let row = conn.query_row(
+        "SELECT project_id, source_text FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+        rusqlite::params![&input.clip_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ).map_err(|e| format!("片段查询失败：{}", e))?;
+
+    let (project_id, source_text) = row;
+    if source_text.trim().is_empty() {
+        return Err("片段原文为空，无法拆解".to_string());
+    }
+
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let lock_key = format!("generate_clip_script:{}", input.clip_id);
+    let input_json = serde_json::json!({
+        "projectId": &project_id,
+        "clipId": input.clip_id,
+        "sourceText": &source_text,
+    }).to_string();
+
+    // 事务：创建 clip_script 记录 + 插入任务 + 更新片段状态
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 先删旧的拆解记录（重拆）
+    tx.execute(
+        "DELETE FROM clip_scripts WHERE clip_id = ?1",
+        rusqlite::params![&input.clip_id],
+    ).map_err(|e| e.to_string())?;
+
+    let script_id = uuid::Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO clip_scripts (id, project_id, clip_id, source_text, status)
+         VALUES (?1, ?2, ?3, ?4, 'pending')",
+        rusqlite::params![&script_id, &project_id, &input.clip_id, &source_text],
+    ).map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO tasks (id, project_id, type, status, lock_key, input_json, max_retry)
+         VALUES (?1, ?2, 'generate_clip_script', 'pending', ?3, ?4, 3)",
+        rusqlite::params![&task_id, &project_id, &lock_key, &input_json],
+    ).map_err(|e| e.to_string())?;
+
+    // 标记片段拆解中
+    tx.execute(
+        "UPDATE clips SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![&input.clip_id],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    log::info!("片段拆解已入队：clip_id={}, task_id={}", input.clip_id, task_id);
+    crate::project_log::append_log(
+        &log_path,
+        "拆解",
+        "INFO",
+        &format!("拆解已入队 clipId={} taskId={} 原文={}字符", input.clip_id, task_id, source_text.len()),
+    );
+
+    Ok(serde_json::json!({ "task_id": task_id }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClipScriptInfo {
+    pub id: String,
+    pub clip_id: String,
+    pub script_summary: String,
+    pub extracted_resources_json: String,
+    pub status: String,
+}
+
+#[tauri::command]
+pub fn get_clip_scripts(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipScriptInfo>, String> {
+    let conn = open_app_conn(&app)?;
+    let mut stmt = conn.prepare(
+        "SELECT cs.id, cs.clip_id, cs.script_summary, cs.extracted_resources_json, cs.status
+         FROM clip_scripts cs
+         JOIN clips c ON c.id = cs.clip_id
+         WHERE c.project_id = ?1 AND c.deleted_at IS NULL
+         ORDER BY cs.created_at DESC",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(rusqlite::params![&project_id], |row| {
+        Ok(ClipScriptInfo {
+            id: row.get(0)?,
+            clip_id: row.get(1)?,
+            script_summary: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            extracted_resources_json: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            status: row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(results)
 }

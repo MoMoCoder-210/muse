@@ -1,6 +1,8 @@
 /**
  * 共享类型定义
  * 基于模块 08（任务运行时、状态机与恢复）的规范
+ *
+ * @author yt @date 20260702
  */
 
 // ===== 协议版本 =====
@@ -9,7 +11,7 @@ export const PROTOCOL_VERSION = 1 as const;
 // ===== 任务类型 =====
 export type TaskType =
   | "split_script"          // 剧本拆分
-  | "generate_script"       // 剧本理解
+  | "generate_clip_script"  // 剧本理解（片段拆解）
   | "generate_asset_image"  // 资产生图
   | "generate_storyboard"   // 分镜生成
   | "generate_fused_image"  // 融合图生成
@@ -97,7 +99,7 @@ export interface RateLimiter {
 // ===== 任务类型到 API 类型映射 =====
 export const TASK_TYPE_TO_API: Record<TaskType, ApiType> = {
   split_script: "text",
-  generate_script: "text",
+  generate_clip_script: "text",
   generate_asset_image: "image",
   generate_storyboard: "text",
   generate_fused_image: "image",

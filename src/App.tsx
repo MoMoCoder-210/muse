@@ -9,6 +9,13 @@ import { ToastProvider } from "./hooks/useToast";
 
 type ViewMode = "home" | "projects";
 
+/**
+ * 应用根组件
+ *
+ * 管理页面路由（首页/项目管理）、版本信息、弹窗状态。
+ *
+ * @author yt @date 20260702
+ */
 export default function App() {
   const [view, setView] = useState<ViewMode>("home");
   const [version, setVersion] = useState("unknown");

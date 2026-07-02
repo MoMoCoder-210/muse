@@ -3,6 +3,8 @@
  *
  * worker 启动时通过 createClients(settingsManager) 初始化。
  * 配置更新（设置页保存）后调用 clients.reload() 热更新客户端。
+ *
+ * @author yt @date 20260702
  */
 
 import type { SettingsManager } from "../config/settings.js";

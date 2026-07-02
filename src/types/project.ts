@@ -22,9 +22,7 @@ export type ScriptSource = {
   project_id: string;
   source_type: "paste" | "txt";
   file_name: string | null;
-  // raw_content / normalized_content 由 Rust 端 get_script_source 不返回（避免大文本传输），
-  // 前端如需原文应走专用命令；这里保留为可选以匹配实际返回。
-  // @author yt @date 20260702 修正类型与实际返回不一致的问题
+  /** @author yt @date 20260702 修正类型与实际返回不一致的问题 */
   raw_content?: string;
   normalized_content?: string;
   split_status: "pending" | "running" | "success" | "failed";
@@ -36,6 +34,7 @@ export type ScriptSource = {
 
 export type ClipStatus =
   | "pending"
+  | "running"
   | "script_ready"
   | "asset_ready"
   | "storyboard_ready"
@@ -69,8 +68,7 @@ export type ImportScriptResult = {
   source_id: string;
 };
 
-// ── 片段操作（模块 02 第 9-10 节） ─────────────────────────
-// @author yt @date 20260702 新增片段级写操作类型
+/** @author yt @date 20260702 新增片段级写操作类型 */
 
 /** 批量删除片段（软删除） */
 export type DeleteClipsInput = {
@@ -94,4 +92,18 @@ export type SplitClipInput = {
 export type SplitClipResult = {
   first_clip_id: string;
   second_clip_id: string;
+};
+
+/** @author yt @date 20260702 拆解类型 */
+
+export type ClipScriptInfo = {
+  id: string;
+  clip_id: string;
+  script_summary: string;
+  extracted_resources_json: string;
+  status: "pending" | "running" | "success" | "failed";
+};
+
+export type GenerateClipScriptInput = {
+  clip_id: string;
 };

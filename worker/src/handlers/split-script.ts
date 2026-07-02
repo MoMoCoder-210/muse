@@ -8,8 +8,7 @@
  *      - ≤6000 字 → 单次调用 LLM
  *      - >6000 字 → 按段落边界分块，逐批调用，尾集回收（carry-over）
  *
- * @author yt
- * @date 20260702
+ * @author yt @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -81,6 +80,8 @@ const JSON_REPAIR_HINT =
 
 /**
  * 查找文本中所有集数标志的位置。
+ *
+ * @author yt @date 20260702
  */
 function findEpisodeMarkers(text: string): number[] {
   const positions: number[] = [];
@@ -98,6 +99,8 @@ function findEpisodeMarkers(text: string): number[] {
 
 /**
  * 检查文本开头是否包含设定关键词。
+ *
+ * @author yt @date 20260702
  */
 function hasSettingKeywords(text: string): boolean {
   const sample = text.slice(0, 500);
@@ -106,6 +109,8 @@ function hasSettingKeywords(text: string): boolean {
 
 /**
  * 检查文本是否包含任意集数标志（用于短文本不拆分判定）。
+ *
+ * @author yt @date 20260702
  */
 function hasEpisodeMarkers(text: string): boolean {
   return EPISODE_PATTERNS.some((pattern) => pattern.test(text));
@@ -113,6 +118,8 @@ function hasEpisodeMarkers(text: string): boolean {
 
 /**
  * 统计语义字数（中文字、英文单词、标点各算1）。
+ *
+ * @author yt @date 20260702
  */
 function countWords(text: string): number {
   const cn = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -124,6 +131,8 @@ function countWords(text: string): number {
 /**
  * 尝试规则拆分。
  * 返回 ClipDraft[] 或 null（失败时）。
+ *
+ * @author yt @date 20260702
  */
 export function ruleSplit(text: string): ClipDraft[] | null {
   let workText = text;
@@ -198,6 +207,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 }
 
 // ─── 写入数据库 ────────────────────────────────────────────────────
+// @author yt @date 20260702 写入片段到数据库
 
 function insertClips(
   db: DatabaseType,
@@ -246,6 +256,7 @@ function loadSplitPrompt(): string {
 
 /** 系统提示词缓存工具 */
 let splitPromptCache: string | null = null;
+// @author yt @date 20260702 获取分集系统提示词
 function getSplitPrompt(): string {
   if (splitPromptCache === null) {
     splitPromptCache = loadSplitPrompt();
@@ -301,6 +312,7 @@ function chunkText(text: string, maxChars: number): string[] {
 
 // ─── 模型输出解析 ──────────────────────────────────────────────────
 
+// @author yt @date 20260702 移除 Markdown 代码围栏
 function stripCodeFences(text: string): string {
   const trimmed = text.trim();
   if (!trimmed.startsWith("```")) {
@@ -353,6 +365,8 @@ function parseModelClips(raw: string): ClipDraft[] {
 
 /**
  * 校验拆分结果对原文的覆盖率，低于 80% 视为模型漏内容抛错
+ *
+ * @author yt @date 20260702
  */
 function validateCoverage(clips: ClipDraft[], originalText: string): void {
   const totalClipWords = clips.reduce((sum, clip) => sum + clip.wordCount, 0);
@@ -369,6 +383,8 @@ function validateCoverage(clips: ClipDraft[], originalText: string): void {
 
 /**
  * 全局重排 sortIndex
+ *
+ * @author yt @date 20260702
  */
 function reindexClips(clips: ClipDraft[]): ClipDraft[] {
   return clips.map((clip, index) => ({ ...clip, sortIndex: index + 1 }));
@@ -568,6 +584,8 @@ async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> 
 
 /**
  * split_script 任务 handler
+ *
+ * @author yt @date 20260702
  */
 export async function splitScriptHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as { projectId: string; sourceId: string; forceAi?: boolean };
@@ -579,6 +597,8 @@ export async function splitScriptHandler(ctx: TaskContext): Promise<string> {
 
 /**
  * 实际的拆分入口，由 task-runner 在分发时调用。
+ *
+ * @author yt @date 20260702
  */
 export async function splitScriptWithInput(
   ctx: TaskContext,

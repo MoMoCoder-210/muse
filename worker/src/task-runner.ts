@@ -12,6 +12,8 @@
  * 3. 三项都通过：获取令牌 → 标记 running → 分发到 handler → 回写结果
  * 4. 恢复 waiting_remote 的任务轮询
  * 5. 本轮无可执行任务时休眠 1 秒
+ *
+ * @author yt @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -65,6 +67,8 @@ export class TaskRunner {
 
   /**
    * 注册任务处理器
+   *
+   * @author yt @date 20260702
    */
   registerHandler(taskType: TaskType, handler: (ctx: TaskContext) => Promise<string>): void {
     this.handlers.set(taskType, handler);
@@ -72,6 +76,8 @@ export class TaskRunner {
 
   /**
    * 启动任务循环
+   *
+   * @author yt @date 20260702
    */
   async start(): Promise<void> {
     this.running = true;
@@ -104,6 +110,8 @@ export class TaskRunner {
 
   /**
    * 停止任务循环
+   *
+   * @author yt @date 20260702
    */
   stop(): void {
     this.running = false;
@@ -112,6 +120,8 @@ export class TaskRunner {
 
   /**
    * 处理 pending 任务
+   *
+   * @author yt @date 20260702
    */
   private async processPendingTasks(): Promise<void> {
     const tasks = getPendingTasks(this.db);
@@ -145,6 +155,8 @@ export class TaskRunner {
 
   /**
    * 执行单个任务
+   *
+   * @author yt @date 20260702
    */
   private async executeTask(
     task: PendingTask,
@@ -219,6 +231,8 @@ export class TaskRunner {
 
   /**
    * 处理 waiting_remote 任务（恢复轮询）
+   *
+   * @author yt @date 20260702
    */
   private async processWaitingRemoteTasks(): Promise<void> {
     const tasks = getWaitingRemoteTasks(this.db);
@@ -232,6 +246,8 @@ export class TaskRunner {
 
   /**
    * 获取当前活跃任务数（running 状态）
+   *
+   * @author yt @date 20260702
    */
   private getActiveTaskCount(): number {
     return getRunningTaskCount(this.db);
@@ -239,6 +255,8 @@ export class TaskRunner {
 
   /**
    * 获取 API 类型最大并发数
+   *
+   * @author yt @date 20260702
    */
   private getMaxConcurrency(apiType: ApiType): number {
     const max: Record<ApiType, number> = {
@@ -253,6 +271,8 @@ export class TaskRunner {
 
   /**
    * 判断是否是 429 限流错误
+   *
+   * @author yt @date 20260702
    */
   private isRateLimitError(err: unknown): boolean {
     if (err && typeof err === "object" && "status" in err) {
@@ -263,6 +283,8 @@ export class TaskRunner {
 
   /**
    * 判断是否是配额耗尽错误
+   *
+   * @author yt @date 20260702
    */
   private isQuotaExhaustedError(err: unknown): boolean {
     if (err && typeof err === "object" && "code" in err) {
@@ -273,6 +295,8 @@ export class TaskRunner {
 
   /**
    * 休眠
+   *
+   * @author yt @date 20260702
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));

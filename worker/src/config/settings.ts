@@ -6,6 +6,8 @@
  *
  * 读取策略：启动时加载一次，调用方可按需重新加载（热更新）。
  * 写入策略：由设置页面通过 Tauri command 写文件，worker 重载配置。
+ *
+ * @author yt @date 20260702
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -24,6 +26,8 @@ export class SettingsManager {
 
   /**
    * 从磁盘加载配置，缺失字段用默认值填充（深合并）。
+   *
+   * @author yt @date 20260702
    */
   private load(): AppSettings {
     if (!existsSync(this.configPath)) {
@@ -54,6 +58,8 @@ export class SettingsManager {
   /**
    * 将配置写入磁盘（通常由设置页 Tauri command 调用，worker 侧一般不需要写）。
    * worker 侧暴露此方法仅作为兜底。
+   *
+   * @author yt @date 20260702
    */
   save(settings: AppSettings): void {
     mkdirSync(dirname(this.configPath), { recursive: true });
@@ -78,6 +84,7 @@ export class SettingsManager {
 }
 
 // ── 工具：深合并（target 为默认值，source 为用户配置） ──────────────
+// @author yt @date 20260702 深合并配置对象
 function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = structuredClone(target) as any;
   for (const key of Object.keys(source) as (keyof T)[]) {

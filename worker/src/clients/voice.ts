@@ -3,6 +3,8 @@
  *
  * 火山方舟 TTS 兼容 OpenAI Audio Speech API（client.audio.speech.create）。
  * 输出格式默认 mp3，返回二进制流，直接写入本地文件。
+ *
+ * @author yt @date 20260702
  */
 
 import OpenAI from "openai";
@@ -60,6 +62,8 @@ export class VoiceClient {
    *
    * @param text      需要合成的文本
    * @param savePath  保存路径（含文件名，如 audio/clip_01.mp3）
+   *
+   * @author yt @date 20260702
    */
   async synthesize(
     text: string,
@@ -96,6 +100,7 @@ export class VoiceClient {
 }
 
 // ── 写 Buffer 到文件 ─────────────────────────────────────
+// @author yt @date 20260702 写 Buffer 到文件
 function writeBuffer(buffer: Buffer, filePath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const writer = createWriteStream(filePath);

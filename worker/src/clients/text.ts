@@ -8,6 +8,8 @@
  *   - 普通对话（单轮 / 多轮）
  *   - JSON 模式输出
  *   - 流式输出（可选）
+ *
+ * @author yt @date 20260702
  */
 
 import OpenAI from "openai";

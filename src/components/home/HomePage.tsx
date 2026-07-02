@@ -7,6 +7,13 @@ type HomePageProps = {
   onOpenSettings: () => void;
 };
 
+/**
+ * 首页组件
+ *
+ * 展示应用主界面，包含品牌信息、快速操作入口与版本号。
+ *
+ * @author yt @date 20260702
+ */
 export function HomePage({ version, onCreateProject, onGoToProjects, onOpenSettings }: HomePageProps) {
   return (
     <section className="home-screen">

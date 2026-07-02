@@ -19,6 +19,13 @@ const TOAST_FADE_MS = 300;
 
 let nextId = 1;
 
+/**
+ * Toast 消息提供者
+ *
+ * 提供全局 toast 通知上下文，管理消息队列与自动消失逻辑。
+ *
+ * @author yt @date 20260702
+ */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -68,6 +75,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * 使用 Toast 消息
+ *
+ * 获取全局 toast 通知方法。
+ *
+ * @author yt @date 20260702
+ */
 export function useToast(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used within ToastProvider");

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectInfo } from "../../types/project";
-import { getProject, getScriptSource } from "../../services/tauri";
+import { getProject, getScriptSource, getClipScripts } from "../../services/tauri";
 import { WorkflowBoard } from "./WorkflowBoard";
 import { ScriptImportPanel } from "./ScriptImportPanel";
 import { ClipListPanel } from "./ClipListPanel";
+import type { ClipScriptInfo } from "../../types/project";
 
 type ProjectWorkspaceProps = {
   project: ProjectInfo | null;
@@ -11,6 +12,40 @@ type ProjectWorkspaceProps = {
 };
 
 export function ProjectWorkspace({ project, onProjectUpdated }: ProjectWorkspaceProps) {
+  const [clipScripts, setClipScripts] = useState<ClipScriptInfo[] | null>(null);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    getClipScripts(project.id).then((cs) => {
+      if (!cancelled) setClipScripts(cs);
+    }).catch(() => {
+      if (!cancelled) setClipScripts([]);
+    });
+    return () => { cancelled = true; };
+  }, [project?.id]);
+
+  // 拆解进行中时轮询
+  useEffect(() => {
+    if (!project || !clipScripts) return;
+    const hasRunning = clipScripts.some((cs) => cs.status === "pending" || cs.status === "running");
+    if (!hasRunning) return;
+    const timer = setInterval(() => {
+      getClipScripts(project.id).then(setClipScripts).catch(() => {});
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [project?.id, clipScripts]);
+
+  // 计算禁用步骤：没有拆解成功的片段时，步骤2（资产管理，索引1）及以上全部禁用
+  let disabledSteps: Set<number> | null = null;
+  if (clipScripts !== null) {
+    const anyDisassembled = clipScripts.some((cs) => cs.status === "success");
+    disabledSteps = new Set<number>();
+    if (!anyDisassembled) {
+      for (let i = 1; i <= 4; i++) disabledSteps.add(i);
+    }
+  }
+
   if (!project) {
     return (
       <div className="empty-workspace">
@@ -23,7 +58,7 @@ export function ProjectWorkspace({ project, onProjectUpdated }: ProjectWorkspace
   // 顶部为工作流阶段板，下方为当前阶段工作区
   return (
     <div className="workspace-inner">
-      <WorkflowBoard currentStep={project.current_step} />
+      <WorkflowBoard currentStep={project.current_step} disabledSteps={disabledSteps} />
       <WorkspaceContent project={project} onProjectUpdated={onProjectUpdated} />
     </div>
   );
@@ -64,8 +99,7 @@ function WorkspaceContent({
     checkScript();
   }, [checkScript]);
 
-  // 拆分进行中（current_step 仍为 project/split）时，轮询 project 让步骤板和状态实时更新。
-  // 拆分完成后 current_step 变为 script，停止轮询。
+  // 拆分进行中时轮询 project 让步骤板和状态实时更新
   // @author yt @date 20260702 修复拆分状态不实时展示、切项目回来状态丢失
   const isSplitting = project.current_step === "project" || project.current_step === "split";
   useEffect(() => {

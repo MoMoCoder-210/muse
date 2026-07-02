@@ -1,6 +1,13 @@
 import { useEffect, useRef } from "react";
 import { getCssVar } from "../../config/theme";
 
+/**
+ * 动态背景组件
+ *
+ * 使用 Canvas 渲染粒子动画与光晕效果，作为应用全局背景。
+ *
+ * @author yt @date 20260702
+ */
 export function DynamicBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
