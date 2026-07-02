@@ -10,6 +10,8 @@ import { TextClient } from "./text.js";
 import { ImageClient } from "./image.js";
 import { VoiceClient } from "./voice.js";
 
+export { FALLBACK_API_KEY } from "./constants.js";
+
 export interface ApiClients {
   text: TextClient;
   image: ImageClient;

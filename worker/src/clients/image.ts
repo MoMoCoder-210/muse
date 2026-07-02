@@ -14,6 +14,7 @@ import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { ImageModelConfig } from "../config/defaults.js";
+import { FALLBACK_API_KEY } from "./constants.js";
 
 export interface ImageGenerateOptions {
   /** 生图尺寸，默认 1024x1024；调用时可覆盖 */
@@ -41,7 +42,7 @@ export class ImageClient {
 
   private buildClient(config: ImageModelConfig): OpenAI {
     return new OpenAI({
-      apiKey: config.apiKey,
+      apiKey: config.apiKey || FALLBACK_API_KEY,
       baseURL: config.baseUrl,
       timeout: config.timeoutMs,
       maxRetries: 0,

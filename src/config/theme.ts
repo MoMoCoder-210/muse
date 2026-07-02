@@ -51,6 +51,24 @@ export interface ThemeTokens {
   borderAccent: string;        // 聚焦 / 激活边框
   borderAccentSubtle: string;  // 次级聚焦边框（select menu）
 
+  // 基础语义色
+  colorDanger: string;
+  colorDangerDark: string;
+  colorDangerDarker: string;
+  colorDangerLight: string;
+  colorDangerLighter: string;
+  colorSuccess: string;
+  colorWarning: string;
+  colorInfo: string;
+
+  // RGB 通道（供 rgba() 组合）
+  colorDangerRgb: string;
+  colorSuccessRgb: string;
+  colorWarningRgb: string;
+  colorInfoRgb: string;
+  accentPrimaryRgb: string;
+  borderAccentRgb: string;
+
   // 按钮
   btnPrimaryBg: string;           // 主按钮背景渐变起点
   btnPrimaryBgEnd: string;        // 主按钮背景渐变终点
@@ -177,6 +195,24 @@ export const darkTheme: ThemeTokens = {
   borderFaint:      "rgba(148, 163, 184, 0.10)",
   borderAccent:     "rgba(96, 165, 250, 0.80)",
   borderAccentSubtle: "rgba(96, 165, 250, 0.22)",
+
+  // 基础语义色
+  colorDanger:        "#e04040",
+  colorDangerDark:    "#c62828",
+  colorDangerDarker:  "#b71c1c",
+  colorDangerLight:   "#ef5350",
+  colorDangerLighter: "#d32f2f",
+  colorSuccess:       "#50c878",
+  colorWarning:       "#ffb432",
+  colorInfo:          "#6cb4ff",
+
+  // RGB 通道
+  colorDangerRgb:     "224, 64, 64",
+  colorSuccessRgb:    "80, 200, 120",
+  colorWarningRgb:    "255, 180, 50",
+  colorInfoRgb:       "100, 160, 255",
+  accentPrimaryRgb:   "37, 99, 235",
+  borderAccentRgb:    "96, 165, 250",
 
   btnPrimaryBg:     "#2563eb",
   btnPrimaryBgEnd:  "#0ea5e9",

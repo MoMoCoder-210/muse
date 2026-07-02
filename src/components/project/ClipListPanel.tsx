@@ -47,9 +47,9 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     load();
   }, [load]);
 
-  // 拆分中时轮询
+  // 拆分排队/执行中时轮询
   useEffect(() => {
-    if (source?.split_status !== "running") return;
+    if (source?.split_status !== "pending" && source?.split_status !== "running") return;
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
   }, [source?.split_status, load]);
@@ -78,13 +78,15 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
 
       {source?.split_status === "failed" && (
         <div className="split-error-banner">
-          拆分失败：{source.error_message ?? "未知错误"}。该剧本没有识别到集数标志，模型拆分功能即将上线。
+          拆分失败：{source.error_message ?? "未知错误"}。
         </div>
       )}
 
       {clips.length === 0 ? (
         <div className="empty-clip-list">
-          {source?.split_status === "running"
+          {source?.split_status === "pending"
+            ? "拆分任务已入队，正在等待执行…"
+            : source?.split_status === "running"
             ? "正在拆分片段，请稍候…"
             : "暂无片段，导入剧本后自动生成。"}
         </div>

@@ -25,7 +25,7 @@ pub struct ProjectInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportScriptInput {
     pub project_id: String,
-    pub source_type: String, // "paste" | "txt"
+    pub source_type: String,
     pub content: Option<String>,
     pub file_path: Option<String>,
 }
@@ -51,10 +51,9 @@ pub struct ClipInfo {
     pub updated_at: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ProjectRegistryEntry {
-    id: String,
-    workspace_path: String,
+pub fn prepare_app_runtime(app: &tauri::AppHandle) -> Result<(), String> {
+    let db_path = crate::app_paths::app_db_path(app)?;
+    ensure_project_schema(&db_path, app)
 }
 
 fn default_settings_json() -> Value {
@@ -85,7 +84,6 @@ fn default_settings_json() -> Value {
 
 fn sanitize_settings(input: Value) -> Value {
     let mut root = Map::new();
-
     let source = input.as_object();
 
     root.insert(
@@ -98,10 +96,7 @@ fn sanitize_settings(input: Value) -> Value {
                     "baseUrl",
                     Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
                 ),
-                (
-                    "model",
-                    Value::String("doubao-pro-32k-241215".to_string()),
-                ),
+                ("model", Value::String("doubao-pro-32k-241215".to_string())),
                 ("maxTokens", Value::from(4096)),
                 ("temperature", Value::from(0.7)),
                 ("timeoutMs", Value::from(60000)),
@@ -189,7 +184,6 @@ pub fn create_project(
         "audio",
         "video",
         "exports",
-        "logs/tasks",
         "cache",
     ];
     for dir in &dirs {
@@ -198,23 +192,19 @@ pub fn create_project(
     }
 
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
-    let db_path = workspace.join("project.sqlite");
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    crate::project_log::append_log(
+        &log_path,
+        "project",
+        "INFO",
+        &format!("Creating project name={} mode={} style={}", input.name, input_mode, style_mode),
+    );
 
-    let migrations_dir = app_data_dir.join("migrations");
-    let resource_migrations = std::env::current_dir()
-        .unwrap_or_default()
-        .join("migrations");
-    let migrations_dir = if migrations_dir.exists() {
-        migrations_dir
-    } else {
-        resource_migrations
-    };
-    crate::db::run_migrations(&conn, &migrations_dir).map_err(|e| e.to_string())?;
-
+    let now = chrono::Utc::now().to_rfc3339();
+    let conn = open_app_conn(&app)?;
     conn.execute(
-        "INSERT INTO projects (id, name, description, workspace_path, input_mode, style_mode, status, current_step)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'project')",
+        "INSERT INTO projects (id, name, description, workspace_path, input_mode, style_mode, status, current_step, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'project', ?7, ?7)",
         rusqlite::params![
             &project_id,
             &input.name,
@@ -222,19 +212,11 @@ pub fn create_project(
             workspace.to_string_lossy().to_string(),
             &input_mode,
             &style_mode,
+            &now,
         ],
     )
     .map_err(|e| e.to_string())?;
 
-    upsert_project_registry(
-        &app_data_dir,
-        ProjectRegistryEntry {
-            id: project_id.clone(),
-            workspace_path: workspace.to_string_lossy().to_string(),
-        },
-    )?;
-
-    let now = chrono::Utc::now().to_rfc3339();
     let manifest = serde_json::json!({
         "projectId": &project_id,
         "projectName": &input.name,
@@ -250,6 +232,12 @@ pub fn create_project(
         .map_err(|e| format!("Failed to write manifest.json: {}", e))?;
 
     log::info!("Project created: {} at {}", project_id, workspace.display());
+    crate::project_log::append_log(
+        &log_path,
+        "project",
+        "INFO",
+        &format!("Project created projectId={}", project_id),
+    );
 
     Ok(ProjectInfo {
         id: project_id,
@@ -264,18 +252,10 @@ pub fn create_project(
 
 #[tauri::command]
 pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectInfo, String> {
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
-    let registry = load_project_registry(&app_data_dir)?;
-    let workspace_path = registry
-        .into_iter()
-        .find(|entry| entry.id == project_id)
-        .map(|entry| entry.workspace_path)
-        .ok_or_else(|| "Project not found in registry".to_string())?;
-    let db_path = std::path::PathBuf::from(workspace_path).join("project.sqlite");
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
-
+    let conn = open_app_conn(&app)?;
     conn.query_row(
-        "SELECT id, name, description, workspace_path, status, current_step, created_at FROM projects WHERE id = ?1",
+        "SELECT id, name, description, workspace_path, status, current_step, created_at
+         FROM projects WHERE id = ?1",
         rusqlite::params![&project_id],
         |row| {
             Ok(ProjectInfo {
@@ -294,47 +274,63 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
 
 #[tauri::command]
 pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> {
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
-    let registry = load_project_registry(&app_data_dir)?;
-    let mut projects = Vec::new();
+    let conn = open_app_conn(&app)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, workspace_path, status, current_step, created_at
+             FROM projects ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
 
-    for entry in registry {
-        let db_path = std::path::PathBuf::from(&entry.workspace_path).join("project.sqlite");
-        if !db_path.exists() {
-            continue;
-        }
-
-        if let Ok(conn) = crate::db::init_db(&db_path) {
-            if let Ok(info) = conn.query_row(
-                "SELECT id, name, description, workspace_path, status, current_step, created_at FROM projects LIMIT 1",
-                [],
-                |row| {
-                    Ok(ProjectInfo {
-                        id: row.get(0)?,
-                        name: row.get(1)?,
-                        description: row.get(2)?,
-                        workspace_path: row.get(3)?,
-                        status: row.get(4)?,
-                        current_step: row.get(5)?,
-                        created_at: row.get(6)?,
-                    })
-                },
-            ) {
-                projects.push(info);
-            }
-        }
-    }
+    let projects = stmt
+        .query_map([], |row| {
+            Ok(ProjectInfo {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                workspace_path: row.get(3)?,
+                status: row.get(4)?,
+                current_step: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(projects)
 }
 
 #[tauri::command]
-pub fn start_worker(state: tauri::State<'_, SharedSidecarManager>, app: tauri::AppHandle) -> Result<String, String> {
+pub fn start_worker(
+    state: tauri::State<'_, SharedSidecarManager>,
+    app: tauri::AppHandle,
+    project_id: Option<String>,
+) -> Result<String, String> {
+    let project_id = project_id.ok_or_else(|| "project_id is required".to_string())?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
     let config_path = app_data_dir.join("settings.json").to_string_lossy().to_string();
-    // db_path 和 workspace_path 此处传空字符串，由前端在 enqueue 时携带项目信息
+    let db_path = crate::app_paths::app_db_path(&app)?.to_string_lossy().to_string();
+    let workspace_path = get_project_workspace_path(&app, &project_id)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    crate::project_log::append_log(
+        &log_path,
+        "project",
+        "INFO",
+        &format!("Starting worker for projectId={}", project_id),
+    );
+
     let mut manager = state.lock().map_err(|e| e.to_string())?;
-    manager.start("", "", &config_path).map_err(|e| e.to_string())?;
+    let log_path_str = log_path.to_string_lossy().to_string();
+    if manager.matches_runtime(&db_path, &workspace_path, &config_path, &log_path_str) {
+        return Ok(manager.worker_id().to_string());
+    }
+    if manager.is_running() {
+        manager.shutdown(5000).map_err(|e| e.to_string())?;
+    }
+    manager
+        .start(&db_path, &workspace_path, &config_path, &log_path.to_string_lossy())
+        .map_err(|e| e.to_string())?;
     Ok(manager.worker_id().to_string())
 }
 
@@ -345,8 +341,108 @@ pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), 
     Ok(())
 }
 
-/// 读取当前应用配置（settings.json）。
-/// 如果文件不存在，返回内置默认值。
+#[tauri::command]
+pub fn delete_project(
+    project_id: String,
+    delete_files: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    // 先查出 workspace_path（删文件要用）
+    let workspace_path = get_project_workspace_path(&app, &project_id)?;
+
+    let mut conn = open_app_conn(&app)?;
+
+    // ── 按外键依赖顺序删除关联记录 ──────────────────────────────
+    // 依赖关系图（箭头表示 "被引用"）：
+    //   task_locks ──► tasks ──► projects
+    //   storyboard_assets ──► storyboards ──► projects
+    //   assets ──► projects
+    //   clip_scripts ──► clips ──► projects
+    //   script_sources ──► projects
+    //   exports ──► projects
+    //
+    // 新增表时请同步更新此列表，或考虑迁移到 ON DELETE CASCADE。
+    // ───────────────────────────────────────────────────────────
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 1. task_locks（依赖 tasks.lock_key）
+    tx.execute(
+        "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)",
+        rusqlite::params![&project_id],
+    ).map_err(|e| e.to_string())?;
+
+    // 2. tasks
+    tx.execute("DELETE FROM tasks WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 3. storyboard_assets（依赖 storyboards.id）
+    tx.execute(
+        "DELETE FROM storyboard_assets WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",
+        rusqlite::params![&project_id],
+    ).map_err(|e| e.to_string())?;
+
+    // 4. storyboards
+    tx.execute("DELETE FROM storyboards WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 5. assets
+    tx.execute("DELETE FROM assets WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 6. clip_scripts（依赖 clips.id）
+    tx.execute("DELETE FROM clip_scripts WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 7. clips
+    tx.execute("DELETE FROM clips WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 8. script_sources
+    tx.execute("DELETE FROM script_sources WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 9. exports
+    tx.execute("DELETE FROM exports WHERE project_id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    // 10. projects（根表，最后删除）
+    tx.execute("DELETE FROM projects WHERE id = ?1", rusqlite::params![&project_id])
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "project",
+        "INFO",
+        &format!("Project deleted: projectId={} deleteFiles={}", project_id, delete_files),
+    );
+
+    // 可选：删除工作区文件
+    if delete_files {
+        let ws = std::path::Path::new(&workspace_path);
+        if ws.exists() {
+            std::fs::remove_dir_all(ws).map_err(|e| {
+                let msg = format!("Failed to delete workspace: {}", e);
+                crate::project_log::append_log(&log_path, "project", "ERROR", &msg);
+                msg
+            })?;
+            crate::project_log::append_log(
+                &log_path,
+                "project",
+                "INFO",
+                &format!("Workspace removed: {}", workspace_path),
+            );
+        }
+    }
+
+    log::info!("Project deleted: {} (files={})", project_id, delete_files);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
@@ -361,7 +457,6 @@ pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
     Ok(sanitize_settings(parsed))
 }
 
-/// 保存配置到 settings.json，并通知 worker 热更新。
 #[tauri::command]
 pub fn save_settings(
     settings: Value,
@@ -376,7 +471,6 @@ pub fn save_settings(
     std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
     log::info!("Settings saved to {:?}", settings_path);
 
-    // 通知 worker 热更新（worker 运行中才发送）
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     if manager.is_running() {
         manager.send_reload_config().map_err(|e| e.to_string())?;
@@ -385,30 +479,28 @@ pub fn save_settings(
     Ok(())
 }
 
-/// 导入剧本：规范化文本，写入 script_sources，创建 split_script 任务。
 #[tauri::command]
 pub fn import_script(
     input: ImportScriptInput,
     app: tauri::AppHandle,
 ) -> Result<ImportScriptResult, String> {
-    let db_path = get_project_db_path(&input.project_id, &app)?;
-    let mut conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+    let mut conn = open_app_conn(&app)?;
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
 
-    // 读取原始内容
     let raw_content = match (input.content, input.file_path) {
         (Some(c), _) => c,
-        (None, Some(path)) => std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read file: {}", e))?,
+        (None, Some(path)) => {
+            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?
+        }
         (None, None) => return Err("content or file_path is required".to_string()),
     };
 
-    // 简单规范化：统一换行符、去除 BOM
     let normalized = normalize_text(&raw_content);
 
     let source_id = uuid::Uuid::new_v4().to_string();
     let task_id = uuid::Uuid::new_v4().to_string();
     let lock_key = format!("split_script:{}", source_id);
-
     let input_json = serde_json::json!({
         "projectId": &input.project_id,
         "sourceId": &source_id,
@@ -416,7 +508,6 @@ pub fn import_script(
     })
     .to_string();
 
-    // 在同一事务内写入 script_source + task，任一失败自动回滚
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     tx.execute(
@@ -443,15 +534,21 @@ pub fn import_script(
     tx.commit().map_err(|e| e.to_string())?;
 
     log::info!("Script imported: source_id={}, task_id={}", source_id, task_id);
+    crate::project_log::append_log(
+        &log_path,
+        "script",
+        "INFO",
+        &format!(
+            "Script queued sourceId={} taskId={} sourceType={}",
+            source_id, task_id, input.source_type
+        ),
+    );
     Ok(ImportScriptResult { source_id })
 }
 
-/// 获取项目的片段列表。
 #[tauri::command]
 pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipInfo>, String> {
-    let db_path = get_project_db_path(&project_id, &app)?;
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
-
+    let conn = open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(
             "SELECT id, project_id, source_id, sort_index, title, summary, source_text,
@@ -484,12 +581,12 @@ pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipI
     Ok(clips)
 }
 
-/// 获取项目的剧本来源（最新一条）。
 #[tauri::command]
-pub fn get_script_source(project_id: String, app: tauri::AppHandle) -> Result<Option<serde_json::Value>, String> {
-    let db_path = get_project_db_path(&project_id, &app)?;
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
-
+pub fn get_script_source(
+    project_id: String,
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    let conn = open_app_conn(&app)?;
     let result = conn.query_row(
         "SELECT id, project_id, source_type, file_name, split_status, error_message,
                 retry_count, created_at, updated_at
@@ -528,62 +625,54 @@ fn resolve_workspace_path(
 
     let slug = crate::app_paths::sanitize_project_dir_name(project_name);
     let short_id: String = project_id.chars().take(8).collect();
-    crate::app_paths::default_projects_root().join(format!("{}-{}", slug, short_id))
+    let dir_name = format!("{}-{}", slug, short_id);
+
+    crate::app_paths::default_projects_root().join(dir_name)
 }
 
-fn project_registry_path(app_data_dir: &std::path::Path) -> std::path::PathBuf {
-    app_data_dir.join("project-registry.json")
-}
-
-fn load_project_registry(app_data_dir: &std::path::Path) -> Result<Vec<ProjectRegistryEntry>, String> {
-    let path = project_registry_path(app_data_dir);
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    if content.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    serde_json::from_str(&content).map_err(|e| e.to_string())
-}
-
-fn upsert_project_registry(
-    app_data_dir: &std::path::Path,
-    entry: ProjectRegistryEntry,
+fn ensure_project_schema(
+    db_path: &std::path::Path,
+    app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut registry = load_project_registry(app_data_dir)?;
-    if let Some(existing) = registry.iter_mut().find(|item| item.id == entry.id) {
-        *existing = entry;
-    } else {
-        registry.push(entry);
-    }
-
-    let path = project_registry_path(app_data_dir);
-    let content = serde_json::to_string_pretty(&registry).map_err(|e| e.to_string())?;
-    std::fs::write(path, content).map_err(|e| e.to_string())
+    let conn = crate::db::init_db(db_path).map_err(|e| e.to_string())?;
+    let migrations_dir = resolve_migrations_dir(app)?;
+    crate::db::run_migrations(&conn, &migrations_dir).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-/// 通过注册表找到项目工作区，返回其数据库路径。
-fn get_project_db_path(project_id: &str, app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+fn open_app_conn(app: &tauri::AppHandle) -> Result<rusqlite::Connection, String> {
+    let db_path = crate::app_paths::app_db_path(app)?;
+    crate::db::init_db(&db_path).map_err(|e| e.to_string())
+}
+
+fn get_project_workspace_path(app: &tauri::AppHandle, project_id: &str) -> Result<String, String> {
+    let conn = open_app_conn(app)?;
+    conn.query_row(
+        "SELECT workspace_path FROM projects WHERE id = ?1",
+        rusqlite::params![project_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn resolve_migrations_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
-    let registry = load_project_registry(&app_data_dir)?;
-    let workspace_path = registry
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let candidates = [
+        app_data_dir.join("migrations"),
+        cwd.join("migrations"),
+        cwd.join("..").join("migrations"),
+    ];
+
+    candidates
         .into_iter()
-        .find(|e| e.id == project_id)
-        .map(|e| e.workspace_path)
-        .ok_or_else(|| format!("Project not found: {}", project_id))?;
-    Ok(std::path::PathBuf::from(workspace_path).join("project.sqlite"))
+        .find(|path| path.exists())
+        .ok_or_else(|| "Migrations directory not found".to_string())
 }
 
-/// 文本规范化：统一换行符、去除 BOM 和零宽字符。
 fn normalize_text(text: &str) -> String {
-    // 去除 BOM
     let text = text.trim_start_matches('\u{FEFF}');
-    // 统一换行符
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    // 去除零宽字符
     let text: String = text
         .chars()
         .filter(|&c| c != '\u{200B}' && c != '\u{200C}' && c != '\u{200D}' && c != '\u{FEFF}')

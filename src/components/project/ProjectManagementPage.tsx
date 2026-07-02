@@ -4,6 +4,7 @@ import { useProjects } from "../../hooks/useProjects";
 import { ProjectSidebar } from "./ProjectSidebar";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type ProjectManagementPageProps = {
   onGoHome: () => void;
@@ -14,7 +15,7 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
   const { projects, loading, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  // 维护一个本地的"选中项目"缓存，允许 workspace 操作后立即反映而无需重新拉列表
+  const [deleteTarget, setDeleteTarget] = useState<ProjectInfo | null>(null);
   const [projectOverrides, setProjectOverrides] = useState<Record<string, ProjectInfo>>({});
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
 
   const handleCreated = useCallback((project: ProjectInfo) => {
     setModalOpen(false);
+    setProjectOverrides((prev) => ({ ...prev, [project.id]: project }));
     load().then((items) => {
       if (items.some((p) => p.id === project.id)) {
         setSelectedProjectId(project.id);
@@ -37,10 +39,22 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
     });
   }, [load]);
 
-  // workspace 内部操作（如导入剧本后 current_step 变化）触发本地更新
   const handleProjectUpdated = useCallback((updated: ProjectInfo) => {
     setProjectOverrides((prev) => ({ ...prev, [updated.id]: updated }));
   }, []);
+
+  const handleDeleted = useCallback((projectId: string) => {
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId("");
+    }
+    setProjectOverrides((prev) => {
+      const next = { ...prev };
+      delete next[projectId];
+      return next;
+    });
+    setDeleteTarget(null);
+    load();
+  }, [selectedProjectId, load]);
 
   return (
     <section className="projects-screen">
@@ -50,7 +64,6 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
         loading={loading}
         onSelectProject={(id) => {
           setSelectedProjectId(id);
-          // 切换项目时清除旧的 override，让列表数据重新生效
           setProjectOverrides((prev) => {
             const next = { ...prev };
             delete next[id];
@@ -58,6 +71,7 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
           });
         }}
         onCreateProject={() => setModalOpen(true)}
+        onDeleteProject={(project) => setDeleteTarget(project)}
         onRefresh={() => {
           setProjectOverrides({});
           load();
@@ -77,6 +91,14 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
         <CreateProjectModal
           onClose={() => setModalOpen(false)}
           onCreated={handleCreated}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteConfirmModal
+          project={deleteTarget}
+          onDeleted={handleDeleted}
+          onClose={() => setDeleteTarget(null)}
         />
       ) : null}
     </section>

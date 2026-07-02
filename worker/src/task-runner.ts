@@ -17,6 +17,7 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import type { TaskEvent, TaskType, ApiType, TaskContext, RateLimiter } from "./types.js";
 import { TASK_TYPE_TO_API } from "./types.js";
+import type { ApiClients } from "./clients/index.js";
 import {
   getPendingTasks,
   acquireLock,
@@ -28,6 +29,7 @@ import {
   getRunningTaskCount,
   type PendingTask,
 } from "./db.js";
+import { logLine } from "./logger.js";
 
 const POLL_INTERVAL_MS = 1000;
 const HEARTBEAT_INTERVAL_MS = 10000;
@@ -37,6 +39,7 @@ export class TaskRunner {
   private workerId: string;
   private rateLimiter: RateLimiter;
   private emit: (event: TaskEvent) => void;
+  private clients?: ApiClients;
   private running = false;
   private abortController: AbortController;
   private handlers: Map<TaskType, (ctx: TaskContext) => Promise<string>> = new Map();
@@ -48,12 +51,14 @@ export class TaskRunner {
     workerId: string,
     rateLimiter: RateLimiter,
     emit: (event: TaskEvent) => void,
-    onHeartbeat?: (activeCount: number) => void
+    onHeartbeat?: (activeCount: number) => void,
+    clients?: ApiClients
   ) {
     this.db = db;
     this.workerId = workerId;
     this.rateLimiter = rateLimiter;
     this.emit = emit;
+    this.clients = clients;
     this.abortController = new AbortController();
     this.onHeartbeat = onHeartbeat ?? null;
   }
@@ -70,6 +75,7 @@ export class TaskRunner {
    */
   async start(): Promise<void> {
     this.running = true;
+    logLine("task-runner", "INFO", `Started workerId=${this.workerId}`);
     console.log(`[TaskRunner] started, workerId: ${this.workerId}`);
 
     // 启动心跳定时器
@@ -84,6 +90,7 @@ export class TaskRunner {
         await this.processPendingTasks();
         await this.processWaitingRemoteTasks();
       } catch (err) {
+        logLine("task-runner", "ERROR", `Main loop error: ${err instanceof Error ? err.message : String(err)}`);
         console.error("[TaskRunner] error in main loop:", err);
       }
 
@@ -93,6 +100,7 @@ export class TaskRunner {
     }
 
     clearInterval(heartbeatTimer);
+    logLine("task-runner", "INFO", "Stopped");
     console.log("[TaskRunner] stopped");
   }
 
@@ -110,6 +118,8 @@ export class TaskRunner {
   private async processPendingTasks(): Promise<void> {
     const tasks = getPendingTasks(this.db);
     if (tasks.length === 0) return;
+
+    logLine("task-runner", "INFO", `Found ${tasks.length} pending task(s)`);
 
     for (const task of tasks) {
       if (!this.running) break;
@@ -159,6 +169,7 @@ export class TaskRunner {
     const handler = this.handlers.get(taskType);
     if (!handler) {
       const errMsg = `No handler registered for task type: ${taskType}`;
+      logLine("task-runner", "ERROR", errMsg);
       markTaskFailed(this.db, task.id, errMsg);
       releaseLock(this.db, task.lock_key);
       this.rateLimiter.release(apiType);
@@ -177,14 +188,19 @@ export class TaskRunner {
       emit: this.emit,
       rateLimiter: this.rateLimiter,
       signal: this.abortController.signal,
+      clients: this.clients,
     };
+
+    logLine("task-runner", "INFO", `Executing task: id=${task.id} type=${taskType} apiType=${apiType}`);
 
     try {
       const outputJson = await handler(ctx);
+      logLine("task-runner", "INFO", `Task succeeded: id=${task.id} type=${taskType}`);
       markTaskSuccess(this.db, task.id, outputJson);
       this.emit({ type: "task_success", taskId: task.id, outputJson });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      logLine("task-runner", "ERROR", `Task failed: id=${task.id} type=${taskType} error=${errorMessage}`);
 
       // 检查是否是 429 错误
       if (this.isRateLimitError(err)) {

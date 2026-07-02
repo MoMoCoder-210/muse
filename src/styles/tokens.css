@@ -34,21 +34,46 @@
   --border-accent:      rgba(96, 165, 250, 0.80);
   --border-accent-subtle: rgba(96, 165, 250, 0.22);
 
-  /* 按钮 */
-  --btn-primary-bg:         #2563eb;
-  --btn-primary-bg-end:     #0ea5e9;
+  /* ── 基础语义色（纯值，供组件变量引用） ── */
+  --color-danger:         #e04040;
+  --color-danger-dark:    #c62828;
+  --color-danger-darker:  #b71c1c;
+  --color-danger-light:   #ef5350;
+  --color-danger-lighter: #d32f2f;
+  --color-success:        #50c878;
+  --color-warning:        #ffb432;
+  --color-info:           #6cb4ff;
+
+  /* ── RGB 通道（供 rgba() 组合使用） ── */
+  --color-danger-rgb:     224, 64, 64;
+  --color-success-rgb:    80, 200, 120;
+  --color-warning-rgb:    255, 180, 50;
+  --color-info-rgb:       100, 160, 255;
+  --accent-primary-rgb:   37, 99, 235;
+  --border-accent-rgb:    96, 165, 250;
+
+  /* ── 按钮 ── */
+  --btn-primary-bg:         var(--accent-primary);
+  --btn-primary-bg-end:     var(--accent-secondary);
   --btn-primary-border:     rgba(125, 211, 252, 0.34);
-  --btn-primary-shadow:     rgba(37, 99, 235, 0.28);
-  --btn-secondary-bg:       rgba(37, 99, 235, 0.26);
-  --btn-secondary-border:   rgba(96, 165, 250, 0.28);
+  --btn-primary-shadow:     rgba(var(--accent-primary-rgb), 0.28);
+  --btn-secondary-bg:       rgba(var(--accent-primary-rgb), 0.26);
+  --btn-secondary-border:   rgba(var(--border-accent-rgb), 0.28);
   --btn-secondary-text:     #dbeafe;
   --btn-ghost-bg:           rgba(15, 23, 42, 0.76);
   --btn-ghost-border:       rgba(148, 163, 184, 0.18);
   --btn-ghost-text:         #e2e8f0;
+  --btn-danger-bg:          var(--color-danger);
+  --btn-danger-bg-end:      var(--color-danger-dark);
+  --btn-danger-border:      var(--color-danger-darker);
+  --btn-danger-shadow:      rgba(var(--color-danger-rgb), 0.25);
+  --btn-danger-hover-bg:    var(--color-danger-light);
+  --btn-danger-hover-bg-end: var(--color-danger-lighter);
+  --btn-danger-hover-shadow: rgba(var(--color-danger-rgb), 0.35);
 
   /* 焦点环 */
-  --focus-ring:             rgba(59, 130, 246, 0.16);
-  --focus-border:           rgba(96, 165, 250, 0.80);
+  --focus-ring:             rgba(var(--accent-primary-rgb), 0.16);
+  --focus-border:           var(--border-accent);
 
   /* 阴影 */
   --shadow-card:            0 24px 70px rgba(0, 0, 0, 0.45);
@@ -60,35 +85,55 @@
   --overlay-modal:          rgba(2, 6, 23, 0.72);
 
   /* 工作流步骤 */
-  --step-done-bg:           rgba(37, 99, 235, 0.28);
+  --step-done-bg:           rgba(var(--accent-primary-rgb), 0.28);
   --step-done-bg-end:       rgba(15, 23, 42, 0.68);
-  --step-done-border:       rgba(59, 130, 246, 0.42);
+  --step-done-border:       rgba(var(--accent-primary-rgb), 0.42);
   --step-done-text:         #dbeafe;
   --step-pending-bg:        rgba(15, 23, 42, 0.72);
 
   /* Badge / Chip */
-  --badge-bg:               rgba(59, 130, 246, 0.16);
+  --badge-bg:               rgba(var(--accent-primary-rgb), 0.16);
   --badge-text:             #bfdbfe;
   --chip-bg:                rgba(148, 163, 184, 0.12);
   --chip-text:              #cbd5e1;
 
   /* Select */
-  --select-active-bg:            rgba(37, 99, 235, 0.16);
+  --select-active-bg:            rgba(var(--accent-primary-rgb), 0.16);
   --select-active-text:          #dbeafe;
-  --select-hover-bg:             rgba(37, 99, 235, 0.24);
-  --select-menu-border:          rgba(96, 165, 250, 0.22);
+  --select-hover-bg:             rgba(var(--accent-primary-rgb), 0.24);
+  --select-menu-border:          rgba(var(--border-accent-rgb), 0.22);
   --select-menu-bg:              rgba(9, 14, 24, 0.98);
   --select-caret-color:          rgba(226, 232, 240, 0.90);
-  --select-trigger-hover-border: rgba(96, 165, 250, 0.48);
+  --select-trigger-hover-border: rgba(var(--border-accent-rgb), 0.48);
 
   /* Segmented */
   --segmented-bg:                rgba(148, 163, 184, 0.12);
-  --segmented-active-bg:         rgba(59, 130, 246, 0.22);
-  --segmented-active-border:     rgba(96, 165, 250, 0.80);
+  --segmented-active-bg:         rgba(var(--accent-primary-rgb), 0.22);
+  --segmented-active-border:     var(--border-accent);
+
+  /* 危险色（语义层，供组件引用） */
+  --danger-color:         var(--color-danger);
+  --danger-bg:            rgba(var(--color-danger-rgb), 0.12);
+
+  /* 项目列表 */
+  --project-item-hover-ring:    rgba(var(--border-accent-rgb), 0.35);
+  --project-item-hover-glow:    rgba(var(--border-accent-rgb), 0.12);
+  --project-item-active-bg:     rgba(var(--accent-primary-rgb), 0.18);
+  --project-item-active-ring:   rgba(var(--border-accent-rgb), 0.50);
+  --project-item-active-glow:   rgba(var(--border-accent-rgb), 0.18);
+
+  /* Toast */
+  --toast-info-bg:        rgba(var(--color-info-rgb), 0.18);
+  --toast-info-color:     var(--color-info);
+  --toast-success-bg:     rgba(var(--color-success-rgb), 0.18);
+  --toast-success-color:  var(--color-success);
+  --toast-warning-bg:     rgba(var(--color-warning-rgb), 0.18);
+  --toast-warning-color:  var(--color-warning);
+  --toast-error-bg:       rgba(var(--color-danger-rgb), 0.18);
+  --toast-error-color:    var(--color-danger);
 
   /* 杂项 */
   --modal-close-btn-color:  rgba(226, 232, 240, 0.82);
-  --project-item-active-bg: rgba(30, 41, 59, 0.92);
   --color-white:            #ffffff;
 
   /* ── 字体 ──

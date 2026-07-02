@@ -1,6 +1,8 @@
+use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::io::Write;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -30,6 +32,60 @@ pub enum SidecarError {
     MaxRestartsExceeded,
 }
 
+type LogLineProcessor = Box<dyn Fn(&str) + Send + 'static>;
+
+fn spawn_log_reader<R: std::io::Read + Send + 'static>(
+    stream: R,
+    log_path: Arc<std::path::PathBuf>,
+    default_source: &'static str,
+    default_level: &'static str,
+    process_line: Option<LogLineProcessor>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let reader = BufReader::new(stream);
+        for line in reader.lines() {
+            match line {
+                Ok(text) => {
+                    let trimmed = text.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Some(ref processor) = process_line {
+                        processor(trimmed);
+                    } else {
+                        crate::project_log::append_log(&log_path, default_source, default_level, trimmed);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
+    if let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) {
+        let msg_type = msg.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+        match msg_type {
+            "heartbeat" | "ready" | "task_event" | "batch_progress"
+            | "quota_exhausted" | "shutting_down" => {}
+            "log" => {
+                let level = msg.get("level").and_then(|v| v.as_str()).unwrap_or("INFO");
+                let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                crate::project_log::append_log(log_path, "worker", &level.to_uppercase(), message);
+            }
+            "error" => {
+                let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
+                crate::project_log::append_log(log_path, "worker", "ERROR", message);
+            }
+            _ => {
+                crate::project_log::append_log(log_path, "worker:stdout", "INFO", text);
+            }
+        }
+    } else {
+        crate::project_log::append_log(log_path, "worker:stdout", "INFO", text);
+    }
+}
+
 /// SidecarManager 管理 Node worker 子进程的完整生命周期。
 ///
 /// 职责：
@@ -49,6 +105,9 @@ pub struct SidecarManager {
     db_path: String,
     workspace_path: String,
     config_path: String,
+    log_path: String,
+    // stderr 读取线程，shutdown 时 join
+    log_handles: Vec<JoinHandle<()>>,
 }
 
 #[allow(dead_code)]
@@ -63,6 +122,8 @@ impl SidecarManager {
             db_path: String::new(),
             workspace_path: String::new(),
             config_path: String::new(),
+            log_path: String::new(),
+            log_handles: Vec::new(),
         }
     }
 
@@ -74,7 +135,7 @@ impl SidecarManager {
     /// 3. 等待 ready 消息（包含 workerId + protocolVersion）
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
-    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str) -> Result<(), SidecarError> {
+    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
         }
@@ -83,27 +144,78 @@ impl SidecarManager {
         self.db_path = db_path.to_string();
         self.workspace_path = workspace_path.to_string();
         self.config_path = config_path.to_string();
+        self.log_path = log_path.to_string();
 
-        let worker_path = std::env::current_dir()
-            .map_err(|e| SidecarError::StartFailed(e.to_string()))?
-            .join("worker")
-            .join("dist")
-            .join("index.js");
+        // 解析 worker 脚本路径
+        // Tauri dev 模式下 current_dir() 是 src-tauri/，需要回退到项目根目录
+        let cwd = std::env::current_dir()
+            .map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+        let worker_path = {
+            let primary = cwd.join("worker").join("dist").join("index.js");
+            if primary.exists() {
+                primary
+            } else {
+                let fallback = cwd.parent()
+                    .unwrap_or(&cwd)
+                    .join("worker")
+                    .join("dist")
+                    .join("index.js");
+                fallback
+            }
+        };
 
-        let child = Command::new("node")
+        // 启动前检查 worker 文件是否存在，避免静默失败
+        if !worker_path.exists() {
+            let msg = format!("Worker script not found: {}", worker_path.display());
+            if !log_path.is_empty() {
+                crate::project_log::append_log(Path::new(log_path), "sidecar", "ERROR", &msg);
+            }
+            return Err(SidecarError::StartFailed(msg));
+        }
+
+        log::info!("Worker script resolved to: {}", worker_path.display());
+
+        let mut child = Command::new("node")
             .arg(&worker_path)
             .args(["--db", db_path])
             .args(["--workspace", workspace_path])
             .args(["--config", config_path])
+            .args(["--log", log_path])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+            .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node: {}", e)))?;
+
+        // 启动 stderr 读取线程 → 写入项目日志文件
+        if let Some(stderr) = child.stderr.take() {
+            let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
+            let handle = spawn_log_reader(stderr, log_path_arc, "worker:stderr", "ERROR", None);
+            self.log_handles.push(handle);
+        }
+
+        // 启动 stdout 读取线程 → 解析协议消息，非 JSON 行写入日志
+        if let Some(stdout) = child.stdout.take() {
+            let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
+            let log_path_clone = log_path_arc.clone();
+            let processor: LogLineProcessor = Box::new(move |text: &str| {
+                parse_stdout_line(&log_path_clone, text);
+            });
+            let handle = spawn_log_reader(stdout, log_path_arc, "worker:stdout", "INFO", Some(processor));
+            self.log_handles.push(handle);
+        }
 
         self.child = Some(child);
         self.last_heartbeat = Some(Instant::now());
 
+        if !log_path.is_empty() {
+            crate::project_log::append_log(
+                Path::new(log_path),
+                "sidecar",
+                "INFO",
+                &format!("Worker started, workerId={}", self.worker_id),
+            );
+        }
         log::info!("Sidecar worker started, workerId: {}", self.worker_id);
         Ok(())
     }
@@ -152,6 +264,20 @@ impl SidecarManager {
 
         self.child = None;
         self.last_heartbeat = None;
+
+        // 等待日志读取线程结束（子进程退出后管道关闭，线程会自动退出）
+        for handle in self.log_handles.drain(..) {
+            let _ = handle.join();
+        }
+
+        if !self.log_path.is_empty() {
+            crate::project_log::append_log(
+                Path::new(&self.log_path),
+                "sidecar",
+                "INFO",
+                "Worker shut down",
+            );
+        }
         log::info!("Sidecar worker shut down");
         Ok(())
     }
@@ -183,6 +309,11 @@ impl SidecarManager {
         }
         self.child = None;
 
+        // 等待旧的日志读取线程结束
+        for handle in self.log_handles.drain(..) {
+            let _ = handle.join();
+        }
+
         // 等待短暂间隔
         std::thread::sleep(Duration::from_secs(RESTART_DELAY_SECS));
 
@@ -204,7 +335,8 @@ impl SidecarManager {
         let db = self.db_path.clone();
         let workspace = self.workspace_path.clone();
         let config = self.config_path.clone();
-        self.start(&db, &workspace, &config)
+        let log_path = self.log_path.clone();
+        self.start(&db, &workspace, &config, &log_path)
     }
     ///
     /// 返回：
@@ -262,6 +394,14 @@ impl SidecarManager {
     /// 检查 worker 是否在运行
     pub fn is_running(&self) -> bool {
         self.child.is_some()
+    }
+
+    pub fn matches_runtime(&self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str) -> bool {
+        self.child.is_some()
+            && self.db_path == db_path
+            && self.workspace_path == workspace_path
+            && self.config_path == config_path
+            && self.log_path == log_path
     }
 }
 

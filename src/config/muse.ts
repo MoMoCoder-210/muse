@@ -17,11 +17,9 @@ export const STYLE_OPTIONS = ["国漫", "动漫", "日漫", "韩漫", "二次元
 export type StyleMode = (typeof STYLE_OPTIONS)[number];
 
 export const WORKFLOW_STEPS = [
-  "剧本导入",
-  "自动拆分镜",
-  "角色场景物品图生成",
+  "剧本管理",
+  "资产管理",
   "分镜编辑",
-  "融合生成分镜图",
-  "视频生成/编辑",
-  "导出交付",
+  "视频编辑",
+  "视频合成",
 ] as const;

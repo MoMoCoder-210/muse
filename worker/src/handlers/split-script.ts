@@ -6,7 +6,9 @@
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
+import { randomUUID } from "crypto";
 import type { TaskContext } from "../types.js";
+import { logLine } from "../logger.js";
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
 const EPISODE_PATTERNS = [
@@ -84,6 +86,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
   // 剔除设定部分
   if (hasSettingKeywords(workText)) {
+    logLine("split-script", "INFO", "Setting keywords detected, trimming preamble");
     const markers = findEpisodeMarkers(workText);
     if (markers.length > 0) {
       workText = workText.slice(markers[0]);
@@ -91,7 +94,12 @@ export function ruleSplit(text: string): ClipDraft[] | null {
   }
 
   const markers = findEpisodeMarkers(workText);
-  if (markers.length === 0) return null;
+  if (markers.length === 0) {
+    logLine("split-script", "INFO", "Rule split: no episode markers found in text");
+    return null;
+  }
+
+  logLine("split-script", "INFO", `Rule split: found ${markers.length} episode markers`);
 
   const clips: ClipDraft[] = [];
 
@@ -123,11 +131,24 @@ export function ruleSplit(text: string): ClipDraft[] | null {
   }
 
   // 成功判定
-  if (clips.length === 0) return null;
-  if (clips.some((c) => c.wordCount < 50)) return null;
+  if (clips.length === 0) {
+    logLine("split-script", "INFO", "Rule split: no clips produced after parsing");
+    return null;
+  }
+
+  const shortClips = clips.filter((c) => c.wordCount < 50);
+  if (shortClips.length > 0) {
+    logLine("split-script", "INFO", `Rule split: ${shortClips.length} clip(s) have fewer than 50 words, rejecting`);
+    return null;
+  }
+
   const totalClipWords = clips.reduce((s, c) => s + c.wordCount, 0);
   const totalWords = countWords(workText);
-  if (totalWords > 0 && totalClipWords / totalWords < 0.8) return null;
+  const coverage = totalWords > 0 ? totalClipWords / totalWords : 0;
+  if (totalWords > 0 && coverage < 0.8) {
+    logLine("split-script", "INFO", `Rule split: coverage ${(coverage * 100).toFixed(1)}% < 80%, rejecting`);
+    return null;
+  }
 
   return clips;
 }
@@ -151,8 +172,6 @@ function insertClips(
     `UPDATE projects SET current_step = 'script', updated_at = datetime('now') WHERE id = ?`
   );
 
-  const { randomUUID } = require("crypto") as typeof import("crypto");
-
   db.transaction(() => {
     for (const clip of clips) {
       insert.run(
@@ -168,6 +187,110 @@ function insertClips(
     updateSource.run(sourceId);
     updateProject.run(projectId);
   })();
+}
+
+function stripCodeFences(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("```")) {
+    return trimmed;
+  }
+  return trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
+function parseModelClips(raw: string, originalText: string): ClipDraft[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new Error("模型拆分返回内容不是有效的 JSON");
+  }
+
+  if (!Array.isArray(payload) || payload.length === 0) {
+    throw new Error("模型拆分返回格式无效：期望非空 JSON 数组");
+  }
+
+  const clips = payload.map((item, index) => {
+    if (typeof item !== "object" || item === null) {
+      throw new Error(`模型拆分第 ${index + 1} 条不是有效对象`);
+    }
+
+    const obj = item as Record<string, unknown>;
+    const sourceText = typeof obj.content === "string" ? obj.content.trim() : "";
+    if (!sourceText) {
+      throw new Error(`模型拆分第 ${index + 1} 条内容为空或缺少 content 字段`);
+    }
+
+    return {
+      sortIndex: index + 1,
+      title: typeof obj.title === "string" ? obj.title.trim() : "",
+      summary: typeof obj.summary === "string" ? obj.summary.trim() : "",
+      sourceText,
+      wordCount: typeof obj.wordCount === "number" && obj.wordCount > 0
+        ? obj.wordCount
+        : countWords(sourceText),
+    };
+  });
+
+  const totalClipWords = clips.reduce((sum, clip) => sum + clip.wordCount, 0);
+  const originalWords = countWords(originalText);
+  if (originalWords > 0 && totalClipWords / originalWords < 0.8) {
+    throw new Error("模型拆分结果覆盖率不足");
+  }
+
+  return clips;
+}
+
+const MODEL_SPLIT_MAX_WORDS = 100000;
+
+async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
+  const textClient = ctx.clients?.text;
+  if (!textClient) {
+    throw new Error("模型拆分不可用：文本模型客户端未初始化");
+  }
+
+  const wordCount = countWords(text);
+
+  if (wordCount < 1500) {
+    return [{
+      sortIndex: 1,
+      title: "",
+      summary: "",
+      sourceText: text.trim(),
+      wordCount,
+    }];
+  }
+
+  if (wordCount > MODEL_SPLIT_MAX_WORDS) {
+    throw new Error(
+      `剧本文字数（${wordCount}）超过模型拆分上限（${MODEL_SPLIT_MAX_WORDS}），请先手动精简或使用规则拆分`,
+    );
+  }
+
+  const prompt = [
+    "你是一个影视剧本拆分助手。",
+    "请把输入剧本拆成有序片段，输出必须是 JSON 数组。",
+    "每个元素只能包含 title、summary、wordCount、content 这四个字段。",
+    "content 必须保留原文，不要改写，不要补写。",
+    "如果原文存在集数边界，按自然集数切分；如果没有，按语义完整性切分成多个片段。",
+    "不要输出 Markdown，不要输出解释文字。",
+  ].join("\n");
+
+  const result = await textClient.chat(
+    [
+      { role: "system", content: prompt },
+      { role: "user", content: text },
+    ],
+    {
+      temperature: 0.2,
+      maxTokens: 4096,
+      signal: ctx.signal,
+    }
+  );
+
+  return parseModelClips(result.content, text);
 }
 
 // ─── handler 入口 ─────────────────────────────────────────────────
@@ -193,40 +316,58 @@ export async function splitScriptWithInput(
 ): Promise<string> {
   const { db, emit } = ctx;
 
+  logLine("split-script", "INFO", `Starting split: projectId=${input.projectId} sourceId=${input.sourceId} forceAi=${input.forceAi ?? false}`);
+
   // 读取剧本内容
   const source = db
     .prepare("SELECT normalized_content FROM script_sources WHERE id = ?")
     .get(input.sourceId) as { normalized_content: string } | undefined;
 
   if (!source) {
+    logLine("split-script", "ERROR", `ScriptSource not found: ${input.sourceId}`);
     throw new Error(`ScriptSource not found: ${input.sourceId}`);
   }
 
   const text = source.normalized_content;
+  const wordCount = countWords(text);
+  logLine("split-script", "INFO", `Script loaded: ${wordCount} words, ${text.length} chars`);
 
   // 标记 running
   db.prepare(
     "UPDATE script_sources SET split_status = 'running', updated_at = datetime('now') WHERE id = ?"
   ).run(input.sourceId);
 
-  // 规则拆分
-  const clips = ruleSplit(text);
+  const ruleClips = input.forceAi ? null : ruleSplit(text);
 
-  if (clips) {
-    insertClips(db, input.projectId, input.sourceId, clips);
+  if (ruleClips) {
+    logLine("split-script", "INFO", `Rule split succeeded: ${ruleClips.length} clips`);
+    insertClips(db, input.projectId, input.sourceId, ruleClips);
     emit({ type: "task_success", taskId: "" });
     return JSON.stringify({
       splitMode: "rule",
-      clipCount: clips.length,
-      totalWordCount: clips.reduce((s, c) => s + c.wordCount, 0),
+      clipCount: ruleClips.length,
+      totalWordCount: ruleClips.reduce((s, c) => s + c.wordCount, 0),
     });
   }
 
-  // TODO: 规则拆分失败 → 走模型智能拆分
-  // 当前先标记失败，等待模型接入后替换
-  db.prepare(
-    "UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run("规则拆分失败，模型拆分暂未实现", input.sourceId);
+  logLine("split-script", "INFO", `Rule split ${input.forceAi ? "skipped (forceAi)" : "failed"}, falling back to model split`);
 
-  throw new Error("规则拆分失败，该剧本没有明确的集数标志，模型拆分功能即将上线");
+  try {
+    const modelClips = await modelSplit(ctx, text);
+    logLine("split-script", "INFO", `Model split succeeded: ${modelClips.length} clips`);
+    insertClips(db, input.projectId, input.sourceId, modelClips);
+    emit({ type: "task_success", taskId: "" });
+    return JSON.stringify({
+      splitMode: "model",
+      clipCount: modelClips.length,
+      totalWordCount: modelClips.reduce((s, c) => s + c.wordCount, 0),
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logLine("split-script", "ERROR", `Model split failed: ${errorMessage}`);
+    db.prepare(
+      "UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(errorMessage, input.sourceId);
+    throw error;
+  }
 }

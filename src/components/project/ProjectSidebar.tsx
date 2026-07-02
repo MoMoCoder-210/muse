@@ -8,6 +8,7 @@ type ProjectSidebarProps = {
   loading: boolean;
   onSelectProject: (id: string) => void;
   onCreateProject: () => void;
+  onDeleteProject: (project: ProjectInfo) => void;
   onRefresh: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
@@ -19,6 +20,7 @@ export function ProjectSidebar({
   loading,
   onSelectProject,
   onCreateProject,
+  onDeleteProject,
   onRefresh,
   onGoHome,
   onOpenSettings,
@@ -53,6 +55,7 @@ export function ProjectSidebar({
           projects={projects}
           selectedProjectId={selectedProjectId}
           onSelect={onSelectProject}
+          onRequestDelete={onDeleteProject}
         />
       </div>
 

@@ -53,6 +53,7 @@
 
 .file-path-display {
   flex: 1;
+  width: 100%;
   border: 1px solid var(--border-base);
   border-radius: 14px;
   background: var(--bg-input);

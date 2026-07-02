@@ -21,11 +21,13 @@ import { splitScriptHandler } from "./handlers/split-script.js";
 import { SettingsManager } from "./config/settings.js";
 import { createClients } from "./clients/index.js";
 import type { ApiClients } from "./clients/index.js";
+import { configureLogger, logLine } from "./logger.js";
 
 const workerId = randomUUID();
 let dbPath = process.env.WORKER_DB_PATH || "";
 let workspacePath = process.env.WORKER_WORKSPACE_PATH || "";
 let configPath = process.env.WORKER_CONFIG_PATH || "";
+let logPath = process.env.WORKER_LOG_PATH || "";
 let running = true;
 
 // 初始化数据库连接
@@ -42,6 +44,7 @@ function sendMessage(msg: WorkerMessage): void {
 
 // 发送日志
 function sendLog(level: "info" | "warn" | "error", message: string): void {
+  logLine("worker", level.toUpperCase() as "INFO" | "WARN" | "ERROR", message);
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
 }
 
@@ -148,8 +151,13 @@ async function main(): Promise<void> {
       workspacePath = args[i + 1];
     } else if (args[i] === "--config" && args[i + 1]) {
       configPath = args[i + 1];
+    } else if (args[i] === "--log" && args[i + 1]) {
+      logPath = args[i + 1];
     }
   }
+
+  configureLogger(logPath);
+  logLine("worker", "INFO", `Worker booting db=${dbPath || "<empty>"} workspace=${workspacePath || "<empty>"}`);
 
   // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
   if (configPath) {
@@ -162,13 +170,32 @@ async function main(): Promise<void> {
 
   // 初始化数据库
   if (dbPath) {
+    // 启动诊断：检查 DB 文件是否可访问
+    const { existsSync } = await import("fs");
+    if (!existsSync(dbPath)) {
+      logLine("worker", "WARN", `DB file does not exist yet: ${dbPath} (will be created on init)`);
+    }
+
     db = initDatabase(dbPath);
+    logLine("worker", "INFO", `Database connected: ${dbPath}`);
+
+    // 检查启动时是否有遗留的 running 任务（上次崩溃未回退）
+    const staleRunning = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'running'").get() as { cnt: number };
+    if (staleRunning.cnt > 0) {
+      logLine("worker", "WARN", `Found ${staleRunning.cnt} stale running task(s), resetting to pending`);
+      db.prepare("UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE status = 'running'").run();
+    }
+
+    const pendingCount = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number };
+    logLine("worker", "INFO", `Pending tasks at startup: ${pendingCount.cnt}`);
+
     rateLimiter = new RateLimiterImpl();
     // TaskRunner 内置心跳定时器，通过 onHeartbeat 回调将心跳发送出去
-    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, sendHeartbeat);
+    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, sendHeartbeat, clients);
 
     // 注册任务处理器
     taskRunner.registerHandler("split_script", splitScriptHandler);
+    logLine("worker", "INFO", "Registered handlers: split_script");
     // TODO: 后续模块注册
     // taskRunner.registerHandler("generate_script", generateScriptHandler);
 
@@ -220,6 +247,7 @@ async function main(): Promise<void> {
 
   // 处理未捕获异常
   process.on("uncaughtException", (err) => {
+    logLine("worker", "ERROR", `Uncaught exception: ${err.message}\n${err.stack || ""}`);
     sendMessage({
       version: PROTOCOL_VERSION,
       msg: "error",
@@ -238,6 +266,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  logLine("worker", "ERROR", `Fatal error: ${err instanceof Error ? err.message : String(err)}`);
   console.error("Fatal error:", err);
   process.exit(1);
 });

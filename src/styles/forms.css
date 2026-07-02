@@ -5,12 +5,17 @@
   gap: 8px;
 }
 
+.field--full {
+  grid-column: 1 / -1;
+}
+
 .field span {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
 
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   border: 1px solid var(--border-base);
   border-radius: 14px;
@@ -21,7 +26,14 @@
   outline: none;
 }
 
-.field input:focus {
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: var(--line-height-base);
+}
+
+.field input:focus,
+.field textarea:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }

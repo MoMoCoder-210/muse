@@ -10,6 +10,7 @@ import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { VoiceModelConfig } from "../config/defaults.js";
+import { FALLBACK_API_KEY } from "./constants.js";
 
 const DEFAULT_VOICE = "zh_female_shuangkuaisisi_moon_bigtts";
 
@@ -42,7 +43,7 @@ export class VoiceClient {
 
   private buildClient(config: VoiceModelConfig): OpenAI {
     return new OpenAI({
-      apiKey: config.apiKey,
+      apiKey: config.apiKey || FALLBACK_API_KEY,
       baseURL: config.baseUrl,
       timeout: config.timeoutMs,
       maxRetries: 0,

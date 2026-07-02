@@ -79,17 +79,26 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-primary);
-  transition: background 120ms ease, border-color 120ms ease;
+  cursor: pointer;
+  transition: box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.project-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-border), 0 0 0 4px var(--focus-ring);
 }
 
 .project-item:hover {
-  background: var(--bg-surface-deep);
-  border-color: var(--border-faint);
+  box-shadow: 0 0 0 1px var(--project-item-hover-ring), 0 0 14px var(--project-item-hover-glow);
 }
 
 .project-item.active {
-  border-color: var(--border-accent);
   background: var(--project-item-active-bg);
+  border-color: var(--border-accent);
+}
+
+.project-item.active:hover {
+  box-shadow: 0 0 0 1px var(--project-item-active-ring), 0 0 18px var(--project-item-active-glow);
 }
 
 .project-item-title {
@@ -104,17 +113,6 @@
   font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 状态 pill */
-.project-item-title span {
-  flex-shrink: 0;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--chip-bg);
-  color: var(--text-success);
-  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
@@ -137,6 +135,110 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.6;
+}
+
+/* 项目卡片底部行：路径 + 删除按钮 */
+.project-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.project-item-footer small {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.project-delete-btn {
+  display: inline-grid;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  place-items: center;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.project-delete-btn:hover {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+}
+
+/* 删除确认弹窗 */
+.delete-confirm-panel {
+  max-width: 420px;
+}
+
+.delete-confirm-body {
+  padding: 0 4px;
+}
+
+.delete-confirm-body p {
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.delete-confirm-body strong {
+  color: var(--text-primary);
+}
+
+.delete-files-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-surface-deep);
+  border: 1px solid var(--border-faint);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  transition: border-color 120ms ease;
+}
+
+.delete-files-option:hover {
+  border-color: var(--border-base);
+}
+
+.delete-files-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--danger-color);
+  cursor: pointer;
+}
+
+.delete-files-hint {
+  margin-top: 8px !important;
+  color: var(--text-muted) !important;
+  font-size: var(--font-size-xs) !important;
+}
+
+.delete-files-hint code {
+  font-family: monospace;
+  background: var(--chip-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  word-break: break-all;
+}
+
+.delete-confirm-title {
+  margin: 0;
+  font-size: 18px;
 }
 
 /* 空状态 */

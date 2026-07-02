@@ -28,6 +28,10 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
   return invoke<ProjectInfo>("create_project", { input });
 }
 
+export async function startWorker(projectId?: string): Promise<string> {
+  return invoke<string>("start_worker", { projectId });
+}
+
 export async function importScript(input: ImportScriptInput): Promise<ImportScriptResult> {
   return invoke<ImportScriptResult>("import_script", { input });
 }
@@ -38,6 +42,18 @@ export async function listClips(projectId: string): Promise<Clip[]> {
 
 export async function getScriptSource(projectId: string): Promise<ScriptSource | null> {
   return invoke<ScriptSource | null>("get_script_source", { projectId });
+}
+
+export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<void> {
+  return invoke<void>("delete_project", { projectId, deleteFiles });
+}
+
+export async function ensureWorkerAndImportScript(
+  projectId: string,
+  input: Omit<ImportScriptInput, "project_id">,
+): Promise<ImportScriptResult> {
+  await startWorker(projectId);
+  return importScript({ ...input, project_id: projectId });
 }
 
 // ── 设置 ──────────────────────────────────────────────────

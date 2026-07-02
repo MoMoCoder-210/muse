@@ -22,6 +22,10 @@ pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBu
     Ok(fallback)
 }
 
+pub fn app_db_path<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String> {
+    Ok(resolve_app_data_dir(app)?.join("app.sqlite"))
+}
+
 pub fn default_projects_root() -> PathBuf {
     let drive_d = Path::new(r"D:\");
     if drive_d.exists() {

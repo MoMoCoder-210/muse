@@ -1,6 +1,7 @@
 mod app_paths;
 mod commands;
 mod db;
+mod project_log;
 mod sidecar;
 
 use tauri::Manager;
@@ -17,6 +18,13 @@ pub fn run() {
             let app_data_dir =
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
             log::info!("Application data directory: {:?}", app_data_dir);
+
+            let log_path = project_log::log_path_for_app_data(&app_data_dir);
+            project_log::append_log(&log_path, "app", "INFO", "Application starting");
+
+            commands::prepare_app_runtime(app.handle()).map_err(std::io::Error::other)?;
+            log::info!("Application database prepared at startup");
+            project_log::append_log(&log_path, "app", "INFO", "Database prepared");
 
             let sidecar_manager: sidecar::SharedSidecarManager =
                 std::sync::Mutex::new(sidecar::SidecarManager::new());
@@ -36,6 +44,7 @@ pub fn run() {
             commands::save_settings,
             commands::start_worker,
             commands::stop_worker,
+            commands::delete_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

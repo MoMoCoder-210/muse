@@ -2,6 +2,7 @@
 
 .primary-button,
 .secondary-button,
+.danger-button,
 .ghost-button,
 .icon-button,
 .segmented button {
@@ -22,6 +23,7 @@
 
 .primary-button:hover,
 .secondary-button:hover,
+.danger-button:hover,
 .ghost-button:hover,
 .icon-button:hover,
 .segmented button:hover {
@@ -39,6 +41,18 @@
   color: var(--btn-secondary-text);
   background: var(--btn-secondary-bg);
   border-color: var(--btn-secondary-border);
+}
+
+.danger-button {
+  color: var(--color-white);
+  background: linear-gradient(135deg, var(--btn-danger-bg), var(--btn-danger-bg-end));
+  border-color: var(--btn-danger-border);
+  box-shadow: 0 8px 24px var(--btn-danger-shadow);
+}
+
+.danger-button:hover {
+  background: linear-gradient(135deg, var(--btn-danger-hover-bg), var(--btn-danger-hover-bg-end));
+  box-shadow: 0 12px 32px var(--btn-danger-hover-shadow);
 }
 
 .ghost-button {

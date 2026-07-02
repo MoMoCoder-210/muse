@@ -80,6 +80,7 @@ export interface TaskContext {
   emit: (event: TaskEvent) => void;
   rateLimiter: RateLimiter;
   signal: AbortSignal;
+  clients?: import("./clients/index.js").ApiClients;
 }
 
 // ===== RateLimiter 接口 =====

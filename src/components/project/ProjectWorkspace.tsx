@@ -44,17 +44,6 @@ export function ProjectWorkspace({ project, onProjectUpdated }: ProjectWorkspace
 function WorkspaceHeader({ project }: { project: ProjectInfo }) {
   return (
     <div className="workspace-header-row">
-      <div className="workspace-header">
-        <div>
-          <div className="workspace-kicker">项目工作区</div>
-          <h2>{project.name}</h2>
-          {project.description && <p>{project.description}</p>}
-        </div>
-        <div className="workspace-badges">
-          <span>{project.current_step}</span>
-          <span>{project.status}</span>
-        </div>
-      </div>
       <div className="workspace-summary">
         <div className="summary-card">
           <span>工作区目录</span>

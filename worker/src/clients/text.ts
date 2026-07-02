@@ -12,6 +12,7 @@
 
 import OpenAI from "openai";
 import type { TextModelConfig } from "../config/defaults.js";
+import { FALLBACK_API_KEY } from "./constants.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -47,10 +48,10 @@ export class TextClient {
 
   private buildClient(config: TextModelConfig): OpenAI {
     return new OpenAI({
-      apiKey: config.apiKey,
+      apiKey: config.apiKey || FALLBACK_API_KEY,
       baseURL: config.baseUrl,
       timeout: config.timeoutMs,
-      maxRetries: 0, // 重试由 task-runner 的退避策略统一管理
+      maxRetries: 0,
     });
   }
 

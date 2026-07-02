@@ -5,6 +5,7 @@ import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsPage } from "./components/settings/SettingsPage";
+import { ToastProvider } from "./hooks/useToast";
 
 type ViewMode = "home" | "projects";
 
@@ -26,33 +27,35 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app-shell">
-      <DynamicBackdrop />
+    <ToastProvider>
+      <div className="app-shell">
+        <DynamicBackdrop />
 
-      {view === "home" ? (
-        <HomePage
-          version={version}
-          onCreateProject={() => setCreateModalOpen(true)}
-          onGoToProjects={() => setView("projects")}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
-      ) : (
-        <ProjectManagementPage
-          onGoHome={() => setView("home")}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
-      )}
+        {view === "home" ? (
+          <HomePage
+            version={version}
+            onCreateProject={() => setCreateModalOpen(true)}
+            onGoToProjects={() => setView("projects")}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        ) : (
+          <ProjectManagementPage
+            onGoHome={() => setView("home")}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        )}
 
-      {createModalOpen ? (
-        <CreateProjectModal
-          onClose={() => setCreateModalOpen(false)}
-          onCreated={handleCreated}
-        />
-      ) : null}
+        {createModalOpen ? (
+          <CreateProjectModal
+            onClose={() => setCreateModalOpen(false)}
+            onCreated={handleCreated}
+          />
+        ) : null}
 
-      {settingsOpen ? (
-        <SettingsPage onClose={() => setSettingsOpen(false)} />
-      ) : null}
-    </div>
+        {settingsOpen ? (
+          <SettingsPage onClose={() => setSettingsOpen(false)} />
+        ) : null}
+      </div>
+    </ToastProvider>
   );
 }

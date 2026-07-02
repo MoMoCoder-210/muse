@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import { open, message } from "@tauri-apps/plugin-dialog";
-import { APP_NAME } from "../../config/muse";
-import { importScript } from "../../services/tauri";
+import { open } from "@tauri-apps/plugin-dialog";
+import { ensureWorkerAndImportScript, getSettings } from "../../services/tauri";
 import type { ProjectInfo } from "../../types/project";
+import { useToast } from "../../hooks/useToast";
 
 type ScriptImportPanelProps = {
   project: ProjectInfo;
@@ -12,6 +12,7 @@ type ScriptImportPanelProps = {
 type Tab = "paste" | "file";
 
 export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProps) {
+  const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("paste");
   const [pasteText, setPasteText] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -31,34 +32,36 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
 
   const handleImport = useCallback(async () => {
     if (tab === "paste" && !pasteText.trim()) {
-      await message("请先粘贴剧本内容。", { title: APP_NAME, kind: "warning" });
+      toast("请先粘贴剧本内容。", "warning");
       return;
     }
     if (tab === "file" && !filePath.trim()) {
-      await message("请先选择剧本文件。", { title: APP_NAME, kind: "warning" });
+      toast("请先选择剧本文件。", "warning");
       return;
     }
 
     setLoading(true);
     try {
-      const sourceType = tab === "file" ? "txt" : "paste";
-      await importScript({
-        project_id: project.id,
-        source_type: sourceType,
+      const settings = await getSettings();
+      if (!settings.text?.apiKey?.trim()) {
+        toast("文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
+        return;
+      }
+
+      await ensureWorkerAndImportScript(project.id, {
+        source_type: tab === "file" ? "txt" : "paste",
         content: tab === "paste" ? pasteText.trim() : undefined,
         file_path: tab === "file" ? filePath : undefined,
       });
+      toast("剧本导入成功，正在拆分…", "success");
       onImported();
     } catch (err) {
       console.error(err);
-      await message("导入失败，请检查文件内容或后端日志。", {
-        title: APP_NAME,
-        kind: "error",
-      });
+      toast("导入失败，请检查文件内容或后端日志。", "error");
     } finally {
       setLoading(false);
     }
-  }, [tab, pasteText, filePath, project.id, onImported]);
+  }, [tab, pasteText, filePath, project.id, onImported, toast]);
 
   return (
     <div className="script-import-panel">

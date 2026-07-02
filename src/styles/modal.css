@@ -46,3 +46,15 @@
   gap: 10px;
   margin-top: 18px;
 }
+
+.modal-script-field {
+  gap: 10px;
+}
+
+.modal-script-tabs {
+  margin-bottom: 2px;
+}
+
+.modal-script-textarea {
+  min-height: 220px;
+}

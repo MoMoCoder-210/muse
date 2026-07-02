@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { message } from "@tauri-apps/plugin-dialog";
 import { getSettings, saveSettings } from "../../services/tauri";
 import { ModelConfigSection } from "./ModelConfigSection";
 import { DEFAULT_SETTINGS, type AppSettings } from "../../types/settings";
-import { APP_NAME } from "../../config/muse";
+import { useToast } from "../../hooks/useToast";
 
 type SettingsSection = "basic" | "models";
 type ModelSection = "text" | "image" | "voice";
@@ -128,6 +127,7 @@ const VOICE_GROUPS = [
 ];
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
+  const { toast } = useToast();
   const [activeSection, setActiveSection] = useState<SettingsSection>("basic");
   const [activeModelSection, setActiveModelSection] = useState<ModelSection>("text");
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -145,14 +145,14 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     setSaving(true);
     try {
       await saveSettings(settings);
-      await message("设置已保存。", { title: APP_NAME, kind: "info" });
+      toast("设置已保存。", "success");
     } catch (err) {
       console.error(err);
-      await message("保存失败，请检查后端日志。", { title: APP_NAME, kind: "error" });
+      toast("保存失败，请检查后端日志。", "error");
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, [settings, toast]);
 
   function renderModelTabs() {
     return (
@@ -259,7 +259,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         <div className="modal-header settings-header">
           <div>
             <h2 className="settings-title">设置</h2>
-            <p className="settings-subtitle">使用统一的应用设置入口管理基础项与模型接入</p>
           </div>
           <button
             type="button"
@@ -274,7 +273,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         <div className="settings-main">
           <aside className="settings-nav" aria-label="设置分类">
             <div className="settings-nav-group">
-              <span className="settings-nav-caption">工作区设置</span>
               {SETTINGS_NAV_ITEMS.map((item) => (
                 <button
                   key={item.key}
