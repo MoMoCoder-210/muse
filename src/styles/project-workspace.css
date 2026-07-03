@@ -1,0 +1,152 @@
+/* ── 工作区 ───────────────────────────────────── */
+.project-workspace {
+  padding: 22px;
+  overflow: hidden;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.workspace-header h2 {
+  margin: 10px 0 0;
+  font-size: var(--font-size-section);
+  line-height: var(--line-height-section);
+}
+
+.workspace-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+}
+
+.workspace-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace-badges span {
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--font-size-xs);
+}
+
+.workspace-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+.summary-card {
+  padding: var(--spacing-lg);
+  display: grid;
+  gap: var(--spacing-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.summary-card span {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.summary-card strong {
+  color: var(--text-primary);
+  word-break: break-word;
+  font-size: var(--font-size-sm);
+}
+
+/* 工作区内层（step 路由容器） */
+.workspace-inner {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--spacing-lg);
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-header-row {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+/* 空状态 */
+.empty-workspace {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  height: 100%;
+  min-height: 320px;
+  color: var(--text-secondary);
+}
+
+.empty-workspace h2 {
+  margin: 0 0 10px;
+}
+
+.empty-workspace p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.step-placeholder {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  height: 100%;
+  min-height: 320px;
+  color: var(--text-secondary);
+  gap: var(--spacing-md);
+}
+
+.step-placeholder h2 {
+  margin: 0;
+  font-size: var(--font-size-section);
+}
+
+.step-placeholder p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ── 通用面板头部 ────────────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.panel-header p {
+  width: 100%;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.panel-loading {
+  color: var(--text-muted);
+  padding: 32px 0;
+  text-align: center;
+  font-size: var(--font-size-sm);
+}

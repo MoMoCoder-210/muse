@@ -16,7 +16,7 @@ import { randomUUID } from "crypto";
 import type { TaskContext } from "../types.js";
 import type { ChatMessage } from "../clients/text.js";
 import { logLine } from "../logger.js";
-import { l, lw, le, stripCodeFences, createPromptLoader } from "./utils.js";
+import { l, lw, le, stripCodeFences, createPromptLoader } from "../utils/utils.js";
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
 const EPISODE_PATTERNS = [
@@ -601,11 +601,7 @@ export async function splitScriptWithInput(
   const wordCount = countWords(text);
   l("剧本拆分", `剧本已加载：${wordCount} 字，${text.length} 字符`);
 
-  // 标记 running
-  db.prepare(
-    "UPDATE script_sources SET split_status = 'running', updated_at = datetime('now') WHERE id = ?"
-  ).run(input.sourceId);
-
+  // 规则拆分（≤1500 字或正则匹配到集数标志）
   const ruleClips = input.forceAi ? null : ruleSplit(text);
 
   if (ruleClips) {
@@ -636,10 +632,8 @@ export async function splitScriptWithInput(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    le("剧本拆分", `模型拆分失败：${errorMessage}`);
-    db.prepare(
-      "UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(errorMessage, input.sourceId);
+    le("剧本拆分", `模型拆分失败：${errorMessage}（将由任务调度器决定重试）`);
+    // 不在此处写 failed 状态，交给 task-runner 的重试/失败逻辑统一处理
     throw error;
   }
 }

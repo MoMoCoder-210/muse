@@ -23,9 +23,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    getAppVersion()
-      .then(setVersion)
-      .catch(console.error);
+    getAppVersion().then(setVersion).catch(() => {
+      // 版本号获取失败，保持默认 "unknown"，不打扰用户
+    });
   }, []);
 
   const handleCreated = useCallback(() => {

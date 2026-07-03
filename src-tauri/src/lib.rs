@@ -19,7 +19,7 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir =
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
-            log::info!("应用数据目录：{:?}", app_data_dir);
+            log::info!("应用数据目录已就绪");
 
             let log_path = project_log::log_path_for_app_data(&app_data_dir);
             project_log::append_log(&log_path, "应用", "INFO", "应用启动");
@@ -41,6 +41,7 @@ pub fn run() {
             commands::list_projects,
             commands::import_script,
             commands::list_script_sources,
+            commands::create_clip,
             commands::list_clips,
             commands::get_script_source,
             commands::get_settings,

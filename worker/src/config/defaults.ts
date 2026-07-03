@@ -13,7 +13,7 @@ export const DEFAULT_TEXT_CONFIG: TextModelConfig = {
   model: "",
   maxTokens: 4096,
   temperature: 0.5,
-  // @author yt @date 20260702 由 60s 调至 120s，与 image 对齐
+  // @author yt @date 20260702 由 60s 调至 600s，与生图模型超时对齐
   timeoutMs: 600000,
 };
 

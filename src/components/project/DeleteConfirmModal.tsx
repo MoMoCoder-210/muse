@@ -32,7 +32,6 @@ export function DeleteConfirmModal({
       onDeleted(project.id);
       toast(`项目「${project.name}」已删除。`, "info");
     } catch (error) {
-      console.error(error);
       toast("删除项目失败，请检查日志。", "error");
     } finally {
       setDeleting(false);

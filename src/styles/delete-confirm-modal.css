@@ -1,0 +1,90 @@
+/* 删除确认弹窗 */
+.delete-confirm-panel {
+  max-width: 420px;
+}
+
+.delete-confirm-panel .modal-header {
+  justify-content: center;
+}
+
+.delete-confirm-panel .modal-header h2 {
+  margin: 0 0 16px;
+  font-size: var(--font-size-lg);
+  text-align: center;
+  width: 100%;
+}
+
+.delete-confirm-panel .modal-actions {
+  justify-content: center;
+}
+
+.delete-confirm-body {
+  padding: 0 4px;
+  text-align: center;
+}
+
+.delete-confirm-body p {
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.delete-confirm-body strong {
+  color: var(--text-primary);
+}
+
+.delete-files-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-surface-deep);
+  border: 1px solid var(--border-faint);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  transition: border-color 120ms ease;
+}
+
+.delete-files-option:hover {
+  border-color: var(--border-base);
+}
+
+.delete-files-option input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 1.5px solid var(--border-base);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms ease, background 120ms ease;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.delete-files-option input[type="checkbox"]:hover {
+  border-color: var(--border-accent);
+}
+
+.delete-files-option input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.delete-files-option input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}

@@ -29,7 +29,7 @@
 .home-screen {
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--spacing-2xl);
 }
 
 .home-card {
@@ -50,7 +50,7 @@
   align-items: center;
   justify-content: center;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--badge-bg);
   color: var(--badge-text);
   font-size: var(--font-size-xs);
@@ -74,7 +74,7 @@
 .home-actions {
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: var(--spacing-md);
   margin-top: 28px;
 }
 

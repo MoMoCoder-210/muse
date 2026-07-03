@@ -8,10 +8,76 @@ import {
   type CreateMode,
   type StyleMode,
 } from "../../config/muse";
-import { createProject, ensureWorkerAndImportScript, getSettings } from "../../services/tauri";
-import { SelectField } from "./SelectField";
+import { createProject, getSettings } from "../../services/tauri";
+import { importScriptByTab } from "../../services/import-script";
+import { pickTxtFile } from "../../services/dialog";
+import { SelectField } from "../common/SelectField";
 import type { ProjectInfo } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
+
+type ScriptImportSectionProps = {
+  scriptTab: "paste" | "file";
+  setScriptTab: (tab: "paste" | "file") => void;
+  scriptText: string;
+  setScriptText: (text: string) => void;
+  scriptFilePath: string;
+  onPickFile: () => void;
+};
+
+function ScriptImportSection({
+  scriptTab,
+  setScriptTab,
+  scriptText,
+  setScriptText,
+  scriptFilePath,
+  onPickFile,
+}: ScriptImportSectionProps) {
+  return (
+    <label className="field field--full modal-script-field">
+      <span>导入剧本</span>
+      <div className="import-tabs modal-script-tabs">
+        <button
+          type="button"
+          className={`tab-btn ${scriptTab === "paste" ? "active" : ""}`}
+          onClick={() => setScriptTab("paste")}
+        >
+          粘贴文本
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${scriptTab === "file" ? "active" : ""}`}
+          onClick={() => setScriptTab("file")}
+        >
+          导入 TXT 文件
+        </button>
+      </div>
+
+      {scriptTab === "paste" ? (
+        <textarea
+          className="script-textarea modal-script-textarea"
+          value={scriptText}
+          onChange={(e) => setScriptText(e.target.value)}
+          placeholder="在这里粘贴待拆分的剧本文本"
+          rows={8}
+        />
+      ) : (
+        <div className="file-picker">
+          <div className="file-picker-input">
+            <input
+              value={scriptFilePath}
+              readOnly
+              placeholder="选择 .txt 剧本文件"
+              className="file-path-display"
+            />
+            <button type="button" className="ghost-button" onClick={onPickFile}>
+              选择文件
+            </button>
+          </div>
+        </div>
+      )}
+    </label>
+  );
+}
 
 type CreateProjectModalProps = {
   onClose: () => void;
@@ -50,14 +116,8 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
   }, []);
 
   const handlePickScriptFile = useCallback(async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "文本文件", extensions: ["txt"] }],
-      title: "选择剧本文件",
-    });
-    if (typeof selected === "string" && selected.trim()) {
-      setScriptFilePath(selected);
-    }
+    const path = await pickTxtFile({ title: "选择剧本文件" });
+    if (path) setScriptFilePath(path);
   }, []);
 
   const handleScriptModePostCreate = useCallback(
@@ -69,11 +129,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
         return;
       }
 
-      await ensureWorkerAndImportScript(project.id, {
-        source_type: scriptTab === "file" ? "txt" : "paste",
-        content: scriptTab === "paste" ? scriptText.trim() : undefined,
-        file_path: scriptTab === "file" ? scriptFilePath : undefined,
-      });
+      await importScriptByTab(project.id, scriptTab, scriptText, scriptFilePath);
       onCreated({ ...project, current_step: "script" });
       toast(`项目已创建并开始拆分：${project.name}`, "success");
     },
@@ -110,8 +166,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       if (createMode === CREATE_MODES.script) {
         try {
           await handleScriptModePostCreate(project);
-        } catch (scriptError) {
-          console.error(scriptError);
+        } catch {
           onCreated(project);
           toast("项目已创建，但剧本导入或拆分启动失败，请检查模型配置和后端日志。", "warning");
         }
@@ -120,8 +175,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
 
       onCreated(project);
       toast(`项目已创建：${project.name}`, "info");
-    } catch (error) {
-      console.error(error);
+    } catch {
       toast("创建项目失败，请检查目录权限或后端日志。", "error");
     } finally {
       setLoading(false);
@@ -150,7 +204,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
     >
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 id="create-project-title" style={{ margin: 0, fontSize: 20 }}>
+          <h2 id="create-project-title" className="modal-title">
             创建新项目
           </h2>
           <button
@@ -211,52 +265,14 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
           />
 
           {createMode === CREATE_MODES.script ? (
-            <label className="field field--full modal-script-field">
-              <span>导入剧本</span>
-              <div className="import-tabs modal-script-tabs">
-                <button
-                  type="button"
-                  className={`tab-btn ${scriptTab === "paste" ? "active" : ""}`}
-                  onClick={() => setScriptTab("paste")}
-                >
-                  粘贴文本
-                </button>
-                <button
-                  type="button"
-                  className={`tab-btn ${scriptTab === "file" ? "active" : ""}`}
-                  onClick={() => setScriptTab("file")}
-                >
-                  导入 TXT 文件
-                </button>
-              </div>
-
-              {scriptTab === "paste" ? (
-                <textarea
-                  className="script-textarea modal-script-textarea"
-                  value={scriptText}
-                  onChange={(e) => setScriptText(e.target.value)}
-                  placeholder="在这里粘贴待拆分的剧本文本"
-                  rows={8}
-                />
-              ) : (
-                <div className="file-picker">
-                  <div className="file-picker-input">
-                    <input
-                      value={scriptFilePath}
-                      readOnly
-                      placeholder="选择 .txt 剧本文件"
-                      className="file-path-display"
-                    />
-                    <button type="button" className="ghost-button" onClick={handlePickScriptFile}>
-                      选择文件
-                    </button>
-                  </div>
-                  {scriptFilePath ? (
-                    <p className="file-hint">已选择：{scriptFilePath.split(/[\\/]/).pop()}</p>
-                  ) : null}
-                </div>
-              )}
-            </label>
+            <ScriptImportSection
+              scriptTab={scriptTab}
+              setScriptTab={setScriptTab}
+              scriptText={scriptText}
+              setScriptText={setScriptText}
+              scriptFilePath={scriptFilePath}
+              onPickFile={handlePickScriptFile}
+            />
           ) : null}
 
           <label className="field field--full">

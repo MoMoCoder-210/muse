@@ -8,7 +8,7 @@
   z-index: 10000;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
   pointer-events: none;
   max-width: calc(100vw - 40px);
   width: max-content;

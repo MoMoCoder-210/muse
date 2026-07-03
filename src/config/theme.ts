@@ -140,6 +140,35 @@ export interface ThemeTokens {
   shadowPanel: string;
   selectTriggerHoverBorder: string;
 
+  // 高透明度 hover / 卡片背景（供 rgba 组合使用）
+  bgHoverSubtle: string;
+  bgPanelSubtle: string;
+  bgGradientSubtle: string;
+  scrollbarThumb: string;
+  scrollbarThumbHover: string;
+
+  // 文字 RGB 通道（供 rgba 组合使用）
+  textMutedRgb: string;
+  textPrimaryRgb: string;
+  textSecondaryRgb: string;
+
+  // 圆角
+  radiusSm: string;
+  radiusMd: string;
+  radiusLg: string;
+  radiusXl: string;
+  radius2xl: string;
+  radiusFull: string;
+
+  // 间距
+  spacingXs: string;
+  spacingSm: string;
+  spacingMd: string;
+  spacingLg: string;
+  spacingXl: string;
+  spacing2xl: string;
+  spacing3xl: string;
+
   // ── 字体 ──────────────────────────────────────
   fontFamily: string;
 
@@ -275,6 +304,31 @@ export const darkTheme: ThemeTokens = {
   colorWhite:                   "#ffffff",
   shadowPanel:                  "0 24px 70px rgba(0, 0, 0, 0.35)",
   selectTriggerHoverBorder:     "rgba(96, 165, 250, 0.48)",
+
+  bgHoverSubtle:                "rgba(255, 255, 255, 0.04)",
+  bgPanelSubtle:                "rgba(255, 255, 255, 0.02)",
+  bgGradientSubtle:             "rgba(255, 255, 255, 0.025)",
+  scrollbarThumb:               "rgba(148, 163, 184, 0.18)",
+  scrollbarThumbHover:          "rgba(148, 163, 184, 0.32)",
+
+  textMutedRgb:                 "148, 163, 184",
+  textPrimaryRgb:               "248, 250, 252",
+  textSecondaryRgb:             "203, 213, 225",
+
+  radiusSm:                     "4px",
+  radiusMd:                     "8px",
+  radiusLg:                     "12px",
+  radiusXl:                     "16px",
+  radius2xl:                    "20px",
+  radiusFull:                   "999px",
+
+  spacingXs:                    "4px",
+  spacingSm:                    "8px",
+  spacingMd:                    "12px",
+  spacingLg:                    "16px",
+  spacingXl:                    "20px",
+  spacing2xl:                   "24px",
+  spacing3xl:                   "32px",
 
   fontFamily:       '"Segoe UI", "Microsoft YaHei", system-ui, sans-serif',
   fontSizeXs:       "12px",

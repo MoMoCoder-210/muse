@@ -2,7 +2,7 @@
 
 .field {
   display: grid;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .field--full {
@@ -77,7 +77,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--spacing-md);
   padding: 12px 14px;
   border: 1px solid var(--border-base);
   border-radius: 14px;
@@ -124,9 +124,9 @@
   z-index: 12;
   display: grid;
   gap: 6px;
-  padding: 8px;
+  padding: var(--spacing-sm);
   border: 1px solid var(--select-menu-border);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   background: var(--select-menu-bg);
   box-shadow: var(--shadow-select-menu);
   backdrop-filter: blur(16px);
@@ -137,7 +137,7 @@
   min-height: 42px;
   padding: 10px 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-size-control);
@@ -161,9 +161,9 @@
  * 注意：此选择器被 ScriptImportPanel 使用，新增同名样式请确认不冲突 */
 .import-tabs {
   display: flex;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 12px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-lg);
   background: var(--segmented-bg);
   width: fit-content;
 }

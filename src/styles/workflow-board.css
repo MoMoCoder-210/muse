@@ -1,0 +1,105 @@
+/* ── 工作流步骤板 ────────────────────────────── */
+/* @author yt @date 20260702 收敛为低饱和风格，与整体暗色玻璃质感协调 */
+.workflow-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-step {
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-faint);
+  background: var(--bg-surface-deep);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 120ms ease;
+}
+
+.workflow-step:hover {
+  background: var(--bg-surface-modal);
+  border-color: var(--border-base);
+}
+
+.workflow-step:active {
+  transform: scale(0.97);
+}
+
+.workflow-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-faint);
+  color: var(--text-muted);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-xs);
+}
+
+.workflow-step-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* 已完成：淡 accent 底色，去掉渐变 */
+.workflow-step--done {
+  border-color: var(--border-accent-subtle);
+  background: var(--badge-bg);
+}
+
+.workflow-step--done:hover {
+  background: var(--select-active-bg);
+  border-color: var(--border-accent);
+}
+
+.workflow-step--done .workflow-step-index {
+  border-color: var(--border-accent-subtle);
+  color: var(--text-accent);
+  background: transparent;
+}
+
+.workflow-step--done .workflow-step-label {
+  color: var(--text-accent);
+}
+
+/* 当前进行中：主色细边框 + 极淡底色，不用强光晕 */
+.workflow-step--active {
+  border-color: var(--border-accent);
+  background: var(--step-active-bg);
+}
+
+.workflow-step--active:hover {
+  border-color: var(--accent-primary);
+  background: var(--badge-bg);
+}
+
+.workflow-step--active .workflow-step-index {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+  background: var(--accent-primary);
+}
+
+.workflow-step--active .workflow-step-label {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 禁用态：不可点击，灰显 */
+.workflow-step--disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.workflow-step--disabled:hover {
+  background: var(--bg-surface-deep);
+  border-color: var(--border-faint);
+}

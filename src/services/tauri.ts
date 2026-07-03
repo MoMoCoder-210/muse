@@ -18,6 +18,7 @@ import type {
   SplitClipInput,
   SplitClipResult,
 } from "../types/project";
+import type { AppSettings } from "../types/settings";
 
 /**
  * 获取应用版本号
@@ -71,6 +72,15 @@ export async function startWorker(projectId?: string): Promise<string> {
  */
 export async function importScript(input: ImportScriptInput): Promise<ImportScriptResult> {
   return invoke<ImportScriptResult>("import_script", { input });
+}
+
+/**
+ * 手动创建单个片段（无剧本归属）
+ *
+ * @author yt @date 20260703
+ */
+export async function createClip(input: { project_id: string; title: string; source_text: string }): Promise<Clip> {
+  return invoke<Clip>("create_clip", { input });
 }
 
 /**
@@ -152,7 +162,6 @@ export async function ensureWorkerAndImportScript(
 }
 
 // ── 设置 ──────────────────────────────────────────────────
-import type { AppSettings } from "../types/settings";
 
 /**
  * 获取应用设置

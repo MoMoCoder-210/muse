@@ -1,0 +1,83 @@
+/* 剧本导入面板与片段列表面板（模块 02） */
+
+/* ── 剧本导入面板 ─────────────────────────────── */
+.script-import-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: var(--spacing-lg);
+  height: 100%;
+  min-height: 0;
+  padding: var(--spacing-xl);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.import-body {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.script-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 280px;
+  resize: none;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-base);
+  padding: 14px;
+  outline: none;
+  font-family: var(--font-family);
+}
+
+.script-textarea:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.file-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.file-picker-input {
+  display: flex;
+  gap: 10px;
+}
+
+.file-path-display {
+  flex: 1;
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: var(--font-size-control);
+  padding: 12px 14px;
+  outline: none;
+  cursor: default;
+}
+
+.file-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.create-clip-modal .import-tabs,
+.import-sub-tabs {
+  margin-bottom: 14px;
+  display: flex;
+  gap: 6px;
+}

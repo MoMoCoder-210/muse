@@ -161,6 +161,99 @@ export function markTaskFailed(
   ).run(errorMessage, taskId);
 }
 
+/**
+ * 统一实体状态转换。
+ *
+ * 由 task-runner 在任务生命周期各阶段调用，确保任务与关联实体状态严格一致：
+ *   - 'running-pending' → 被重试，实体标记为 pending 等待重新调度
+ *   - 'running'       → 任务被 Worker 取走执行，实体标记为 running
+ *   - 'success'        → 任务执行成功（handler 内部已写入业务数据）
+ *   - 'failed'         → 任务最终失败，实体标记为 failed
+ *
+ * @author yt @date 20260703
+ */
+export function transitionEntityStatus(
+  db: DatabaseType,
+  task: { type: string; clip_id: string | null; input_json: string },
+  newStatus: "running" | "running-pending" | "success" | "failed",
+  errorMessage?: string
+): void {
+  const now = "datetime('now')";
+
+  if (task.type === "split_script") {
+    const input = JSON.parse(task.input_json || "{}");
+    if (!input.sourceId) return;
+
+    switch (newStatus) {
+      case "running":
+        db.prepare(
+          "UPDATE script_sources SET split_status = 'running', updated_at = datetime('now') WHERE id = ?"
+        ).run(input.sourceId);
+        break;
+      case "running-pending":
+        db.prepare(
+          "UPDATE script_sources SET split_status = 'pending', updated_at = datetime('now') WHERE id = ?"
+        ).run(input.sourceId);
+        break;
+      case "success":
+        db.prepare(
+          "UPDATE script_sources SET split_status = 'success', updated_at = datetime('now') WHERE id = ?"
+        ).run(input.sourceId);
+        break;
+      case "failed":
+        db.prepare(
+          `UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = ${now} WHERE id = ?`
+        ).run(errorMessage ?? "任务最终失败", input.sourceId);
+        break;
+    }
+  } else if (task.type === "generate_clip_script" && task.clip_id) {
+    const cid = task.clip_id;
+
+    switch (newStatus) {
+      case "running":
+        db.prepare(
+          `UPDATE clips SET status = 'running', updated_at = ${now} WHERE id = ?`
+        ).run(cid);
+        db.prepare(
+          `UPDATE clip_scripts SET status = 'running', updated_at = ${now} WHERE clip_id = ?`
+        ).run(cid);
+        break;
+      case "running-pending":
+        db.prepare(
+          `UPDATE clips SET status = 'pending', updated_at = ${now} WHERE id = ?`
+        ).run(cid);
+        db.prepare(
+          `UPDATE clip_scripts SET status = 'pending', updated_at = ${now} WHERE clip_id = ?`
+        ).run(cid);
+        break;
+      case "success":
+        db.prepare(
+          `UPDATE clips SET status = 'script_ready', updated_at = ${now} WHERE id = ?`
+        ).run(cid);
+        db.prepare(
+          `UPDATE clip_scripts SET status = 'success', updated_at = ${now} WHERE clip_id = ?`
+        ).run(cid);
+        break;
+      case "failed":
+        db.prepare(
+          `UPDATE clips SET status = 'failed', updated_at = ${now} WHERE id = ?`
+        ).run(cid);
+        db.prepare(
+          `UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = ${now} WHERE clip_id = ?`
+        ).run(errorMessage ?? "任务最终失败", cid);
+        break;
+    }
+  }
+}
+
+/** @deprecated 使用 transitionEntityStatus 代替 */
+export function recoverEntityStatusOnFinalFail(
+  db: DatabaseType,
+  task: { id: string; type: string; clip_id: string | null; input_json: string }
+): void {
+  transitionEntityStatus(db, task, "failed", "任务最终失败");
+}
+
 export type WaitingRemoteTask = {
   id: string;
   type: string;
@@ -257,7 +350,7 @@ export function recoverStaleTasks(db: DatabaseType, timeoutMs: number): number {
     `DELETE FROM task_locks WHERE lock_key IN (
        SELECT lock_key FROM tasks
        WHERE status = 'running' AND remote_task_id IS NULL
-         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?1
+         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?
      )`
   ).run(timeoutMs);
 
@@ -266,7 +359,7 @@ export function recoverStaleTasks(db: DatabaseType, timeoutMs: number): number {
     .prepare(
       `UPDATE tasks SET status = 'pending', updated_at = datetime('now')
        WHERE status = 'running' AND remote_task_id IS NULL
-         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?1`
+         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?`
     )
     .run(timeoutMs);
 

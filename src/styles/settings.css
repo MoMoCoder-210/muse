@@ -46,13 +46,13 @@
   padding: 18px 14px 18px 18px;
   border-right: 1px solid var(--border-faint);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 40%),
+    linear-gradient(180deg, var(--bg-gradient-subtle), transparent 40%),
     var(--bg-surface-deep);
 }
 
 .settings-nav-group {
   display: grid;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .settings-nav-caption {
@@ -65,7 +65,7 @@
 
 .settings-nav-item {
   display: grid;
-  gap: 4px;
+  gap: var(--spacing-xs);
   width: 100%;
   padding: 12px 14px;
   border: 0;
@@ -77,7 +77,7 @@
 }
 
 .settings-nav-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-hover-subtle);
   color: var(--text-primary);
   transform: translateX(2px);
 }
@@ -100,13 +100,13 @@
 
 .settings-basic-page {
   display: grid;
-  gap: 16px;
+  gap: var(--spacing-lg);
 }
 
 .settings-basic-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .settings-summary-label {
@@ -174,10 +174,10 @@
 .model-config-group {
   display: grid;
   gap: 14px;
-  padding: 16px;
+  padding: var(--spacing-lg);
   border: 1px solid var(--border-faint);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel-subtle);
 }
 
 .model-config-group-header {
@@ -202,7 +202,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--spacing-md);
   padding: 16px 22px;
   border-top: 1px solid var(--border-faint);
 }
@@ -232,7 +232,7 @@
   width: 26px;
   height: 26px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-md);
@@ -328,13 +328,13 @@
   .settings-header,
   .settings-body,
   .settings-footer {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: var(--spacing-lg);
+    padding-right: var(--spacing-lg);
   }
 
   .settings-nav {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: var(--spacing-lg);
+    padding-right: var(--spacing-lg);
   }
 
   .model-config-fields {

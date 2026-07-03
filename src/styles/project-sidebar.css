@@ -1,0 +1,195 @@
+/* 项目管理页：侧边栏 */
+
+/* 侧边栏与工作区面板容器（共用基础样式） */
+.project-sidebar,
+.project-workspace {
+  min-height: 0;
+  border: 1px solid var(--border-base);
+  border-radius: 22px;
+  background: var(--bg-surface-modal);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+}
+
+/* 侧边栏布局：头 / 操作 / 列表(撑满) / 底部返回 */
+.project-sidebar {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 头部区域 */
+.sidebar-header {
+  padding: 20px 16px 0;
+  text-align: center;
+}
+
+.sidebar-title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-section);
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+
+/* 操作区 */
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.sidebar-create-btn {
+  flex: 1;
+}
+
+/* 小图标按钮（刷新） */
+.btn-icon-sm {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: var(--font-size-base);
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+/* 项目卡片 */
+.project-item {
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-faint);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.project-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-border), 0 0 0 4px var(--focus-ring);
+}
+
+.project-item:hover {
+  box-shadow: 0 0 0 1px var(--project-item-hover-ring), 0 0 14px var(--project-item-hover-glow);
+}
+
+/* project-item--active */
+.project-item.active {
+  background: var(--project-item-active-bg);
+  border-color: var(--border-accent);
+}
+
+.project-item.active:hover {
+  box-shadow: 0 0 0 1px var(--project-item-active-ring), 0 0 18px var(--project-item-active-glow);
+}
+
+/* project-item-name */
+.project-item-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.project-item-title strong {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.style-tag {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* project-item-meta */
+.project-item p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.project-item small {
+  display: block;
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.6;
+}
+
+/* 项目卡片底部行：路径 + 删除按钮 */
+.project-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.project-item-footer small {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* project-item-action */
+.project-delete-btn {
+  display: inline-grid;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  cursor: pointer;
+  place-items: center;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.project-delete-btn:hover {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+}
+
+/* 空状态 */
+.empty-panel {
+  padding: var(--spacing-lg);
+  margin: 0 2px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* 底部返回/设置按钮样式见 settings.css */

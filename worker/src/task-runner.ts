@@ -27,6 +27,8 @@ import {
   getWaitingRemoteTasks,
   getRunningTaskCount,
   recoverStaleTasks,
+  recoverEntityStatusOnFinalFail,
+  transitionEntityStatus,
   type PendingTask,
 } from "./db.js";
 import { logLine } from "./logger.js";
@@ -50,6 +52,12 @@ const TASK_HANDLER_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** 可重试的错误关键词 */
 const RETRYABLE_KEYWORDS = ["timeout", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "socket hang up", "fetch failed"];
+
+interface RetryableError extends Error {
+  status?: number;
+  code?: string;
+  message: string;
+}
 
 export class TaskRunner {
   private db: DatabaseType;
@@ -196,6 +204,10 @@ export class TaskRunner {
    */
   private async processPendingTasks(): Promise<void> {
     const tasks = getPendingTasks(this.db);
+    if (tasks.length > 0) {
+      const summary = tasks.map((t) => `${t.type}(${t.id.slice(0, 8)})`).join(", ");
+      log("任务调度", "INFO", `轮询发现 ${tasks.length} 个待处理任务：[${summary}]`);
+    }
     if (tasks.length === 0) return;
 
     for (const task of tasks) {
@@ -233,6 +245,7 @@ export class TaskRunner {
   ): Promise<void> {
     // 标记为 running
     markTaskRunning(this.db, task.id);
+    transitionEntityStatus(this.db, task, "running");
     this.emit({ type: "task_started", taskId: task.id, taskType });
 
     // 获取 handler
@@ -274,6 +287,7 @@ export class TaskRunner {
       );
       log("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
       markTaskSuccess(this.db, task.id, outputJson);
+      transitionEntityStatus(this.db, task, "success");
       this.emit({ type: "task_success", taskId: task.id, outputJson });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -297,6 +311,7 @@ export class TaskRunner {
           this.db.prepare(
             "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now') WHERE id = ?"
           ).run(errorMessage, task.id);
+          transitionEntityStatus(this.db, task, "running-pending");
           this.emit({ type: "task_failed", taskId: task.id, errorMessage: `${errorMessage}（将重试）` });
         } catch (e) {
           log("任务调度", "ERROR", `回退任务写库失败：${e instanceof Error ? e.message : String(e)}`);
@@ -304,6 +319,7 @@ export class TaskRunner {
       } else {
         try {
           markTaskFailed(this.db, task.id, errorMessage);
+          recoverEntityStatusOnFinalFail(this.db, task);
           this.emit({ type: "task_failed", taskId: task.id, errorMessage });
         } catch (e) {
           log("任务调度", "ERROR", `标记任务失败写库失败：${e instanceof Error ? e.message : String(e)}`);
@@ -376,7 +392,7 @@ export class TaskRunner {
    */
   private isRateLimitError(err: unknown): boolean {
     if (err && typeof err === "object" && "status" in err) {
-      return (err as any).status === 429;
+      return (err as RetryableError).status === 429;
     }
     return false;
   }
@@ -388,7 +404,7 @@ export class TaskRunner {
    */
   private isQuotaExhaustedError(err: unknown): boolean {
     if (err && typeof err === "object" && "code" in err) {
-      return (err as any).code === "QUOTA_EXHAUSTED";
+      return (err as RetryableError).code === "QUOTA_EXHAUSTED";
     }
     return false;
   }

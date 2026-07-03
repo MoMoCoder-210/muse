@@ -1,85 +1,10 @@
 /* 剧本导入面板与片段列表面板（模块 02） */
 
-/* ── 剧本导入面板 ─────────────────────────────── */
-.script-import-panel {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  gap: 16px;
-  height: 100%;
-  min-height: 0;
-  padding: 20px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 18px;
-  background: var(--bg-surface-deep);
-}
-
-.import-body {
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.script-textarea {
-  flex: 1;
-  width: 100%;
-  min-height: 280px;
-  resize: none;
-  border: 1px solid var(--border-base);
-  border-radius: 14px;
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: var(--font-size-control);
-  line-height: var(--line-height-base);
-  padding: 14px;
-  outline: none;
-  font-family: var(--font-family);
-}
-
-.script-textarea:focus {
-  border-color: var(--focus-border);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
-.file-picker {
-  display: grid;
-  gap: 10px;
-}
-
-.file-picker-input {
-  display: flex;
-  gap: 10px;
-}
-
-.file-path-display {
-  flex: 1;
-  width: 100%;
-  border: 1px solid var(--border-base);
-  border-radius: 14px;
-  background: var(--bg-input);
-  color: var(--text-muted);
-  font-size: var(--font-size-control);
-  padding: 12px 14px;
-  outline: none;
-  cursor: default;
-}
-
-.file-hint {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-}
-
-.import-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 /* ── 片段列表面板 ─────────────────────────────── */
 .clip-list-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
   height: 100%;
   min-height: 0;
   padding: 14px;
@@ -91,7 +16,7 @@
 /* 拆分状态标签 */
 .split-status {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
 }
@@ -104,7 +29,7 @@
 /* 错误提示横幅 */
 .split-error-banner {
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-surface-deep);
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
@@ -129,14 +54,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: var(--spacing-xs);
 }
 
 .clip-item {
   border: 1px solid var(--border-faint);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: transparent;
   overflow: hidden;
   transition: border-color 120ms ease;
@@ -187,7 +112,7 @@
 /* 片段状态标签 */
 .clip-status {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }
@@ -200,6 +125,12 @@
 .clip-status--media_ready  { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--done         { background: var(--chip-bg);    color: var(--text-success); }
 .clip-status--failed       { background: var(--chip-bg);    color: var(--text-muted); }
+
+.clip-disassembled-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 
 /* 自定义 checkbox（列表项 + 全选，暗色主题 accent 配色） */
 .clip-item-header input[type="checkbox"],
@@ -311,7 +242,7 @@
   line-height: var(--line-height-base);
   max-height: 320px;
   overflow-y: auto;
-  padding: 12px;
+  padding: var(--spacing-md);
   background: var(--bg-canvas);
   border-radius: 10px;
 }
@@ -345,7 +276,7 @@
 .clip-list-extra {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 /* 拆分进行中横幅 */
@@ -354,7 +285,7 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--badge-bg);
   color: var(--badge-text);
   font-size: var(--font-size-sm);
@@ -370,6 +301,17 @@
   border-radius: 50%;
   animation: clip-spinner 0.8s linear infinite;
   opacity: 0.7;
+  vertical-align: middle;
+}
+
+.spinner--sm {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+
+.spinner--inline {
+  margin-right: var(--spacing-sm);
 }
 
 @keyframes clip-spinner {
@@ -416,7 +358,7 @@
 .workspace-split-layout {
   display: grid;
   grid-template-columns: 260px 1fr;
-  gap: 12px;
+  gap: var(--spacing-md);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -431,7 +373,7 @@
 .script-list-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
   height: 100%;
   min-height: 0;
   padding: 14px;
@@ -446,14 +388,14 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 .script-list-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 10px 12px;
   border-radius: 10px;
   cursor: pointer;
@@ -519,47 +461,7 @@
 }
 
 .empty-script-list-hint {
-  margin-top: 4px;
+  margin-top: var(--spacing-xs);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
-}
-
-/* ── 导入弹窗 ──────────────────────────────────── */
-.script-import-modal {
-  max-width: 520px;
-  width: 100%;
-}
-
-.script-import-modal .modal-header {
-  margin: 0;
-}
-
-.script-import-modal .modal-header h3 {
-  margin: 0 0 16px;
-  font-size: var(--font-size-lg);
-}
-
-.script-import-modal-desc {
-  margin: 0 0 16px;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.script-import-modal .import-tabs {
-  margin-bottom: 16px;
-}
-
-.script-import-modal .import-body {
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 16px;
-}
-
-.script-import-modal .import-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }

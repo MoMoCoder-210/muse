@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { ensureWorkerAndImportScript, getSettings } from "../../services/tauri";
+import { getSettings } from "../../services/tauri";
+import { importScriptByTab } from "../../services/import-script";
+import { pickTxtFile } from "../../services/dialog";
 import type { ProjectInfo } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
 
@@ -27,14 +28,8 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handlePickFile = useCallback(async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "文本文件", extensions: ["txt"] }],
-      title: "选择剧本文件",
-    });
-    if (typeof selected === "string" && selected.trim()) {
-      setFilePath(selected);
-    }
+    const path = await pickTxtFile({ title: "选择剧本文件" });
+    if (path) setFilePath(path);
   }, []);
 
   const handleImport = useCallback(async () => {
@@ -55,15 +50,10 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
         return;
       }
 
-      await ensureWorkerAndImportScript(project.id, {
-        source_type: tab === "file" ? "txt" : "paste",
-        content: tab === "paste" ? pasteText.trim() : undefined,
-        file_path: tab === "file" ? filePath : undefined,
-      });
+      await importScriptByTab(project.id, tab, pasteText, filePath);
       toast("剧本导入成功，正在拆分…", "success");
       onImported();
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast("导入失败，请检查文件内容或后端日志。", "error");
     } finally {
       setLoading(false);

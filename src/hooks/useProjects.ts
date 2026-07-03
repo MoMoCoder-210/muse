@@ -12,17 +12,23 @@ import type { ProjectInfo } from "../types/project";
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<ProjectInfo[]> => {
     setLoading(true);
+    setError(null);
     try {
       const items = await listProjects();
       setProjects(items);
       return items;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "项目列表加载失败";
+      setError(message);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return { projects, loading, load };
+  return { projects, loading, error, load };
 }

@@ -6,7 +6,8 @@
  * @author yt @date 20260702
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { appendFile } from "fs/promises";
 import { dirname } from "path";
 
 // 与 src-tauri/src/project_log.rs 中的 LOG_MAX_BYTES / LOG_KEEP_BYTES 保持一致
@@ -37,8 +38,18 @@ export function logLine(source: string, level: LogLevel, message: string): void 
   if (!logPath) return;
   if (LEVEL_RANK[level] < LEVEL_RANK[minLevel]) return;
   rotateIfNeeded();
-  const line = `[${new Date().toLocaleString("zh-CN", { hour12: false })}] [${level}] [${source}] ${message}\n`;
-  appendFileSync(logPath, line, "utf-8");
+  const line = `[${formatTime(new Date())}] [${level}] [${source}] ${message}\n`;
+  void appendFile(logPath, line, "utf-8");
+}
+
+function formatTime(d: Date): string {
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  const h = d.getHours().toString().padStart(2, "0");
+  const min = d.getMinutes().toString().padStart(2, "0");
+  const s = d.getSeconds().toString().padStart(2, "0");
+  return `${y}/${m}/${day} ${h}:${min}:${s}`;
 }
 
 function rotateIfNeeded(): void {

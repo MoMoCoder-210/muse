@@ -126,6 +126,49 @@ const VOICE_GROUPS = [
   },
 ];
 
+// --- 模型配置子组件 ---
+
+interface ModelSectionProps {
+  settings: AppSettings;
+  onChange: (settings: AppSettings) => void;
+}
+
+function TextModelSection({ settings, onChange }: ModelSectionProps) {
+  return (
+    <ModelConfigSection<AppSettings["text"]>
+      title="语言模型"
+      description="用于剧本理解、拆分、提示词生成等文本任务。"
+      groups={TEXT_GROUPS}
+      values={settings.text}
+      onChange={(next) => onChange({ ...settings, text: next })}
+    />
+  );
+}
+
+function ImageModelSection({ settings, onChange }: ModelSectionProps) {
+  return (
+    <ModelConfigSection<AppSettings["image"]>
+      title="生图模型"
+      description="用于角色、场景、物品资产生成及分镜融合图生成。"
+      groups={IMAGE_GROUPS}
+      values={settings.image}
+      onChange={(next) => onChange({ ...settings, image: next })}
+    />
+  );
+}
+
+function VoiceModelSection({ settings, onChange }: ModelSectionProps) {
+  return (
+    <ModelConfigSection<AppSettings["voice"]>
+      title="语音模型"
+      description="用于分镜旁白与对白的语音合成（TTS）。音色不在这里固定，生成时再选。"
+      groups={VOICE_GROUPS}
+      values={settings.voice}
+      onChange={(next) => onChange({ ...settings, voice: next })}
+    />
+  );
+}
+
 /**
  * 设置页面
  *
@@ -144,7 +187,9 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   useEffect(() => {
     getSettings()
       .then(setSettings)
-      .catch(console.error)
+      .catch(() => {
+        toast("读取设置失败，请检查后端的日志。", "error");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -154,7 +199,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       await saveSettings(settings);
       toast("设置已保存。", "success");
     } catch (err) {
-      console.error(err);
       toast("保存失败，请检查后端日志。", "error");
     } finally {
       setSaving(false);
@@ -220,13 +264,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       return (
         <div className="settings-model-page">
           {renderModelTabs()}
-          <ModelConfigSection<AppSettings["text"]>
-            title="语言模型"
-            description="用于剧本理解、拆分、提示词生成等文本任务。"
-            groups={TEXT_GROUPS}
-            values={settings.text}
-            onChange={(next) => setSettings((s) => ({ ...s, text: next }))}
-          />
+          <TextModelSection settings={settings} onChange={setSettings} />
         </div>
       );
     }
@@ -235,13 +273,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       return (
         <div className="settings-model-page">
           {renderModelTabs()}
-          <ModelConfigSection<AppSettings["image"]>
-            title="生图模型"
-            description="用于角色、场景、物品资产生成及分镜融合图生成。"
-            groups={IMAGE_GROUPS}
-            values={settings.image}
-            onChange={(next) => setSettings((s) => ({ ...s, image: next }))}
-          />
+          <ImageModelSection settings={settings} onChange={setSettings} />
         </div>
       );
     }
@@ -249,13 +281,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     return (
       <div className="settings-model-page">
         {renderModelTabs()}
-        <ModelConfigSection<AppSettings["voice"]>
-          title="语音模型"
-          description="用于分镜旁白与对白的语音合成（TTS）。音色不在这里固定，生成时再选。"
-          groups={VOICE_GROUPS}
-          values={settings.voice}
-          onChange={(next) => setSettings((s) => ({ ...s, voice: next }))}
-        />
+        <VoiceModelSection settings={settings} onChange={setSettings} />
       </div>
     );
   }

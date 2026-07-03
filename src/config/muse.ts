@@ -22,7 +22,7 @@ export type StyleMode = (typeof STYLE_OPTIONS)[number];
  * id 对应 projects.current_step 的英文标识（部分聚合到同一阶段），
  * label 为 UI 展示中文。
  *
- * 阶段索引与 current_step 的映射见 WorkflowBoard.stepToStageIndex。
+ * 阶段索引与 current_step 的映射见 utils/workflow.stepToIndex。
  *
  * @author yt @date 20260702 改为 {id,label} 结构，解决中英文不匹配导致步骤板全灰
  */

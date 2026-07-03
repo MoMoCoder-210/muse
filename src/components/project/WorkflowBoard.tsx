@@ -1,4 +1,5 @@
 import { WORKFLOW_STEPS } from "../../config/muse";
+import { stepToIndex } from "../../utils/workflow";
 
 type WorkflowBoardProps = {
   /** 后台记录的进度（拆解完成后推进） */
@@ -10,29 +11,6 @@ type WorkflowBoardProps = {
   /** 点击 tab 切换到对应阶段 */
   onStepClick?: (index: number) => void;
 };
-
-/**
- * 将 projects.current_step 映射到阶段索引（表示"已进展到哪一步"）。
- */
-function stepToIndex(step: string): number {
-  switch (step) {
-    case "project":
-    case "split":
-    case "script":
-      return 0;
-    case "asset":
-      return 1;
-    case "storyboard":
-      return 2;
-    case "voice":
-    case "video":
-      return 3;
-    case "export":
-      return 4;
-    default:
-      return 0;
-  }
-}
 
 /**
  * 工作流步骤导航板

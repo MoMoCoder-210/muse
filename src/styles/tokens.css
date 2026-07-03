@@ -16,12 +16,34 @@
   --bg-hover:           rgba(255, 255, 255, 0.05);
   --bg-selected:        rgba(37, 99, 235, 0.12);
 
-  /* 文字 */
-  --text-primary:       #f8fafc;
-  --text-secondary:     #cbd5e1;
-  --text-muted:         #94a3b8;
-  --text-accent:        #bfdbfe;
-  --text-success:       #86efac;
+  /* 圆角 */
+  --radius-sm:            4px;
+  --radius-md:            8px;
+  --radius-lg:            12px;
+  --radius-xl:            16px;
+  --radius-2xl:           20px;
+  --radius-full:          999px;
+
+  /* 间距 */
+  --spacing-xs:           4px;
+  --spacing-sm:            8px;
+  --spacing-md:           12px;
+  --spacing-lg:           16px;
+  --spacing-xl:           20px;
+  --spacing-2xl:           24px;
+  --spacing-3xl:           32px;
+
+  /* 高透明度 hover / 卡片背景（供 rgba 组合使用） */
+  --bg-hover-subtle:      rgba(255, 255, 255, 0.04);
+  --bg-panel-subtle:      rgba(255, 255, 255, 0.02);
+  --bg-gradient-subtle:   rgba(255, 255, 255, 0.025);
+  --scrollbar-thumb:      rgba(148, 163, 184, 0.18);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.32);
+
+  /* 文字 RGB 通道（供 rgba 组合使用） */
+  --text-muted-rgb:       148, 163, 184;
+  --text-primary-rgb:     248, 250, 252;
+  --text-secondary-rgb:   203, 213, 225;
 
   /* 主色 */
   --accent-primary:     #2563eb;

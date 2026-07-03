@@ -39,6 +39,12 @@ let rateLimiter: RateLimiterImpl;
 let settings: SettingsManager;
 let clients: ApiClients;
 
+interface UnknownWorkerCommand {
+  cmd: string;
+  version: number;
+  [key: string]: unknown;
+}
+
 /**
  * 发送消息到 Tauri 主进程（stdout）
  *
@@ -119,7 +125,7 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
       break;
 
     default:
-      sendLog("warn", `未知命令：${(cmd as any).cmd}`);
+      sendLog("warn", `未知命令：${(cmd as UnknownWorkerCommand).cmd}`);
   }
 }
 
@@ -184,7 +190,9 @@ async function main(): Promise<void> {
   }
 
   configureLogger(logPath);
-  logLine("主进程", "DEBUG", `Worker 启动 db=${dbPath || "无"} workspace=${workspacePath || "无"}`);
+  const shortDb = dbPath ? dbPath.split(/[\\/]/).slice(-2).join("/") : "无";
+  const shortWs = workspacePath ? workspacePath.split(/[\\/]/).slice(-2).join("/") : "无";
+  logLine("主进程", "DEBUG", `Worker 启动 db=${shortDb} workspace=${shortWs}`);
 
   // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
   if (configPath) {
@@ -200,11 +208,11 @@ async function main(): Promise<void> {
     // 启动诊断：检查 DB 文件是否可访问
     const { existsSync } = await import("fs");
     if (!existsSync(dbPath)) {
-      logLine("主进程", "WARN", `数据库文件不存在：${dbPath}（初始化时将创建）`);
+      logLine("主进程", "WARN", "数据库文件不存在，初始化时将创建");
     }
 
     db = initDatabase(dbPath);
-    logLine("主进程", "DEBUG", `数据库已连接：${dbPath}`);
+    logLine("主进程", "DEBUG", `数据库已连接：${shortDb}`);
 
     // 检查启动时是否有遗留的 running 任务（上次崩溃未回退）
     const staleRunning = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'running'").get() as { cnt: number };
@@ -236,10 +244,8 @@ async function main(): Promise<void> {
     taskRunner.registerHandler("split_script", splitScriptHandler);
     taskRunner.registerHandler("generate_clip_script", generateClipScriptHandler);
     logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script");
-    // TODO: 后续模块注册
-    // taskRunner.registerHandler("generate_script", generateScriptHandler);
 
-    sendLog("info", `数据库初始化完成：${dbPath}`);
+    sendLog("info", `数据库初始化完成：${shortDb}`);
   } else {
     sendLog("warn", "未提供数据库路径，Worker 以空闲模式运行");
   }
@@ -308,6 +314,5 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   logLine("主进程", "ERROR", `致命错误：${err instanceof Error ? err.message : String(err)}`);
-  console.error("Fatal error:", err);
   process.exit(1);
 });
