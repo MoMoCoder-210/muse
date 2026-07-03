@@ -182,3 +182,12 @@ export async function generateClipScript(input: GenerateClipScriptInput): Promis
 export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[]> {
   return invoke<ClipScriptInfo[]>("get_clip_scripts", { projectId });
 }
+
+/**
+ * 取消片段拆解任务
+ *
+ * @author yt @date 20260702
+ */
+export async function cancelClipScript(clipId: string): Promise<void> {
+  return invoke<void>("cancel_clip_script", { input: { clip_id: clipId } });
+}

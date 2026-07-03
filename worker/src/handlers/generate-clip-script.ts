@@ -12,39 +12,15 @@
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { randomUUID } from "crypto";
-import { readFileSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
 import type { TaskContext } from "../types.js";
 import type { ChatMessage } from "../clients/text.js";
-import { logLine } from "../logger.js";
+import { l, lw, le, stripCodeFences, createPromptLoader } from "./utils.js";
 
 // ─── 提示词加载 ────────────────────────────────────────────────────
-// @author yt @date 20260702 加载拆解系统提示词
 
-function loadDisassemblePrompt(): string {
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(moduleDir, "../prompts/disassemble.md"), "utf-8");
-}
-
-let promptCache: string | null = null;
-// @author yt @date 20260702 获取拆解系统提示词
-function getPrompt(): string {
-  if (promptCache === null) {
-    promptCache = loadDisassemblePrompt();
-    logLine("拆解", "DEBUG", "拆解系统提示词已加载（prompts/disassemble.md）");
-  }
-  return promptCache;
-}
+const getPrompt = createPromptLoader("disassemble.md");
 
 // ─── JSON 清洗 ─────────────────────────────────────────────────────
-
-// @author yt @date 20260702 移除 Markdown 代码围栏
-function stripCodeFences(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("```")) return trimmed;
-  return trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-}
 
 // ─── 输出解析 ──────────────────────────────────────────────────────
 
@@ -156,6 +132,14 @@ function writeResults(
   sbs: StoryboardItem[],
   mode: string,
 ): void {
+  // 检查片段是否已被删除
+  const clip = db.prepare(
+    "SELECT id FROM clips WHERE id = ? AND deleted_at IS NULL"
+  ).get(clipId);
+  if (!clip) {
+    lw("拆解", `片段已被删除，丢弃拆解结果 clipId=${clipId}`);
+    return;
+  }
   const resources = buildResources(sbs);
   const summary = sbs.map((s) => s.description).join("；").slice(0, 200);
   const resourcesJson = JSON.stringify(resources);
@@ -167,18 +151,18 @@ function writeResults(
     VALUES (?, ?, ?, '', ?, ?, ?, ?, 'success')
   `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, mode);
 
-  // 写入故事板（每个 sbid 一行）
+  // 写入故事板（每个 item 一行）
   const insertSb = db.prepare(`
-    INSERT INTO storyboards (id, project_id, clip_id, sbid, description, original_text,
-      animation_prompt, fusion_prompt, sort_order, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+    INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
+      visual_description, image_prompt, video_prompt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (let i = 0; i < sbs.length; i++) {
     const sb = sbs[i];
     insertSb.run(
       randomUUID(), projectId, clipId,
-      sb.sbid, sb.description, sb.originalText || "",
-      sb.animationPrompt, sb.fusionPrompt || "", i + 1,
+      i + 1, sb.sbid, sb.originalText || "",
+      sb.description, sb.fusionPrompt || "", sb.animationPrompt,
     );
   }
 
@@ -219,7 +203,18 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
     throw new Error("拆解不可用：文本模型客户端未初始化");
   }
 
-  logLine("拆解", "INFO", `开始拆解 clipId=${input.clipId} 原文=${input.sourceText.length}字符`);
+  // 前置检查：片段是否已被删除
+  const clip = db.prepare(
+    "SELECT id FROM clips WHERE id = ? AND deleted_at IS NULL"
+  ).get(input.clipId);
+  if (!clip) {
+    lw("拆解", `片段已删除，跳过拆解 clipId=${input.clipId}`);
+    db.prepare("UPDATE clip_scripts SET status = 'failed', error_message = '片段已删除', updated_at = datetime('now') WHERE clip_id = ?")
+      .run(input.clipId);
+    return JSON.stringify({ skipped: true, reason: "clip_deleted" });
+  }
+
+  l("拆解", `开始拆解 clipId=${input.clipId} 原文=${input.sourceText.length}字符`);
 
   // 标记 running
   db.prepare("UPDATE clip_scripts SET status = 'running', updated_at = datetime('now') WHERE clip_id = ? AND status = 'pending'")
@@ -231,11 +226,47 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
     { role: "user", content: input.sourceText },
   ];
 
-  logLine("拆解", "INFO", `调用模型拆解(流式) 输入=${input.sourceText.length}字符`);
+  // ── 模型调用（带生命周期日志） ──
+  l("拆解", `发送请求 model=${textClient.config.model} 输入=${input.sourceText.length}字符 系统提示词=${systemContent.length}字符`);
 
-  const result = await textClient.chatStream(messages, () => {}, { signal: ctx.signal });
+  let firstChunk = true;
+  let streamTotal = 0;
+  let lastMilestone = 0;
+  const onChunk = (delta: string) => {
+    if (firstChunk) {
+      l("拆解", `收到首个流式响应 首块=${delta.length}字符`);
+      firstChunk = false;
+    }
+    streamTotal += delta.length;
+    const milestone = Math.floor(streamTotal / 100) * 100;
+    if (milestone >= 100 && milestone > lastMilestone) {
+      l("拆解", `流式进度：已接收 ${milestone} 字符`);
+      lastMilestone = milestone;
+    }
+  };
 
-  logLine("拆解", "INFO", `模型拆解返回完成 输出=${result.content.length}字符`);
+  let result: Awaited<ReturnType<typeof textClient.chatStream>>;
+  const startedAt = Date.now();
+  try {
+    result = await textClient.chatStream(messages, onChunk, { signal: ctx.signal });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const elapsed = Date.now() - startedAt;
+    if (msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("abort")) {
+      le("拆解", `模型调用超时 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+    } else {
+      le("拆解", `模型调用失败 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+    }
+    // 标记 clip_scripts 失败，让调用方感知
+    db.prepare("UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = datetime('now') WHERE clip_id = ?")
+      .run(msg, input.clipId);
+    throw err;
+  }
+
+  l("拆解", `模型返回完成 耗时=${Date.now() - startedAt}ms 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`);
+
+  // 打印完整返回内容，直接打印原文以诊断 JSON 解析问题
+  l("拆解", `返回内容=\n${result.content}`);
 
   try {
     const sbs = parseModelOutput(result.content);
@@ -246,18 +277,19 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
     const mode = input.styleMode || "RS";
     writeResults(db, input.projectId, input.clipId, result.content, sbs, mode);
 
-    logLine("拆解", "INFO", `拆解成功 clipId=${input.clipId} 分镜数=${sbs.length}`);
+    l("拆解", `拆解成功 clipId=${input.clipId} 分镜数=${sbs.length}`);
     emit({ type: "task_success", taskId: "" });
 
+    const resources = buildResources(sbs);
     return JSON.stringify({
       sbidCount: sbs.length,
-      characterCount: buildResources(sbs).characters.length,
-      sceneCount: buildResources(sbs).scenes.length,
-      itemCount: buildResources(sbs).items.length,
+      characterCount: resources.characters.length,
+      sceneCount: resources.scenes.length,
+      itemCount: resources.items.length,
     });
   } catch (parseError) {
     const reason = parseError instanceof Error ? parseError.message : String(parseError);
-    logLine("拆解", "WARN", `输出 JSON 解析失败（${reason}），执行修复重试`);
+    lw("拆解", `输出 JSON 解析失败（${reason}），执行修复重试`);
 
     const repairMessages: ChatMessage[] = [
       ...messages,
@@ -267,11 +299,15 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
 
     const repairResult = await textClient.chatStream(repairMessages, () => {}, { signal: ctx.signal });
 
+    l("拆解", `修复返回完成 输出=${repairResult.content.length}字符`);
+    // 打印完整修复返回内容
+    l("拆解", `修复返回内容=\n${repairResult.content}`);
+
     const sbs = parseModelOutput(repairResult.content);
     const mode = input.styleMode || "RS";
     writeResults(db, input.projectId, input.clipId, repairResult.content, sbs, mode);
 
-    logLine("拆解", "INFO", `拆解修复成功 clipId=${input.clipId} 分镜数=${sbs.length}`);
+    l("拆解", `拆解修复成功 clipId=${input.clipId} 分镜数=${sbs.length}`);
     emit({ type: "task_success", taskId: "" });
 
     return JSON.stringify({ sbidCount: sbs.length });

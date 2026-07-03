@@ -1,3 +1,5 @@
+//! @author yt @date 20260702 Muse 应用库入口，注册插件与命令
+
 mod app_paths;
 mod commands;
 mod db;
@@ -49,6 +51,7 @@ pub fn run() {
             commands::update_clip,
             commands::split_clip,
             commands::generate_clip_script,
+            commands::cancel_clip_script,
             commands::get_clip_scripts,
         ])
         .run(tauri::generate_context!())

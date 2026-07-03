@@ -1,7 +1,14 @@
+//! Muse 命令层 — Tauri IPC command 注册
+//!
+//! 所有前端可调用的命令在这里定义和实现。
+//!
+//! @author yt @date 20260702
+
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// @author yt @date 20260702 创建项目输入参数
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
     pub name: String,
@@ -11,6 +18,7 @@ pub struct CreateProjectInput {
     pub style_mode: Option<String>,
 }
 
+/// @author yt @date 20260702 项目信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub id: String,
@@ -23,6 +31,7 @@ pub struct ProjectInfo {
     pub created_at: String,
 }
 
+/// @author yt @date 20260702 导入剧本输入参数
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportScriptInput {
     pub project_id: String,
@@ -31,11 +40,13 @@ pub struct ImportScriptInput {
     pub file_path: Option<String>,
 }
 
+/// @author yt @date 20260702 导入剧本返回结果
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportScriptResult {
     pub source_id: String,
 }
 
+/// @author yt @date 20260702 片段信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClipInfo {
     pub id: String,
@@ -77,6 +88,7 @@ pub struct SplitClipInput {
     pub split_position: i64,
 }
 
+/// @author yt @date 20260702 拆分片段返回结果
 #[derive(Debug, Serialize)]
 pub struct SplitClipResult {
     pub first_clip_id: String,
@@ -114,6 +126,7 @@ fn default_settings_json() -> Value {
     })
 }
 
+/// @author yt @date 20260702 清洗并补全设置 JSON，确保必要字段存在
 fn sanitize_settings(input: Value) -> Value {
     let mut root = Map::new();
     let source = input.as_object();
@@ -175,6 +188,7 @@ fn sanitize_settings(input: Value) -> Value {
     Value::Object(root)
 }
 
+/// @author yt @date 20260702 按默认值补全单个配置节字段
 fn sanitize_section(source: Option<&Value>, fields: &[(&str, Value)]) -> Value {
     let source_obj = source.and_then(Value::as_object);
     let mut section = Map::new();
@@ -190,11 +204,13 @@ fn sanitize_section(source: Option<&Value>, fields: &[(&str, Value)]) -> Value {
     Value::Object(section)
 }
 
+/// @author yt @date 20260702 获取应用版本号
 #[tauri::command]
 pub fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// @author yt @date 20260702 创建新项目
 #[tauri::command]
 pub fn create_project(
     input: CreateProjectInput,
@@ -283,6 +299,7 @@ pub fn create_project(
     })
 }
 
+/// @author yt @date 20260702 获取项目详情
 #[tauri::command]
 pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectInfo, String> {
     let conn = open_app_conn(&app)?;
@@ -306,6 +323,7 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
     .map_err(|e| e.to_string())
 }
 
+/// @author yt @date 20260702 列出所有项目
 #[tauri::command]
 pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> {
     let conn = open_app_conn(&app)?;
@@ -336,6 +354,7 @@ pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> 
     Ok(projects)
 }
 
+/// @author yt @date 20260702 启动后台 Worker 进程
 #[tauri::command]
 pub fn start_worker(
     state: tauri::State<'_, SharedSidecarManager>,
@@ -343,32 +362,55 @@ pub fn start_worker(
     project_id: Option<String>,
 ) -> Result<String, String> {
     let project_id = project_id.ok_or_else(|| "project_id is required".to_string())?;
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    ensure_worker_running(&state, &app, &project_id)?;
+    Ok(state.lock().map_err(|e| e.to_string())?.worker_id().to_string())
+}
+
+/// 确保 Worker 进程在线：已运行且参数匹配则跳过，否则启动。
+/// 所有依赖 Worker 的命令在插入任务前都应调用此函数。
+///
+/// @author yt @date 20260703
+fn ensure_worker_running(
+    state: &SharedSidecarManager,
+    app: &tauri::AppHandle,
+    project_id: &str,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let config_path = app_data_dir.join("settings.json").to_string_lossy().to_string();
-    let db_path = crate::app_paths::app_db_path(&app)?.to_string_lossy().to_string();
-    let workspace_path = get_project_workspace_path(&app, &project_id)?;
+    let db_path = crate::app_paths::app_db_path(app)?.to_string_lossy().to_string();
+    let workspace_path = get_project_workspace_path(app, project_id)?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let log_path_str = log_path.to_string_lossy().to_string();
+
+    let mut manager = state.lock().map_err(|e| e.to_string())?;
+
+    // 已运行且参数匹配 → 无需操作
+    if manager.matches_runtime(&db_path, &workspace_path, &config_path, &log_path_str) {
+        return Ok(());
+    }
+
+    // 已运行但参数不匹配 → 先关闭
+    if manager.is_running() {
+        crate::project_log::append_log(
+            &log_path, "项目", "INFO",
+            "Worker 参数变更，正在重启",
+        );
+        manager.shutdown(5000).map_err(|e| e.to_string())?;
+    }
+
     crate::project_log::append_log(
-        &log_path,
-        "项目",
-        "INFO",
+        &log_path, "项目", "INFO",
         &format!("启动 Worker projectId={}", project_id),
     );
 
-    let mut manager = state.lock().map_err(|e| e.to_string())?;
-    let log_path_str = log_path.to_string_lossy().to_string();
-    if manager.matches_runtime(&db_path, &workspace_path, &config_path, &log_path_str) {
-        return Ok(manager.worker_id().to_string());
-    }
-    if manager.is_running() {
-        manager.shutdown(5000).map_err(|e| e.to_string())?;
-    }
     manager
-        .start(&db_path, &workspace_path, &config_path, &log_path.to_string_lossy())
+        .start(&db_path, &workspace_path, &config_path, &log_path_str)
         .map_err(|e| e.to_string())?;
-    Ok(manager.worker_id().to_string())
+
+    Ok(())
 }
 
+/// @author yt @date 20260702 停止后台 Worker 进程
 #[tauri::command]
 pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), String> {
     let mut manager = state.lock().map_err(|e| e.to_string())?;
@@ -376,6 +418,7 @@ pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), 
     Ok(())
 }
 
+/// @author yt @date 20260702 删除项目及关联数据
 #[tauri::command]
 pub fn delete_project(
     project_id: String,
@@ -408,6 +451,28 @@ pub fn delete_project(
         "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)",
         rusqlite::params![&project_id],
     ).map_err(|e| e.to_string())?;
+
+    // 检查并记录拆解中的任务
+    let split_task_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 AND type = 'split_script' AND status IN ('pending', 'running')",
+        rusqlite::params![&project_id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    if split_task_count > 0 {
+        crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("剧本拆解任务已取消（共{}个）", split_task_count));
+    }
+
+    // 检查并记录片段拆解中的任务
+    let clip_task_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 AND type = 'generate_clip_script' AND status IN ('pending', 'running')",
+        rusqlite::params![&project_id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    if clip_task_count > 0 {
+        crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("片段拆解任务已取消（共{}个）", clip_task_count));
+    }
 
     // 2. tasks
     tx.execute("DELETE FROM tasks WHERE project_id = ?1", rusqlite::params![&project_id])
@@ -478,6 +543,7 @@ pub fn delete_project(
     Ok(())
 }
 
+/// @author yt @date 20260702 获取应用设置
 #[tauri::command]
 pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
@@ -492,6 +558,7 @@ pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
     Ok(sanitize_settings(parsed))
 }
 
+/// @author yt @date 20260702 保存应用设置
 #[tauri::command]
 pub fn save_settings(
     settings: Value,
@@ -514,6 +581,7 @@ pub fn save_settings(
     Ok(())
 }
 
+/// @author yt @date 20260702 导入剧本内容
 #[tauri::command]
 pub fn import_script(
     input: ImportScriptInput,
@@ -581,6 +649,7 @@ pub fn import_script(
     Ok(ImportScriptResult { source_id })
 }
 
+/// @author yt @date 20260702 列出项目下所有片段
 #[tauri::command]
 pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipInfo>, String> {
     let conn = open_app_conn(&app)?;
@@ -618,6 +687,7 @@ pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipI
     Ok(clips)
 }
 
+/// @author yt @date 20260702 获取剧本源信息
 #[tauri::command]
 pub fn get_script_source(
     project_id: String,
@@ -651,6 +721,7 @@ pub fn get_script_source(
     }
 }
 
+/// @author yt @date 20260702 解析工作区路径
 fn resolve_workspace_path(
     workspace_path: &str,
     project_name: &str,
@@ -667,6 +738,7 @@ fn resolve_workspace_path(
     crate::app_paths::default_projects_root().join(dir_name)
 }
 
+/// @author yt @date 20260702 初始化数据库 Schema 并运行迁移
 fn ensure_project_schema(
     db_path: &std::path::Path,
     app: &tauri::AppHandle,
@@ -677,6 +749,7 @@ fn ensure_project_schema(
     Ok(())
 }
 
+/// @author yt @date 20260702 打开应用数据库连接
 fn open_app_conn(app: &tauri::AppHandle) -> Result<rusqlite::Connection, String> {
     let db_path = crate::app_paths::app_db_path(app)?;
     crate::db::init_db(&db_path).map_err(|e| e.to_string())
@@ -692,6 +765,7 @@ fn get_project_workspace_path(app: &tauri::AppHandle, project_id: &str) -> Resul
     .map_err(|e| e.to_string())
 }
 
+/// @author yt @date 20260702 解析迁移脚本目录
 fn resolve_migrations_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -707,6 +781,7 @@ fn resolve_migrations_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, 
         .ok_or_else(|| "Migrations directory not found".to_string())
 }
 
+/// @author yt @date 20260702 规范化文本内容
 fn normalize_text(text: &str) -> String {
     let text = text.trim_start_matches('\u{FEFF}');
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -717,22 +792,58 @@ fn normalize_text(text: &str) -> String {
     text.trim().to_string()
 }
 
-/**
- * 批量软删除片段
- * @author yt @date 20260702
- */
+/// @author yt @date 20260702 批量软删除片段
 #[tauri::command]
 pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<(), String> {
     if input.clip_ids.is_empty() {
         return Ok(());
     }
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
     for id in &input.clip_ids {
+        // 检查是否有拆解任务在执行中
+        let lock_prefix = format!("generate_clip_script:{}", id);
+        let task_count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running')",
+            rusqlite::params![&lock_prefix],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // 软删除片段本体
         tx.execute(
             "UPDATE clips
              SET deleted_at = datetime('now'), updated_at = datetime('now')
              WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        crate::project_log::append_log(&log_path, "项目", "INFO", &format!("片段已删除 clipId={}", id));
+
+        // 有拆解任务则取消
+        if task_count > 0 {
+            tx.execute(
+                "DELETE FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running')",
+                rusqlite::params![&lock_prefix],
+            )
+            .map_err(|e| e.to_string())?;
+
+            crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("拆解任务已取消 clipId={}（共{}个任务）", id, task_count));
+        }
+
+        // 删除片段拆解记录
+        tx.execute(
+            "DELETE FROM clip_scripts WHERE clip_id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 删除关联故事板
+        tx.execute(
+            "DELETE FROM storyboards WHERE clip_id = ?1",
             rusqlite::params![id],
         )
         .map_err(|e| e.to_string())?;
@@ -742,10 +853,7 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
     Ok(())
 }
 
-/**
- * 更新片段的标题/摘要/正文
- * @author yt @date 20260702
- */
+/// @author yt @date 20260702 更新片段内容
 #[tauri::command]
 pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
     let mut conn = open_app_conn(&app)?;
@@ -825,10 +933,7 @@ pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<Clip
     Ok(clip)
 }
 
-/**
- * 在指定字符位置把一个片段拆成两个
- * @author yt @date 20260702
- */
+/// @author yt @date 20260702 在指定位置拆分片段
 #[tauri::command]
 pub fn split_clip(
     input: SplitClipInput,
@@ -937,13 +1042,19 @@ pub fn split_clip(
 
 // ─── 片段拆解 ──────────────────────────────────────────────────────
 
+/// @author yt @date 20260702 生成片段拆解输入
 #[derive(Debug, Deserialize)]
 pub struct GenerateClipScriptInput {
     pub clip_id: String,
 }
 
+/// @author yt @date 20260702 生成片段拆解脚本
 #[tauri::command]
-pub fn generate_clip_script(input: GenerateClipScriptInput, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub fn generate_clip_script(
+    input: GenerateClipScriptInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
+) -> Result<serde_json::Value, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = open_app_conn(&app)?;
@@ -959,6 +1070,9 @@ pub fn generate_clip_script(input: GenerateClipScriptInput, app: tauri::AppHandl
     if source_text.trim().is_empty() {
         return Err("片段原文为空，无法拆解".to_string());
     }
+
+    // 确保 Worker 在线（插入任务前保证消费者存在）
+    ensure_worker_running(&state, &app, &project_id)?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
     let lock_key = format!("generate_clip_script:{}", input.clip_id);
@@ -1006,9 +1120,86 @@ pub fn generate_clip_script(input: GenerateClipScriptInput, app: tauri::AppHandl
         &format!("拆解已入队 clipId={} taskId={} 原文={}字符", input.clip_id, task_id, source_text.len()),
     );
 
+    // 通知 Worker 立即调度（不必等下一轮轮询）
+    if let Err(e) = send_enqueue_to_worker(&state, &task_id) {
+        log::warn!("发送 enqueue 通知失败（任务仍会被轮询拾取）：{}", e);
+    }
+
     Ok(serde_json::json!({ "task_id": task_id }))
 }
 
+/// 向 Worker 发送 enqueue 命令，触发立即调度。
+///
+/// @author yt @date 20260703
+fn send_enqueue_to_worker(state: &SharedSidecarManager, task_id: &str) -> Result<(), String> {
+    let mut manager = state.lock().map_err(|e| e.to_string())?;
+    manager.send_enqueue(task_id).map_err(|e| e.to_string())
+}
+
+/// @author yt @date 20260702 取消片段拆解任务
+#[tauri::command]
+pub fn cancel_clip_script(
+    input: GenerateClipScriptInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
+) -> Result<(), String> {
+    let mut conn = open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let lock_key = format!("generate_clip_script:{}", input.clip_id);
+
+    // 先查出 running 状态的任务 ID，以便发送取消命令给 Worker
+    let running_task_ids: Vec<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM tasks WHERE lock_key = ?1 AND status = 'running'"
+        ).map_err(|e| e.to_string())?;
+        let ids = stmt.query_map(
+            rusqlite::params![&lock_key],
+            |row| row.get::<_, String>(0),
+        ).map_err(|e| e.to_string())?;
+        ids.filter_map(|r| r.ok()).collect()
+    };
+
+    let deleted = tx.execute(
+        "DELETE FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running')",
+        rusqlite::params![&lock_key],
+    ).map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE clip_scripts SET status = 'cancelled', updated_at = datetime('now') WHERE clip_id = ?1 AND status IN ('pending', 'running')",
+        rusqlite::params![&input.clip_id],
+    ).map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE clips SET status = 'pending', updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![&input.clip_id],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    // 通知 Worker 中止正在执行的任务
+    for task_id in &running_task_ids {
+        if let Err(e) = send_cancel_to_worker(&state, task_id) {
+            log::warn!("发送 cancel 通知失败（任务可能已完成）：{}", e);
+        }
+    }
+
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("拆解已取消 clipId={}（{}个任务）", input.clip_id, deleted));
+
+    Ok(())
+}
+
+/// 向 Worker 发送 cancel 命令，中止指定任务。
+///
+/// @author yt @date 20260703
+fn send_cancel_to_worker(state: &SharedSidecarManager, task_id: &str) -> Result<(), String> {
+    let mut manager = state.lock().map_err(|e| e.to_string())?;
+    manager.send_cancel(task_id).map_err(|e| e.to_string())
+}
+
+/// @author yt @date 20260702 片段拆解脚本信息
 #[derive(Debug, Serialize)]
 pub struct ClipScriptInfo {
     pub id: String,
@@ -1018,6 +1209,7 @@ pub struct ClipScriptInfo {
     pub status: String,
 }
 
+/// @author yt @date 20260702 获取项目片段拆解结果
 #[tauri::command]
 pub fn get_clip_scripts(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipScriptInfo>, String> {
     let conn = open_app_conn(&app)?;

@@ -42,7 +42,7 @@ export interface TextCallResult {
 
 export class TextClient {
   private client: OpenAI;
-  private config: TextModelConfig;
+  config: TextModelConfig;
 
   constructor(config: TextModelConfig) {
     this.config = config;

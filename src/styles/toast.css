@@ -20,12 +20,12 @@
   gap: 10px;
   padding: 10px 16px;
   border-radius: 12px;
-  background: var(--bg-surface-modal, rgba(30, 30, 35, 0.92));
+  background: var(--bg-surface-modal);
   backdrop-filter: blur(16px);
-  border: 1px solid var(--border-faint, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-faint);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  color: var(--text-primary, #e8e8ed);
-  font-size: var(--font-size-sm, 13px);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   pointer-events: auto;
   cursor: pointer;

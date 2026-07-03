@@ -48,7 +48,7 @@ export function DeleteConfirmModal({
     >
       <div className="modal-panel delete-confirm-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="delete-confirm-title">确认删除项目</h2>
+          <h2 className="delete-confirm-title">删除项目</h2>
           <button
             type="button"
             className="icon-button modal-close-button"
@@ -61,8 +61,7 @@ export function DeleteConfirmModal({
 
         <div className="delete-confirm-body">
           <p>
-            确定要删除项目 <strong>「{project.name}」</strong> 吗？
-            项目记录将从数据库中移除，此操作不可撤销。
+            确认删除 <strong>「{project.name}」</strong> ？此操作不可撤销。
           </p>
 
           <label className="delete-files-option">
@@ -73,11 +72,6 @@ export function DeleteConfirmModal({
             />
             <span>同时删除项目文件夹</span>
           </label>
-          {deleteFiles ? (
-            <p className="delete-files-hint">
-              将删除：<code>{project.workspace_path}</code>
-            </p>
-          ) : null}
         </div>
 
         <div className="modal-actions">
@@ -95,7 +89,7 @@ export function DeleteConfirmModal({
             onClick={handleConfirm}
             disabled={deleting}
           >
-            {deleting ? "删除中..." : "确认删除"}
+            删除
           </button>
         </div>
       </div>

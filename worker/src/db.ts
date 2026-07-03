@@ -1,6 +1,8 @@
 /**
  * SQLite 数据库连接管理
  * 基于 better-sqlite3，启用 WAL 模式支持多进程并发访问
+ *
+ * @author yt @date 20260702
  */
 
 import Database from "better-sqlite3";
@@ -68,7 +70,8 @@ export function getPendingTasks(db: DatabaseType): PendingTask[] {
          AND NOT EXISTS (
            SELECT 1 FROM task_locks tl WHERE tl.lock_key = t.lock_key
          )
-       ORDER BY t.created_at ASC`
+       ORDER BY t.created_at ASC
+       LIMIT 20`
     )
     .all() as PendingTask[];
 }
@@ -238,4 +241,34 @@ export function recoverRunningTasks(
     .run();
 
   return remoteResult.changes + localResult.changes;
+}
+
+/**
+ * 恢复超时的 running 任务。
+ *
+ * 检查 running 状态且 updated_at 超过指定时长的本地任务，回退为 pending。
+ * 同时清理对应的 task_locks。用于防止任务因 Worker 崩溃或 handler 卡死而永久滞留。
+ *
+ * @author yt @date 20260703
+ */
+export function recoverStaleTasks(db: DatabaseType, timeoutMs: number): number {
+  // 先清理超时任务的锁
+  db.prepare(
+    `DELETE FROM task_locks WHERE lock_key IN (
+       SELECT lock_key FROM tasks
+       WHERE status = 'running' AND remote_task_id IS NULL
+         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?1
+     )`
+  ).run(timeoutMs);
+
+  // 回退超时任务
+  const result = db
+    .prepare(
+      `UPDATE tasks SET status = 'pending', updated_at = datetime('now')
+       WHERE status = 'running' AND remote_task_id IS NULL
+         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?1`
+    )
+    .run(timeoutMs);
+
+  return result.changes;
 }

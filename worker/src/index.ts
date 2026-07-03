@@ -49,12 +49,11 @@ function sendMessage(msg: WorkerMessage): void {
 }
 
 /**
- * 发送日志
+ * 发送日志（统一通过 stdout 转发到 Rust 项目日志，避免双写）
  *
  * @author yt @date 20260702
  */
 function sendLog(level: "info" | "warn" | "error", message: string): void {
-  logLine("主进程", level.toUpperCase() as "INFO" | "WARN" | "ERROR", message);
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
 }
 
@@ -89,11 +88,17 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
   switch (cmd.cmd) {
     case "enqueue":
       sendLog("info", `任务入队：${cmd.taskId}`);
+      // 唤醒 TaskRunner 立即调度，不必等下一轮轮询
+      if (taskRunner) {
+        taskRunner.wakeup();
+      }
       break;
 
     case "cancel":
       sendLog("info", `取消任务：${cmd.taskId}`);
-      // TODO: 标记任务为 cancelled
+      if (taskRunner) {
+        taskRunner.cancelTask(cmd.taskId);
+      }
       break;
 
     case "shutdown":
@@ -208,6 +213,18 @@ async function main(): Promise<void> {
       db.prepare("UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE status = 'running'").run();
     }
 
+    // 清理已删除片段的孤儿任务
+    const orphanTasks = db.prepare(`
+      DELETE FROM tasks WHERE type = 'generate_clip_script'
+      AND status IN ('pending', 'running')
+      AND lock_key NOT IN (
+        SELECT 'generate_clip_script:' || c.id FROM clips c WHERE c.deleted_at IS NULL
+      )
+    `).run();
+    if (orphanTasks.changes > 0) {
+      logLine("主进程", "INFO", `已清理 ${orphanTasks.changes} 个孤儿拆解任务（片段已删除）`);
+    }
+
     const pendingCount = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number };
     logLine("主进程", "DEBUG", `启动时待处理任务：${pendingCount.cnt}`);
 
@@ -234,6 +251,7 @@ async function main(): Promise<void> {
     workerId,
     protocolVersion: PROTOCOL_VERSION,
   });
+  sendLog("info", `Worker 就绪，等待任务（待处理：${db ? (db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number }).cnt : 0}）`);
 
   // 当没有 taskRunner 时（空闲模式），单独启动心跳定时器
   let idleHeartbeatTimer: ReturnType<typeof setInterval> | undefined;

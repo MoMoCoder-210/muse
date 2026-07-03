@@ -1,3 +1,11 @@
+/**
+ * Worker 日志模块
+ *
+ * 支持按级别过滤（LOG_LEVEL 环境变量）、日志轮转（保留最近 2MB）。
+ *
+ * @author yt @date 20260702
+ */
+
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname } from "path";
 

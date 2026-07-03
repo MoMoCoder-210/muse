@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS storyboards (
     id                 TEXT PRIMARY KEY,
     project_id         TEXT NOT NULL REFERENCES projects(id),
     clip_id            TEXT NOT NULL REFERENCES clips(id),
+    sbid               TEXT NOT NULL DEFAULT '',
     seq_num            INTEGER NOT NULL,
     source_text        TEXT,
     summary            TEXT,

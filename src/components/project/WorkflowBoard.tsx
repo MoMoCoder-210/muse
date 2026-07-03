@@ -1,28 +1,22 @@
+import { useEffect, useState } from "react";
 import { WORKFLOW_STEPS } from "../../config/muse";
 
 type WorkflowBoardProps = {
-  currentStep: string;
-  /** 禁止点击的阶段索引集合（null 表示加载中，空 set 表示全部可用） */
+  /** 后台记录的进度（拆解完成后推进） */
+  progressStep: string;
+  /** 用户当前选中查看的阶段索引 */
+  activeIndex: number;
+  /** 禁止点击的阶段索引集合 */
   disabledSteps?: Set<number> | null;
+  /** 点击 tab 切换到对应阶段 */
+  onStepClick?: (index: number) => void;
 };
 
 /**
- * 将 projects.current_step（英文标识）映射到工作流阶段索引。
- *
- * 映射规则（WORKFLOW_STEPS 的 id 即阶段标识）：
- *   project / split / script  → 0（剧本管理进行中：导入→拆分→看片段）
- *   asset                     → 1（资产管理进行中）
- *   storyboard                → 2（分镜编辑进行中）
- *   voice / video             → 3（视频编辑进行中）
- *   export                    → 4（视频合成进行中）
- *   未知值                    → 0（保守归到第一阶段）
- *
- * 返回的是"当前正在进行的阶段索引"。
- *
- * @author yt @date 20260702 修复中文 label 与英文 step 不匹配导致步骤板全灰；修复 script 误映射
+ * 将 projects.current_step 映射到阶段索引（表示"已进展到哪一步"）。
  */
-function stepToStageIndex(current: string): number {
-  switch (current) {
+function stepToIndex(step: string): number {
+  switch (step) {
     case "project":
     case "split":
     case "script":
@@ -41,15 +35,15 @@ function stepToStageIndex(current: string): number {
   }
 }
 
-export function WorkflowBoard({ currentStep, disabledSteps }: WorkflowBoardProps) {
-  const activeIndex = stepToStageIndex(currentStep);
+export function WorkflowBoard({ progressStep, activeIndex, disabledSteps, onStepClick }: WorkflowBoardProps) {
+  const progress = stepToIndex(progressStep);
   const ds = disabledSteps ?? new Set<number>();
 
   return (
     <div className="workflow-board">
       {WORKFLOW_STEPS.map((step, index) => {
         const state =
-          index < activeIndex ? "done" : index === activeIndex ? "active" : "pending";
+          index === activeIndex ? "active" : index < progress ? "done" : "pending";
         const disabled = ds.has(index);
         return (
           <div
@@ -57,13 +51,13 @@ export function WorkflowBoard({ currentStep, disabledSteps }: WorkflowBoardProps
             className={`workflow-step workflow-step--${state}${disabled ? " workflow-step--disabled" : ""}`}
             onClick={() => {
               if (disabled) return;
-              // TODO: 切换到对应工作流页面
+              onStepClick?.(index);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 if (disabled) return;
-                // TODO: 切换到对应工作流页面
+                onStepClick?.(index);
               }
             }}
             role="button"

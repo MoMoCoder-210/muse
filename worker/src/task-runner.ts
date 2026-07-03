@@ -3,15 +3,12 @@
  * 基于模块 08 第 3.2 节 "worker 设计"
  *
  * 核心循环：
- * 1. 查询所有 status = 'pending' 且 lockKey 未被占用的 Task
- * 2. 对每条 Task：
- *    a. 根据 task.type 映射到 apiType
- *    b. 检查该 apiType 并发数是否达上限
- *    c. 检查该 apiType 是否被暂停（配额耗尽）
- *    d. 尝试获取逻辑锁
- * 3. 三项都通过：获取令牌 → 标记 running → 分发到 handler → 回写结果
- * 4. 恢复 waiting_remote 的任务轮询
- * 5. 本轮无可执行任务时休眠 1 秒
+ * 1. 每 STALE_CHECK_INTERVAL 轮恢复超时 running 任务（防丢失）
+ * 2. 查询 pending 任务（LIMIT 20）+ lockKey 未被占用
+ * 3. 对每条 Task：尝试获锁 → 获令牌 → 标记 running → 分发 handler
+ * 4. handler 完成/超时/失败 → 回写结果 + 释放资源
+ * 5. 失败且可重试 + retry_count < max_retry → 回退 pending
+ * 6. 收到 wakeup 信号时跳过休眠，立即进入下一轮
  *
  * @author yt @date 20260702
  */
@@ -29,12 +26,36 @@ import {
   markTaskFailed,
   getWaitingRemoteTasks,
   getRunningTaskCount,
+  recoverStaleTasks,
   type PendingTask,
 } from "./db.js";
 import { logLine } from "./logger.js";
 
+// 调度日志双写：磁盘文件 + stdout 转发到 Rust
+function log(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
+  logLine(source, level, message);
+  const lv = level.toLowerCase();
+  process.stdout.write(JSON.stringify({ version: 1, msg: "log", level: lv, message: `[${source}] ${message}` }) + "\n");
+}
+
+// RateLimiter 日志也走双写
+import { logLine as rl } from "./logger.js";
+function rlog(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
+  rl(source, level, message);
+  process.stdout.write(JSON.stringify({ version: 1, msg: "log", level: level.toLowerCase(), message: `[${source}] ${message}` }) + "\n");
+}
+
 const POLL_INTERVAL_MS = 1000;
 const HEARTBEAT_INTERVAL_MS = 10000;
+/** 每隔多少轮轮询执行一次超时任务恢复检查 */
+const STALE_CHECK_INTERVAL = 30;
+/** running 任务超时阈值（5 分钟） */
+const STALE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
+/** 单个任务 handler 执行超时（10 分钟，LLM 长输出场景兜底） */
+const TASK_HANDLER_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** 可重试的错误关键词 */
+const RETRYABLE_KEYWORDS = ["timeout", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "socket hang up", "fetch failed"];
 
 export class TaskRunner {
   private db: DatabaseType;
@@ -45,8 +66,13 @@ export class TaskRunner {
   private running = false;
   private abortController: AbortController;
   private handlers: Map<TaskType, (ctx: TaskContext) => Promise<string>> = new Map();
-
   private onHeartbeat: ((activeCount: number) => void) | null = null;
+  /** wakeup 标志：收到 enqueue 通知时置 true，sleep 中提前返回 */
+  private wakeupRequested = false;
+  /** 轮询计数器，用于定期执行超时恢复 */
+  private pollCount = 0;
+  /** 运行中任务的 AbortController 映射，用于取消 */
+  private runningTasks: Map<string, AbortController> = new Map();
 
   constructor(
     db: DatabaseType,
@@ -75,14 +101,38 @@ export class TaskRunner {
   }
 
   /**
+   * 唤醒：跳过当前休眠，立即进入下一轮调度。
+   * 由 index.ts 收到 enqueue 命令时调用。
+   *
+   * @author yt @date 20260703
+   */
+  wakeup(): void {
+    this.wakeupRequested = true;
+  }
+
+  /**
+   * 取消指定任务：abort 对应的 AbortController，中断正在执行的 handler。
+   * 由 index.ts 收到 cancel 命令时调用。
+   *
+   * @author yt @date 20260703
+   */
+  cancelTask(taskId: string): void {
+    const ctrl = this.runningTasks.get(taskId);
+    if (ctrl) {
+      log("任务调度", "WARN", `取消运行中任务：${taskId}`);
+      ctrl.abort();
+      this.runningTasks.delete(taskId);
+    }
+  }
+
+  /**
    * 启动任务循环
    *
    * @author yt @date 20260702
    */
   async start(): Promise<void> {
     this.running = true;
-    logLine("任务调度", "INFO", `已启动，workerId=${this.workerId}`);
-
+    log("任务调度", "INFO", `已启动，workerId=${this.workerId}`);
 
     // 启动心跳定时器
     const heartbeatTimer = setInterval(() => {
@@ -93,10 +143,17 @@ export class TaskRunner {
     // 主循环
     while (this.running) {
       try {
+        // 定期恢复超时 running 任务
+        this.pollCount++;
+        if (this.pollCount >= STALE_CHECK_INTERVAL) {
+          this.pollCount = 0;
+          this.checkStaleTasks();
+        }
+
         await this.processPendingTasks();
         await this.processWaitingRemoteTasks();
       } catch (err) {
-        logLine("任务调度", "ERROR", `主循环错误：${err instanceof Error ? err.message : String(err)}`);
+        log("任务调度", "ERROR", `主循环错误：${err instanceof Error ? err.message : String(err)}`);
       }
 
       if (this.running) {
@@ -105,7 +162,7 @@ export class TaskRunner {
     }
 
     clearInterval(heartbeatTimer);
-    logLine("任务调度", "INFO", "已停止");
+    log("任务调度", "INFO", "已停止");
   }
 
   /**
@@ -116,6 +173,19 @@ export class TaskRunner {
   stop(): void {
     this.running = false;
     this.abortController.abort();
+  }
+
+  /**
+   * 恢复超时的 running 任务。
+   * 场景：Worker 崩溃重启后、handler 卡死未返回、进程被 kill。
+   *
+   * @author yt @date 20260703
+   */
+  private checkStaleTasks(): void {
+    const recovered = recoverStaleTasks(this.db, STALE_TASK_TIMEOUT_MS);
+    if (recovered > 0) {
+      log("任务调度", "WARN", `恢复 ${recovered} 个超时运行任务`);
+    }
   }
 
   /**
@@ -133,22 +203,19 @@ export class TaskRunner {
       const taskType = task.type as TaskType;
       const apiType: ApiType = TASK_TYPE_TO_API[taskType] ?? "local";
 
-      // 检查三项条件
-      // a. 并发数是否达上限
-      if (this.rateLimiter.getActiveCount(apiType) >= this.getMaxConcurrency(apiType)) {
-        continue;
-      }
-      // b. 是否被暂停
-      if (!this.rateLimiter.canAcquire(apiType)) {
-        continue;
-      }
-      // c. 尝试获取逻辑锁
+      // 尝试获取逻辑锁（防止同一 clipId 重复调度）
       const lockedBy = `workerId:${this.workerId}:taskId:${task.id}`;
       if (!acquireLock(this.db, task.lock_key, lockedBy)) {
         continue;
       }
 
-      // 三项都通过：执行任务
+      // 尝试获取令牌（并发 + 限流 + 暂停 统一由 rateLimiter 判断）
+      if (!this.rateLimiter.acquire(apiType)) {
+        releaseLock(this.db, task.lock_key);
+        continue;
+      }
+
+      // 锁 + 令牌都拿到，执行任务
       await this.executeTask(task, apiType, taskType);
     }
   }
@@ -163,12 +230,6 @@ export class TaskRunner {
     apiType: ApiType,
     taskType: TaskType
   ): Promise<void> {
-    // 获取令牌
-    if (!this.rateLimiter.acquire(apiType)) {
-      releaseLock(this.db, task.lock_key);
-      return;
-    }
-
     // 标记为 running
     markTaskRunning(this.db, task.id);
     this.emit({ type: "task_started", taskId: task.id, taskType });
@@ -177,7 +238,7 @@ export class TaskRunner {
     const handler = this.handlers.get(taskType);
     if (!handler) {
       const errMsg = `未注册任务处理器：${taskType}`;
-      logLine("任务调度", "ERROR", errMsg);
+      log("任务调度", "ERROR", errMsg);
       markTaskFailed(this.db, task.id, errMsg);
       releaseLock(this.db, task.lock_key);
       this.rateLimiter.release(apiType);
@@ -185,9 +246,11 @@ export class TaskRunner {
       return;
     }
 
-    // 构建 TaskContext
+    // 构建 TaskContext（每任务独立 AbortSignal）
+    const taskAbort = new AbortController();
+    this.runningTasks.set(task.id, taskAbort);
     const ctx: TaskContext = {
-      workspacePath: "", // TODO: 从项目配置获取
+      workspacePath: "",
       taskId: task.id,
       taskInput: (() => {
         try { return JSON.parse(task.input_json); } catch { return {}; }
@@ -195,38 +258,81 @@ export class TaskRunner {
       db: this.db,
       emit: this.emit,
       rateLimiter: this.rateLimiter,
-      signal: this.abortController.signal,
+      signal: taskAbort.signal,
       clients: this.clients,
     };
 
-    logLine("任务调度", "INFO", `执行任务：id=${task.id} type=${taskType} apiType=${apiType}`);
+    log("任务调度", "INFO", `执行任务：id=${task.id} type=${taskType} apiType=${apiType} retry=${task.retry_count}/${task.max_retry}`);
 
     try {
-      const outputJson = await handler(ctx);
-      logLine("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
+      // per-task 超时保护
+      const outputJson = await this.withTimeout(
+        handler(ctx),
+        TASK_HANDLER_TIMEOUT_MS,
+        taskAbort,
+      );
+      log("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
       markTaskSuccess(this.db, task.id, outputJson);
       this.emit({ type: "task_success", taskId: task.id, outputJson });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logLine("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
+      log("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
 
-      // 检查是否是 429 错误
+      // 429 限流 → 报告 rateLimiter
       if (this.isRateLimitError(err)) {
         this.rateLimiter.reportRateLimit(apiType);
       }
 
-      // 检查是否是配额耗尽
+      // 配额耗尽 → 暂停该 API
       if (this.isQuotaExhaustedError(err)) {
         this.rateLimiter.reportQuotaExhausted(apiType);
         this.emit({ type: "quota_exhausted", apiType, message: errorMessage });
       }
 
-      markTaskFailed(this.db, task.id, errorMessage);
-      this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+      // 可重试错误 + 还有重试次数 → 回退 pending
+      if (this.isRetryable(err) && task.retry_count < task.max_retry) {
+        log("任务调度", "WARN", `任务回退待重试：id=${task.id} retry=${task.retry_count + 1}/${task.max_retry}`);
+        this.db.prepare(
+          "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(errorMessage, task.id);
+        this.emit({ type: "task_failed", taskId: task.id, errorMessage: `${errorMessage}（将重试）` });
+      } else {
+        markTaskFailed(this.db, task.id, errorMessage);
+        this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+      }
     } finally {
+      this.runningTasks.delete(task.id);
       releaseLock(this.db, task.lock_key);
       this.rateLimiter.release(apiType);
     }
+  }
+
+  /**
+   * 包装 Promise，超时后 abort 并抛错。
+   *
+   * @author yt @date 20260703
+   */
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, abort: AbortController): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        abort.abort();
+        reject(new Error(`任务执行超时（${timeoutMs / 1000}s）`));
+      }, timeoutMs);
+
+      promise
+        .then((result) => { clearTimeout(timer); resolve(result); })
+        .catch((err) => { clearTimeout(timer); reject(err); });
+    });
+  }
+
+  /**
+   * 判断错误是否可重试
+   *
+   * @author yt @date 20260703
+   */
+  private isRetryable(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return RETRYABLE_KEYWORDS.some((kw) => msg.toLowerCase().includes(kw.toLowerCase()));
   }
 
   /**
@@ -239,9 +345,6 @@ export class TaskRunner {
     if (tasks.length === 0) return;
 
     // TODO: 实现远端任务轮询逻辑
-    // 对每个 waiting_remote 的任务，调用对应的轮询接口
-    // 成功 → 下载结果 → markTaskSuccess
-    // 失败 → markTaskFailed
   }
 
   /**
@@ -251,22 +354,6 @@ export class TaskRunner {
    */
   private getActiveTaskCount(): number {
     return getRunningTaskCount(this.db);
-  }
-
-  /**
-   * 获取 API 类型最大并发数
-   *
-   * @author yt @date 20260702
-   */
-  private getMaxConcurrency(apiType: ApiType): number {
-    const max: Record<ApiType, number> = {
-      text: 2,
-      image: 3,
-      voice: 2,
-      video: 1,
-      local: 2,
-    };
-    return max[apiType] ?? 1;
   }
 
   /**
@@ -294,11 +381,27 @@ export class TaskRunner {
   }
 
   /**
-   * 休眠
+   * 可中断休眠：收到 wakeup 信号时立即返回
    *
-   * @author yt @date 20260702
+   * @author yt @date 20260703
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve) => {
+      const interval = 50;
+      let elapsed = 0;
+      const timer = setInterval(() => {
+        if (this.wakeupRequested) {
+          this.wakeupRequested = false;
+          clearInterval(timer);
+          resolve();
+          return;
+        }
+        elapsed += interval;
+        if (elapsed >= ms) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, interval);
+    });
   }
 }

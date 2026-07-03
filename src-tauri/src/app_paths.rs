@@ -1,6 +1,9 @@
+//! @author yt @date 20260702 应用路径工具模块
+
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
 
+/// @author yt @date 20260702 解析应用数据目录
 pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String> {
     let app_name = app.package_info().name.clone();
 
@@ -22,10 +25,12 @@ pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBu
     Ok(fallback)
 }
 
+/// @author yt @date 20260702 获取应用数据库文件路径
 pub fn app_db_path<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String> {
     Ok(resolve_app_data_dir(app)?.join("app.sqlite"))
 }
 
+/// @author yt @date 20260702 获取默认项目根目录
 pub fn default_projects_root() -> PathBuf {
     let drive_d = Path::new(r"D:\");
     if drive_d.exists() {
@@ -38,6 +43,7 @@ pub fn default_projects_root() -> PathBuf {
         .join("projects")
 }
 
+/// @author yt @date 20260702 清理项目目录名称
 pub fn sanitize_project_dir_name(name: &str) -> String {
     let sanitized: String = name
         .chars()

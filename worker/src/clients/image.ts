@@ -1,7 +1,7 @@
 /**
- * 生图模型客户端（豆包 Images Generate）
+ * 生图模型客户端
  *
- * 火山方舟的生图接口兼容 OpenAI Images API（client.images.generate）。
+ * 兼容 OpenAI Images API
  * 返回图片 URL，调用方负责下载并存储到本地工作区。
  *
  * 注意：
@@ -57,7 +57,7 @@ export class ImageClient {
   }
 
   /**
-   * 生成图片，返回临时 URL。
+   * 生成图片，返回临时 URL
    *
    * @author yt @date 20260702
    */
@@ -101,8 +101,8 @@ export class ImageClient {
   }
 
   /**
-   * 生成图片并直接下载到本地路径。
-   * 返回本地文件路径。
+   * 生成图片并直接下载到本地路径
+   * 返回本地文件路径
    *
    * @author yt @date 20260702
    */

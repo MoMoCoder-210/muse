@@ -1,3 +1,7 @@
+//! @author yt @date 20260702 项目日志模块
+
+use chrono::Datelike;
+use chrono::Timelike;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -7,10 +11,12 @@ const LOG_FILE_NAME: &str = "muse.log";
 const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const LOG_KEEP_BYTES: usize = 2 * 1024 * 1024;
 
+/// @author yt @date 20260702 获取日志文件路径
 pub fn log_path_for_app_data(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("logs").join(LOG_FILE_NAME)
 }
 
+/// @author yt @date 20260702 追加日志条目
 pub fn append_log(log_path: &Path, source: &str, level: &str, message: &str) {
     if let Some(parent) = log_path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -18,12 +24,23 @@ pub fn append_log(log_path: &Path, source: &str, level: &str, message: &str) {
 
     rotate_if_needed(log_path);
 
-    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    // 时间格式与 Worker logger.ts 的 toLocaleString("zh-CN") 保持一致
+    let now = chrono::Local::now();
+    let timestamp = format!(
+        "{}/{}/{} {:02}:{:02}:{:02}",
+        now.year(),
+        now.month(),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = writeln!(file, "[{}] [{}] [{}] {}", timestamp, level, source, message);
     }
 }
 
+/// @author yt @date 20260702 按需轮转日志文件
 fn rotate_if_needed(log_path: &Path) {
     let Ok(metadata) = fs::metadata(log_path) else {
         return;

@@ -1,8 +1,11 @@
+//! @author yt @date 20260702 数据库模块
+
 use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
 
+/// @author yt @date 20260702 数据库错误类型
 #[derive(Debug, Error)]
 #[allow(dead_code)]
 pub enum DbError {
@@ -17,6 +20,7 @@ pub enum DbError {
 /// 初始化 SQLite 数据库连接。
 ///
 /// 必须设置 WAL 模式和 busy_timeout，以支持 Tauri Rust 层和 Node worker 的多进程并发访问。
+/// @author yt @date 20260702
 pub fn init_db(db_path: &Path) -> Result<Connection, DbError> {
     let conn = Connection::open(db_path)
         .map_err(|e| DbError::Connection(e.to_string()))?;
@@ -44,6 +48,7 @@ pub fn init_db(db_path: &Path) -> Result<Connection, DbError> {
 ///
 /// 读取 migrations 目录下所有 .sql 文件，逐文件执行。
 /// 所有建表语句均使用 CREATE TABLE IF NOT EXISTS，可安全重复执行。
+/// @author yt @date 20260702
 pub fn run_migrations(conn: &Connection, migrations_dir: &Path) -> Result<(), DbError> {
     if !migrations_dir.exists() {
         log::warn!("Migrations directory not found: {:?}", migrations_dir);
@@ -69,14 +74,22 @@ pub fn run_migrations(conn: &Connection, migrations_dir: &Path) -> Result<(), Db
             .map_err(|e| DbError::Migration(format!("读取 {} 失败: {}", file_name, e)))?;
 
         log::info!("执行建表脚本: {}", file_name);
-        conn.execute_batch(&sql)
-            .map_err(|e| DbError::Migration(format!("{} 执行失败: {}", file_name, e)))?;
+        if let Err(e) = conn.execute_batch(&sql) {
+            let msg = e.to_string();
+            // SQLite 不支持 IF NOT EXISTS 的 ALTER TABLE，重复执行时忽略 "duplicate column name"
+            if msg.contains("duplicate column name") {
+                log::warn!("迁移 {} 跳过（列已存在）：{}", file_name, msg);
+            } else {
+                return Err(DbError::Migration(format!("{} 执行失败: {}", file_name, e)));
+            }
+        }
     }
 
     Ok(())
 }
 
 /// 获取应用数据目录中的数据库路径
+/// @author yt @date 20260702
 #[allow(dead_code)]
 pub fn get_db_path(app_data_dir: &Path, project_id: &str) -> std::path::PathBuf {
     app_data_dir.join("projects").join(project_id).join("project.sqlite")

@@ -269,6 +269,26 @@
   font-size: var(--font-size-xs);
 }
 
+.clip-delete-modal {
+  max-width: 340px;
+  text-align: center;
+}
+
+.clip-delete-modal-text {
+  margin: 0 0 18px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.clip-delete-modal-text strong {
+  color: var(--text-primary);
+}
+
+.clip-delete-modal .modal-actions {
+  justify-content: center;
+}
+
 /* 片段展开内容 */
 .clip-item-body {
   padding: 0 14px 14px;

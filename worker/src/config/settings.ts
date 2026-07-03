@@ -1,11 +1,11 @@
 /**
  * 配置文件读写
  *
- * 配置以 JSON 文件形式存储在应用数据目录中（settings.json）。
- * 路径由 Rust 层启动 worker 时通过 --config <path> 参数传入。
+ * 配置以 JSON 文件形式存储在应用数据目录中（settings.json）
+ * 路径由 Rust 层启动 worker 时通过 --config <path> 参数传入
  *
- * 读取策略：启动时加载一次，调用方可按需重新加载（热更新）。
- * 写入策略：由设置页面通过 Tauri command 写文件，worker 重载配置。
+ * 读取策略：启动时加载一次，调用方可按需重新加载（热更新）
+ * 写入策略：由设置页面通过 Tauri command 写文件，worker 重载配置
  *
  * @author yt @date 20260702
  */
@@ -25,7 +25,7 @@ export class SettingsManager {
   }
 
   /**
-   * 从磁盘加载配置，缺失字段用默认值填充（深合并）。
+   * 从磁盘加载配置，缺失字段用默认值填充（深合并）
    *
    * @author yt @date 20260702
    */
@@ -56,8 +56,8 @@ export class SettingsManager {
   }
 
   /**
-   * 将配置写入磁盘（通常由设置页 Tauri command 调用，worker 侧一般不需要写）。
-   * worker 侧暴露此方法仅作为兜底。
+   * 将配置写入磁盘
+   * worker 侧暴露此方法仅作为兜底
    *
    * @author yt @date 20260702
    */

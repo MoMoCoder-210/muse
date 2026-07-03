@@ -1,3 +1,5 @@
+//! @author yt @date 20260702 Sidecar 子进程管理
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -17,6 +19,7 @@ const RESTART_WINDOW_MINS: u64 = 5;
 #[allow(dead_code)]
 const RESTART_DELAY_SECS: u64 = 2;
 
+/// @author yt @date 20260702 Sidecar 错误类型
 #[derive(Debug, Error)]
 #[allow(dead_code)]
 pub enum SidecarError {
@@ -34,6 +37,7 @@ pub enum SidecarError {
 
 type LogLineProcessor = Box<dyn Fn(&str) + Send + 'static>;
 
+/// @author yt @date 20260702 启动日志读取线程
 fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     stream: R,
     log_path: Arc<std::path::PathBuf>,
@@ -62,12 +66,37 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     })
 }
 
+/// @author yt @date 20260702 解析 stdout 行内容
 fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
     if let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) {
         let msg_type = msg.get("msg").and_then(|v| v.as_str()).unwrap_or("");
         match msg_type {
-            "heartbeat" | "ready" | "task_event" | "batch_progress"
+            "heartbeat" | "batch_progress"
             | "quota_exhausted" | "shutting_down" => {}
+            "ready" => {
+                let wid = msg.get("workerId").and_then(|v| v.as_str()).unwrap_or("?");
+                crate::project_log::append_log(log_path, "主进程", "INFO", &format!("Worker 就绪，workerId={}", wid));
+            }
+            "task_event" => {
+                if let Some(event) = msg.get("event") {
+                    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    let task_id = event.get("taskId").and_then(|v| v.as_str()).unwrap_or("");
+                    match event_type {
+                        "task_started" => {
+                            let task_type = event.get("taskType").and_then(|v| v.as_str()).unwrap_or("");
+                            crate::project_log::append_log(log_path, "任务调度", "INFO", &format!("开始执行任务 taskId={} type={}", task_id, task_type));
+                        }
+                        "task_success" => {
+                            crate::project_log::append_log(log_path, "任务调度", "INFO", &format!("任务成功 taskId={}", task_id));
+                        }
+                        "task_failed" => {
+                            let err = event.get("errorMessage").and_then(|v| v.as_str()).unwrap_or("");
+                            crate::project_log::append_log(log_path, "任务调度", "ERROR", &format!("任务失败 taskId={} 错误={}", task_id, err));
+                        }
+                        _ => {}
+                    }
+                }
+            }
             "log" => {
                 let level = msg.get("level").and_then(|v| v.as_str()).unwrap_or("INFO");
                 let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
@@ -93,6 +122,7 @@ fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
 /// - 心跳监控（10s 间隔，30s 超时）
 /// - 崩溃检测与恢复（立即清理锁，滑动窗口重启限制）
 /// - 优雅退出（AbortSignal + 30s 超时）
+/// @author yt @date 20260702
 pub struct SidecarManager {
     worker_id: String,
     child: Option<Child>,
@@ -135,6 +165,7 @@ impl SidecarManager {
     /// 3. 等待 ready 消息（包含 workerId + protocolVersion）
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
+    /// @author yt @date 20260702
     pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
@@ -228,6 +259,7 @@ impl SidecarManager {
     /// 2. worker 停止接收新任务
     /// 3. 等待进行中的任务完成或超时
     /// 4. 超时后强制 kill
+    /// @author yt @date 20260702
     pub fn shutdown(&mut self, timeout_ms: u64) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
 
@@ -289,6 +321,7 @@ impl SidecarManager {
     /// - 5 分钟内最多重启 3 次
     /// - 超过后需要手动恢复
     /// - 稳定运行 5 分钟后计数器重置
+    /// @author yt @date 20260702
     pub fn restart(&mut self) -> Result<(), SidecarError> {
         // 检查重启计数
         if let Some(window_start) = self.restart_window_start {
@@ -339,10 +372,10 @@ impl SidecarManager {
         let log_path = self.log_path.clone();
         self.start(&db, &workspace, &config, &log_path)
     }
-    ///
     /// 返回：
     /// - Ok：心跳正常
     /// - Err(Crashed)：心跳超时，需要重启
+    /// @author yt @date 20260702
     pub fn check_heartbeat(&mut self) -> Result<(), SidecarError> {
         if self.child.is_none() {
             return Err(SidecarError::NotRunning);
@@ -358,6 +391,7 @@ impl SidecarManager {
     }
 
     /// 更新心跳时间戳（收到 heartbeat 消息时调用）
+    /// @author yt @date 20260702
     pub fn update_heartbeat(&mut self) {
         self.last_heartbeat = Some(Instant::now());
     }
@@ -365,6 +399,7 @@ impl SidecarManager {
     /// 崩溃恢复：清理该 workerId 持有的所有逻辑锁。
     ///
     /// 在 worker 崩溃后立即调用，不等 30 分钟超时。
+    /// @author yt @date 20260702
     pub fn cleanup_locks(&self, db: &rusqlite::Connection) -> Result<(), SidecarError> {
         let pattern = format!("workerId:{}", self.worker_id);
         db.execute(
@@ -378,6 +413,7 @@ impl SidecarManager {
     }
 
     /// 发送 reload_config 命令给 worker
+    /// @author yt @date 20260702
     pub fn send_reload_config(&mut self) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -387,12 +423,36 @@ impl SidecarManager {
         Ok(())
     }
 
+    /// 发送 enqueue 命令，通知 Worker 立即调度任务。
+    /// @author yt @date 20260703
+    pub fn send_enqueue(&mut self, task_id: &str) -> Result<(), SidecarError> {
+        let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            let cmd = serde_json::json!({ "version": 1, "cmd": "enqueue", "taskId": task_id });
+            let _ = writeln!(stdin, "{}", cmd);
+        }
+        Ok(())
+    }
+
+    /// 发送 cancel 命令，通知 Worker 中止指定任务。
+    /// @author yt @date 20260703
+    pub fn send_cancel(&mut self, task_id: &str) -> Result<(), SidecarError> {
+        let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            let cmd = serde_json::json!({ "version": 1, "cmd": "cancel", "taskId": task_id });
+            let _ = writeln!(stdin, "{}", cmd);
+        }
+        Ok(())
+    }
+
     /// 获取当前 workerId
+    /// @author yt @date 20260702
     pub fn worker_id(&self) -> &str {
         &self.worker_id
     }
 
     /// 检查 worker 是否在运行
+    /// @author yt @date 20260702
     pub fn is_running(&self) -> bool {
         self.child.is_some()
     }

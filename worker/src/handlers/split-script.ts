@@ -13,12 +13,10 @@
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { randomUUID } from "crypto";
-import { readFileSync } from "fs";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
 import type { TaskContext } from "../types.js";
 import type { ChatMessage } from "../clients/text.js";
 import { logLine } from "../logger.js";
+import { l, lw, le, stripCodeFences, createPromptLoader } from "./utils.js";
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
 const EPISODE_PATTERNS = [
@@ -207,8 +205,10 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 }
 
 // ─── 写入数据库 ────────────────────────────────────────────────────
-// @author yt @date 20260702 写入片段到数据库
-
+/**
+ * 写入片段到数据库
+ * @author yt @date 20260702
+ */
 function insertClips(
   db: DatabaseType,
   projectId: string,
@@ -245,25 +245,9 @@ function insertClips(
 
 // ─── 提示词加载 ────────────────────────────────────────────────────
 
-/**
- * 加载分集系统提示词（build 时复制 prompts 到 dist）
- * @author yt @date 20260702
- */
-function loadSplitPrompt(): string {
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(moduleDir, "../prompts/split.md"), "utf-8");
-}
+// ─── 提示词加载 ────────────────────────────────────────────────────
 
-/** 系统提示词缓存工具 */
-let splitPromptCache: string | null = null;
-// @author yt @date 20260702 获取分集系统提示词
-function getSplitPrompt(): string {
-  if (splitPromptCache === null) {
-    splitPromptCache = loadSplitPrompt();
-    logLine("剧本拆分", "DEBUG", "分集系统提示词已加载（prompts/split.md）");
-  }
-  return splitPromptCache;
-}
+const getSplitPrompt = createPromptLoader("split.md");
 
 // ─── 分块工具 ─────────────────────────────────────────────────────
 
@@ -311,18 +295,6 @@ function chunkText(text: string, maxChars: number): string[] {
 }
 
 // ─── 模型输出解析 ──────────────────────────────────────────────────
-
-// @author yt @date 20260702 移除 Markdown 代码围栏
-function stripCodeFences(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("```")) {
-    return trimmed;
-  }
-  return trimmed
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-}
 
 /**
  * 解析模型返回的 JSON 数组为 ClipDraft[]
@@ -417,33 +389,48 @@ async function callModelOnce(
     { role: "user", content: text },
   ];
 
-  logLine(
-    "剧本拆分",
-    "INFO",
-    `调用模型拆分(流式) 输入=${text.length}字符`,
-  );
+  // ── 模型调用（带生命周期日志） ──
+  l("剧本拆分", `发送请求 model=${textClient.config.model} 输入=${text.length}字符`);
 
-  // 流式调用：长输出场景下 token 持续返回，连接保持活跃，避免整体 HTTP 超时
-  // 调用参数不传，TextClient 内部使用 this.config（即 settings.json 配置）
-  // onChunk 每 1000 字打一次进度日志，便于诊断卡顿
-  const result = await textClient.chatStream(
-    messages,
-    buildStreamProgressLogger("模型拆分"),
-    { signal: ctx.signal },
-  );
+  let firstChunk = true;
+  let streamTotal = 0;
+  let lastMilestone = 0;
+  const onChunk = (delta: string) => {
+    if (firstChunk) {
+      l("剧本拆分", `收到首个流式响应 首块=${delta.length}字符`);
+      firstChunk = false;
+    }
+    streamTotal += delta.length;
+    const milestone = Math.floor(streamTotal / 100) * 100;
+    if (milestone >= 100 && milestone > lastMilestone) {
+      l("剧本拆分", `流式进度：已接收 ${milestone} 字符`);
+      lastMilestone = milestone;
+    }
+  };
 
-  logLine(
-    "剧本拆分",
-    "INFO",
-    `模型拆分返回完成 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`,
-  );
+  const startedAt = Date.now();
+  let result: Awaited<ReturnType<typeof textClient.chatStream>>;
+  try {
+    result = await textClient.chatStream(messages, onChunk, { signal: ctx.signal });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const elapsed = Date.now() - startedAt;
+    if (msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("abort")) {
+      le("剧本拆分", `模型调用超时 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+    } else {
+      le("剧本拆分", `模型调用失败 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+    }
+    throw err;
+  }
+
+  l("剧本拆分", `模型返回完成 耗时=${Date.now() - startedAt}ms 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`);
 
   try {
     return parseModelClips(result.content);
   } catch (parseError) {
     // 一次 JSON 修复重试
     const reason = parseError instanceof Error ? parseError.message : String(parseError);
-    logLine("剧本拆分", "WARN", `模型输出 JSON 解析失败（${reason}），执行一次修复重试`);
+    lw("剧本拆分", `输出 JSON 解析失败（${reason}），执行修复重试`);
 
     const repairMessages: ChatMessage[] = [
       ...messages,
@@ -451,17 +438,9 @@ async function callModelOnce(
       { role: "user", content: JSON_REPAIR_HINT },
     ];
 
-    logLine("剧本拆分", "INFO", `调用模型修复重试(流式)`);
-    const repairResult = await textClient.chatStream(
-      repairMessages,
-      buildStreamProgressLogger("模型拆分修复"),
-      { signal: ctx.signal },
-    );
-    logLine(
-      "剧本拆分",
-      "INFO",
-      `模型修复重试返回完成 输出=${repairResult.content.length}字符`,
-    );
+    l("剧本拆分", `发送修复请求`);
+    const repairResult = await textClient.chatStream(repairMessages, buildStreamProgressLogger("模型拆分修复"), { signal: ctx.signal });
+    l("剧本拆分", `修复返回完成 输出=${repairResult.content.length}字符`);
 
     return parseModelClips(repairResult.content);
   }
@@ -606,11 +585,7 @@ export async function splitScriptWithInput(
 ): Promise<string> {
   const { db, emit } = ctx;
 
-  logLine(
-    "剧本拆分",
-    "INFO",
-    `开始拆分 projectId=${input.projectId} sourceId=${input.sourceId} forceAi=${input.forceAi ?? false}`,
-  );
+  l("剧本拆分", `开始拆分 projectId=${input.projectId} sourceId=${input.sourceId} forceAi=${input.forceAi ?? false}`);
 
   // 读取剧本内容
   const source = db
@@ -618,13 +593,13 @@ export async function splitScriptWithInput(
     .get(input.sourceId) as { normalized_content: string } | undefined;
 
   if (!source) {
-    logLine("剧本拆分", "ERROR", `剧本源不存在：${input.sourceId}`);
+    le("剧本拆分", `剧本源不存在：${input.sourceId}`);
     throw new Error(`ScriptSource not found: ${input.sourceId}`);
   }
 
   const text = source.normalized_content;
   const wordCount = countWords(text);
-  logLine("剧本拆分", "INFO", `剧本已加载：${wordCount} 字，${text.length} 字符`);
+  l("剧本拆分", `剧本已加载：${wordCount} 字，${text.length} 字符`);
 
   // 标记 running
   db.prepare(
@@ -634,7 +609,7 @@ export async function splitScriptWithInput(
   const ruleClips = input.forceAi ? null : ruleSplit(text);
 
   if (ruleClips) {
-    logLine("剧本拆分", "INFO", `规则拆分成功：共 ${ruleClips.length} 个片段`);
+    l("剧本拆分", `规则拆分成功：共 ${ruleClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, ruleClips);
     emit({ type: "task_success", taskId: "" });
     return JSON.stringify({
@@ -644,15 +619,14 @@ export async function splitScriptWithInput(
     });
   }
 
-  logLine(
+  lw(
     "剧本拆分",
-    "INFO",
     `规则拆分${input.forceAi ? "已跳过(forceAi)" : "失败"}，回退模型拆分`,
   );
 
   try {
     const modelClips = await modelSplit(ctx, text);
-    logLine("剧本拆分", "INFO", `模型拆分成功：共 ${modelClips.length} 个片段`);
+    l("剧本拆分", `模型拆分成功：共 ${modelClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, modelClips);
     emit({ type: "task_success", taskId: "" });
     return JSON.stringify({
@@ -662,7 +636,7 @@ export async function splitScriptWithInput(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logLine("剧本拆分", "ERROR", `模型拆分失败：${errorMessage}`);
+    le("剧本拆分", `模型拆分失败：${errorMessage}`);
     db.prepare(
       "UPDATE script_sources SET split_status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(errorMessage, input.sourceId);

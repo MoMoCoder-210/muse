@@ -191,8 +191,31 @@
   max-width: 420px;
 }
 
+.delete-confirm-panel .modal-header {
+  justify-content: center;
+  position: relative;
+}
+
+.delete-confirm-panel .modal-header h2 {
+  margin: 0 0 16px;
+  font-size: var(--font-size-lg);
+  text-align: center;
+  width: 100%;
+}
+
+.delete-confirm-panel .modal-close-button {
+  position: absolute;
+  right: -12px;
+  top: -12px;
+}
+
+.delete-confirm-panel .modal-actions {
+  justify-content: center;
+}
+
 .delete-confirm-body {
   padding: 0 4px;
+  text-align: center;
 }
 
 .delete-confirm-body p {
@@ -225,30 +248,40 @@
 }
 
 .delete-files-option input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--danger-color);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 1.5px solid var(--border-base);
+  border-radius: 5px;
+  background: transparent;
   cursor: pointer;
-}
-
-.delete-files-hint {
-  margin-top: 8px !important;
-  color: var(--text-muted) !important;
-  font-size: var(--font-size-xs) !important;
-}
-
-.delete-files-hint code {
-  font-family: monospace;
-  background: var(--chip-bg);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: var(--font-size-xs);
-  word-break: break-all;
-}
-
-.delete-confirm-title {
+  position: relative;
+  transition: border-color 120ms ease, background 120ms ease;
+  flex-shrink: 0;
   margin: 0;
-  font-size: var(--font-size-lg);
+}
+
+.delete-files-option input[type="checkbox"]:hover {
+  border-color: var(--border-accent);
+}
+
+.delete-files-option input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.delete-files-option input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 /* 空状态 */
@@ -365,6 +398,27 @@
 .empty-workspace p {
   margin: 0;
   color: var(--text-muted);
+}
+
+.step-placeholder {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  height: 100%;
+  min-height: 320px;
+  color: var(--text-secondary);
+  gap: 12px;
+}
+
+.step-placeholder h2 {
+  margin: 0;
+  font-size: var(--font-size-section);
+}
+
+.step-placeholder p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* ── 工作流步骤板 ────────────────────────────── */

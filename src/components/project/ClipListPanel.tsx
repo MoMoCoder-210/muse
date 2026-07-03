@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteClips,
   listClips,
@@ -6,6 +6,7 @@ import {
   updateClip,
   generateClipScript,
   getClipScripts,
+  cancelClipScript,
 } from "../../services/tauri";
 import type { Clip, ClipScriptInfo, ProjectInfo, ScriptSource } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
@@ -54,6 +55,8 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
   const [editingTitleValue, setEditingTitleValue] = useState("");
   const [operating, setOperating] = useState(false);
   const [clipScripts, setClipScripts] = useState<ClipScriptInfo[]>([]);
+  const [deleteConfirmClipId, setDeleteConfirmClipId] = useState<string | null>(null);
+  const editingTitleRef = useRef("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +69,7 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
       setClips(clipList);
       setSource(src);
       setClipScripts(csList);
+      setDeleteConfirmClipId(null);
       // 清理已不存在的选中项（删除后可能残留）
       setSelectedIds((prev) => {
         const next = new Set<string>();
@@ -91,6 +95,13 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     return () => clearInterval(timer);
   }, [source?.split_status, clipScripts, load]);
 
+  const getCanDisassemble = (clip: Clip) =>
+    clip.status === "pending" || clip.status === "failed";
+
+  const deletingClip = deleteConfirmClipId
+    ? clips.find((c) => c.id === deleteConfirmClipId) ?? null
+    : null;
+
   const isSplitting =
     source?.split_status === "pending" || source?.split_status === "running";
   const allSelected = clips.length > 0 && selectedIds.size === clips.length;
@@ -103,6 +114,8 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
       return next;
     });
   };
+
+  const batchDisassembleIds = clips.filter((c) => selectedIds.has(c.id) && getCanDisassemble(c)).map((c) => c.id);
 
   const toggleSelectAll = () => {
     setSelectedIds((prev) => {
@@ -129,8 +142,12 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     }
   }, [selectedIds, load, toast]);
 
-  const handleDeleteOne = useCallback(async (clip: Clip) => {
-    if (!window.confirm(`确认删除「第 ${clip.sort_index} 集」？`)) return;
+  const handleDeleteOne = (clip: Clip) => {
+    setDeleteConfirmClipId(clip.id);
+  };
+
+  const confirmDeleteOne = useCallback(async (clip: Clip) => {
+    setDeleteConfirmClipId(null);
     setOperating(true);
     try {
       await deleteClips([clip.id]);
@@ -167,13 +184,28 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     }
   }, [load, toast]);
 
-  const startEditTitle = (clip: Clip) => {
+  /** 取消片段拆解任务 */
+  const handleCancel = useCallback(async (clipId: string) => {
+    setOperating(true);
+    try {
+      await cancelClipScript(clipId);
+      toast("拆解已取消", "info");
+      await load();
+    } catch (err) {
+      toast("取消失败，请重试", "error");
+    } finally {
+      setOperating(false);
+    }
+  }, [load, toast]);
+
+  const startEditTitle = useCallback((clip: Clip) => {
     setEditingTitleId(clip.id);
     setEditingTitleValue(clip.title);
-  };
+    editingTitleRef.current = clip.title;
+  }, []);
 
   const saveTitle = useCallback(async (clipId: string) => {
-    const value = editingTitleValue.trim();
+    const value = editingTitleRef.current.trim();
     setEditingTitleId(null);
     if (!value) return;
     setOperating(true);
@@ -186,7 +218,7 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     } finally {
       setOperating(false);
     }
-  }, [editingTitleValue, load, toast]);
+  }, [load, toast]);
 
   if (loading && clips.length === 0) {
     return (
@@ -243,12 +275,12 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
             <button
               type="button"
               className="primary-button btn-sm"
-              style={{ visibility: selectedIds.size > 0 ? "visible" : "hidden" }}
-              onClick={() => handleExtract([...selectedIds])}
-              disabled={operating || selectedIds.size === 0}
+              style={{ visibility: batchDisassembleIds.length > 0 ? "visible" : "hidden" }}
+              onClick={() => handleExtract(batchDisassembleIds)}
+              disabled={operating || batchDisassembleIds.length === 0}
               title="将选中片段送模型分析，生成资产与提示词"
             >
-              批量拆解（{selectedIds.size}）
+              批量拆解（{batchDisassembleIds.length}）
             </button>
             <button
               type="button"
@@ -296,7 +328,7 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
                     <input
                       className="clip-title-input"
                       value={editingTitleValue}
-                      onChange={(e) => setEditingTitleValue(e.target.value)}
+                      onChange={(e) => { setEditingTitleValue(e.target.value); editingTitleRef.current = e.target.value; }}
                       onBlur={() => saveTitle(clip.id)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") saveTitle(clip.id);
@@ -334,18 +366,42 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
                       {STATUS_LABEL[clip.status] ?? clip.status}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    className="primary-button btn-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleExtract([clip.id]);
-                    }}
-                    disabled={operating}
-                    title="送模型分析，生成资产与提示词"
-                  >
-                    拆解
-                  </button>
+                  {clip.status === "running" ? (
+                    <button
+                      type="button"
+                      className="ghost-button btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancel(clip.id);
+                      }}
+                      disabled={operating}
+                      title="取消拆解"
+                    >
+                      取消
+                    </button>
+                  ) : getCanDisassemble(clip) ? (
+                    <button
+                      type="button"
+                      className="primary-button btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleExtract([clip.id]);
+                      }}
+                      disabled={operating}
+                      title="送模型分析，生成资产与提示词"
+                    >
+                      拆解
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="primary-button btn-sm"
+                      disabled
+                      title="已完成拆解"
+                    >
+                      已拆解
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="ghost-button btn-sm"
@@ -370,6 +426,24 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {deletingClip && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setDeleteConfirmClipId(null)}>
+          <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
+            <p className="clip-delete-modal-text">
+              确认删除 <strong>「第 {deletingClip.sort_index} 集」</strong>？
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button btn-sm" onClick={() => setDeleteConfirmClipId(null)} disabled={operating}>
+                取消
+              </button>
+              <button type="button" className="danger-button btn-sm" onClick={() => confirmDeleteOne(deletingClip)} disabled={operating}>
+                删除
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
