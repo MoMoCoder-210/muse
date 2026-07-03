@@ -20,12 +20,12 @@ type ClipListPanelProps = {
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理",
   running: "拆解中",
-  script_ready: "剧本就绪",
+  done: "已完成",
+  failed: "失败",
+  clips_ready: "片段就绪",
   asset_ready: "资产就绪",
   storyboard_ready: "分镜就绪",
   media_ready: "媒体就绪",
-  done: "已完成",
-  failed: "失败",
 };
 
 /**
@@ -324,11 +324,11 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                       <span className="spinner spinner--sm" aria-hidden />
                       拆解中
                     </span>
-                  ) : (
+                  ) : clip.status !== "script_ready" ? (
                     <span className={`clip-status clip-status--${clip.status}`}>
                       {STATUS_LABEL[clip.status] ?? clip.status}
                     </span>
-                  )}
+                  ) : null}
                   {clip.status === "running" ? (
                     <button
                       type="button"
