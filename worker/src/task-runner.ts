@@ -30,19 +30,13 @@ import {
   type PendingTask,
 } from "./db.js";
 import { logLine } from "./logger.js";
+import { PROTOCOL_VERSION } from "./types.js";
 
 // 调度日志双写：磁盘文件 + stdout 转发到 Rust
 function log(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
   logLine(source, level, message);
   const lv = level.toLowerCase();
-  process.stdout.write(JSON.stringify({ version: 1, msg: "log", level: lv, message: `[${source}] ${message}` }) + "\n");
-}
-
-// RateLimiter 日志也走双写
-import { logLine as rl } from "./logger.js";
-function rlog(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
-  rl(source, level, message);
-  process.stdout.write(JSON.stringify({ version: 1, msg: "log", level: level.toLowerCase(), message: `[${source}] ${message}` }) + "\n");
+  process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: lv, message: `[${source}] ${message}` }) + "\n");
 }
 
 const POLL_INTERVAL_MS = 1000;
@@ -147,13 +141,20 @@ export class TaskRunner {
         this.pollCount++;
         if (this.pollCount >= STALE_CHECK_INTERVAL) {
           this.pollCount = 0;
-          this.checkStaleTasks();
+          try {
+            this.checkStaleTasks();
+          } catch (e) {
+            log("任务调度", "ERROR", `恢复超时任务出错：${e instanceof Error ? e.message : String(e)}`);
+          }
         }
 
         await this.processPendingTasks();
         await this.processWaitingRemoteTasks();
       } catch (err) {
         log("任务调度", "ERROR", `主循环错误：${err instanceof Error ? err.message : String(err)}`);
+        if (err instanceof Error && err.stack) {
+          log("任务调度", "ERROR", `调用栈：${err.stack}`);
+        }
       }
 
       if (this.running) {
@@ -292,17 +293,29 @@ export class TaskRunner {
       // 可重试错误 + 还有重试次数 → 回退 pending
       if (this.isRetryable(err) && task.retry_count < task.max_retry) {
         log("任务调度", "WARN", `任务回退待重试：id=${task.id} retry=${task.retry_count + 1}/${task.max_retry}`);
-        this.db.prepare(
-          "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now') WHERE id = ?"
-        ).run(errorMessage, task.id);
-        this.emit({ type: "task_failed", taskId: task.id, errorMessage: `${errorMessage}（将重试）` });
+        try {
+          this.db.prepare(
+            "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now') WHERE id = ?"
+          ).run(errorMessage, task.id);
+          this.emit({ type: "task_failed", taskId: task.id, errorMessage: `${errorMessage}（将重试）` });
+        } catch (e) {
+          log("任务调度", "ERROR", `回退任务写库失败：${e instanceof Error ? e.message : String(e)}`);
+        }
       } else {
-        markTaskFailed(this.db, task.id, errorMessage);
-        this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+        try {
+          markTaskFailed(this.db, task.id, errorMessage);
+          this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+        } catch (e) {
+          log("任务调度", "ERROR", `标记任务失败写库失败：${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     } finally {
       this.runningTasks.delete(task.id);
-      releaseLock(this.db, task.lock_key);
+      try {
+        releaseLock(this.db, task.lock_key);
+      } catch {
+        // 锁可能已被外部删除，忽略
+      }
       this.rateLimiter.release(apiType);
     }
   }

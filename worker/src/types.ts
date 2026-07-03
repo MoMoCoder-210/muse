@@ -57,7 +57,7 @@ export interface BatchProgressEvent {
 
 // ===== stdio 通信协议 =====
 export type WorkerCommand =
-  | { version: number; cmd: "enqueue"; taskId: string }
+  | { version: number; cmd: "enqueue"; taskId: string; taskType?: string }
   | { version: number; cmd: "cancel"; taskId: string }
   | { version: number; cmd: "shutdown"; timeoutMs: number }
   | { version: number; cmd: "reload_config" }

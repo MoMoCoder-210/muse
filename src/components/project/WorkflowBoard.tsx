@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { WORKFLOW_STEPS } from "../../config/muse";
 
 type WorkflowBoardProps = {
@@ -35,6 +34,13 @@ function stepToIndex(step: string): number {
   }
 }
 
+/**
+ * 工作流步骤导航板
+ *
+ * 显示 5 个工作流步骤，区分进度状态、选中状态和禁用状态。
+ *
+ * @author yt @date 20260702
+ */
 export function WorkflowBoard({ progressStep, activeIndex, disabledSteps, onStepClick }: WorkflowBoardProps) {
   const progress = stepToIndex(progressStep);
   const ds = disabledSteps ?? new Set<number>();

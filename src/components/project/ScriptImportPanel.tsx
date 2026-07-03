@@ -131,7 +131,7 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
           onClick={handleImport}
           disabled={loading}
         >
-          {loading ? "导入中…" : "开始导入并拆分"}
+          {loading ? "导入中…" : "确定"}
         </button>
       </div>
     </div>

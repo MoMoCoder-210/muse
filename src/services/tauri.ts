@@ -13,6 +13,7 @@ import type {
   ImportScriptResult,
   Clip,
   ScriptSource,
+  ScriptSourceListItem,
   UpdateClipInput,
   SplitClipInput,
   SplitClipResult,
@@ -88,6 +89,15 @@ export async function listClips(projectId: string): Promise<Clip[]> {
  */
 export async function getScriptSource(projectId: string): Promise<ScriptSource | null> {
   return invoke<ScriptSource | null>("get_script_source", { projectId });
+}
+
+/**
+ * 列出项目所有剧本源
+ *
+ * @author yt @date 20260703
+ */
+export async function listScriptSources(projectId: string): Promise<ScriptSourceListItem[]> {
+  return invoke<ScriptSourceListItem[]>("list_script_sources", { projectId });
 }
 
 /**

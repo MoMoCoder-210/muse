@@ -278,7 +278,7 @@
   margin: 0 0 18px;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: var(--line-height-base);
 }
 
 .clip-delete-modal-text strong {
@@ -376,6 +376,20 @@
   to { transform: rotate(360deg); }
 }
 
+/* 排队等待中的省略号动画 */
+.pending-dots::after {
+  content: "";
+  animation: pending-dots 2s steps(4) infinite;
+}
+
+@keyframes pending-dots {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+  100% { content: "..."; }
+}
+
 /* 片段列表工具栏 */
 .clip-list-toolbar {
   display: flex;
@@ -396,4 +410,156 @@
 .clip-selected-count {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
+}
+
+/* ── 工作区分栏布局 ────────────────────────────── */
+.workspace-split-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-right-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── 剧本列表（左侧 1/3） ─────────────────────── */
+.script-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-surface-deep);
+}
+
+.script-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.script-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+  border: 1px solid var(--border-faint);
+}
+
+.script-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.script-list-item--selected {
+  background: var(--bg-selected);
+  border-color: var(--border-accent);
+}
+
+.script-list-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.script-list-item-name {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.script-list-item-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.script-list-item-status {
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.script-list-item-status--pending { color: var(--text-muted); }
+.script-list-item-status--running { color: var(--accent-secondary); }
+.script-list-item-status--success { color: var(--text-success); }
+.script-list-item-status--failed  { color: var(--text-muted); }
+
+.script-list-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.empty-script-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.empty-script-list-hint {
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* ── 导入弹窗 ──────────────────────────────────── */
+.script-import-modal {
+  max-width: 520px;
+  width: 100%;
+}
+
+.script-import-modal .modal-header {
+  margin: 0;
+}
+
+.script-import-modal .modal-header h3 {
+  margin: 0 0 16px;
+  font-size: var(--font-size-lg);
+}
+
+.script-import-modal-desc {
+  margin: 0 0 16px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.script-import-modal .import-tabs {
+  margin-bottom: 16px;
+}
+
+.script-import-modal .import-body {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.script-import-modal .import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

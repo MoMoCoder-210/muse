@@ -75,6 +75,9 @@
 }
 
 .modal-close-button {
+  position: absolute;
+  right: -12px;
+  top: -16px;
   width: 32px;
   min-width: 32px;
   min-height: 32px;
@@ -87,7 +90,7 @@
 }
 
 .modal-close-button:hover {
-  background: var(--chip-bg);
+  background: transparent;
   color: var(--text-primary);
 }
 

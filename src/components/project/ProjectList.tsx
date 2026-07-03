@@ -34,7 +34,7 @@ export function ProjectList({ projects, selectedProjectId, onSelect, onRequestDe
         >
           <div className="project-item-title">
             <strong>{project.name}</strong>
-            <span className="style-tag">{project.style_mode || "国漫"}</span>
+            <span className="style-tag">{project.style_mode}</span>
           </div>
           <p>{project.description || "未填写描述"}</p>
           <div className="project-item-footer">

@@ -13,6 +13,8 @@
   --bg-surface-modal:   rgba(7, 10, 16, 0.82);
   --bg-input:           rgba(8, 12, 18, 0.88);
   --bg-input-deep:      rgba(12, 18, 30, 0.96);
+  --bg-hover:           rgba(255, 255, 255, 0.05);
+  --bg-selected:        rgba(37, 99, 235, 0.12);
 
   /* 文字 */
   --text-primary:       #f8fafc;

@@ -611,6 +611,16 @@ pub fn import_script(
     })
     .to_string();
 
+    // 自动生成剧本标题（剧本1, 剧本2, ...）
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM script_sources WHERE project_id = ?1",
+            rusqlite::params![&input.project_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let file_name = format!("剧本{}", count + 1);
+
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     tx.execute(
@@ -620,7 +630,7 @@ pub fn import_script(
             &source_id,
             &input.project_id,
             &input.source_type,
-            Option::<String>::None,
+            &file_name,
             &raw_content,
             &normalized,
         ],
@@ -721,19 +731,58 @@ pub fn get_script_source(
     }
 }
 
+/// @author yt @date 20260703 列出项目下所有剧本源
+#[tauri::command]
+pub fn list_script_sources(
+    project_id: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = open_app_conn(&app)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, source_type, file_name, split_status, error_message,
+                    retry_count, created_at, updated_at
+             FROM script_sources
+             WHERE project_id = ?1
+             ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let sources = stmt
+        .query_map(rusqlite::params![&project_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "project_id": row.get::<_, String>(1)?,
+                "source_type": row.get::<_, String>(2)?,
+                "file_name": row.get::<_, Option<String>>(3)?,
+                "split_status": row.get::<_, String>(4)?,
+                "error_message": row.get::<_, Option<String>>(5)?,
+                "retry_count": row.get::<_, i64>(6)?,
+                "created_at": row.get::<_, String>(7)?,
+                "updated_at": row.get::<_, String>(8)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(sources)
+}
+
 /// @author yt @date 20260702 解析工作区路径
+/// 始终为项目创建独立子目录，避免多个项目文件混在同一目录下。
 fn resolve_workspace_path(
     workspace_path: &str,
     project_name: &str,
     project_id: &str,
 ) -> std::path::PathBuf {
-    if !workspace_path.trim().is_empty() {
-        return std::path::PathBuf::from(workspace_path);
-    }
-
     let slug = crate::app_paths::sanitize_project_dir_name(project_name);
     let short_id: String = project_id.chars().take(8).collect();
     let dir_name = format!("{}-{}", slug, short_id);
+
+    if !workspace_path.trim().is_empty() {
+        return std::path::PathBuf::from(workspace_path).join(dir_name);
+    }
 
     crate::app_paths::default_projects_root().join(dir_name)
 }
@@ -1121,7 +1170,7 @@ pub fn generate_clip_script(
     );
 
     // 通知 Worker 立即调度（不必等下一轮轮询）
-    if let Err(e) = send_enqueue_to_worker(&state, &task_id) {
+    if let Err(e) = send_enqueue_to_worker(&state, &task_id, "generate_clip_script") {
         log::warn!("发送 enqueue 通知失败（任务仍会被轮询拾取）：{}", e);
     }
 
@@ -1131,9 +1180,9 @@ pub fn generate_clip_script(
 /// 向 Worker 发送 enqueue 命令，触发立即调度。
 ///
 /// @author yt @date 20260703
-fn send_enqueue_to_worker(state: &SharedSidecarManager, task_id: &str) -> Result<(), String> {
+fn send_enqueue_to_worker(state: &SharedSidecarManager, task_id: &str, task_type: &str) -> Result<(), String> {
     let mut manager = state.lock().map_err(|e| e.to_string())?;
-    manager.send_enqueue(task_id).map_err(|e| e.to_string())
+    manager.send_enqueue(task_id, task_type).map_err(|e| e.to_string())
 }
 
 /// @author yt @date 20260702 取消片段拆解任务

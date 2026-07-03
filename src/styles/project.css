@@ -76,7 +76,7 @@
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-faint);
   background: transparent;
   color: var(--text-primary);
   cursor: pointer;
@@ -193,7 +193,6 @@
 
 .delete-confirm-panel .modal-header {
   justify-content: center;
-  position: relative;
 }
 
 .delete-confirm-panel .modal-header h2 {
@@ -201,12 +200,6 @@
   font-size: var(--font-size-lg);
   text-align: center;
   width: 100%;
-}
-
-.delete-confirm-panel .modal-close-button {
-  position: absolute;
-  right: -12px;
-  top: -12px;
 }
 
 .delete-confirm-panel .modal-actions {

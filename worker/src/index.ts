@@ -87,7 +87,7 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
 
   switch (cmd.cmd) {
     case "enqueue":
-      sendLog("info", `任务入队：${cmd.taskId}`);
+      sendLog("info", `任务入队：${cmd.taskId} type=${cmd.taskType ?? "?"}`);
       // 唤醒 TaskRunner 立即调度，不必等下一轮轮询
       if (taskRunner) {
         taskRunner.wakeup();

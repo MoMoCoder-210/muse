@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteClips,
   listClips,
-  getScriptSource,
   updateClip,
   generateClipScript,
   getClipScripts,
@@ -13,6 +12,10 @@ import { useToast } from "../../hooks/useToast";
 
 type ClipListPanelProps = {
   project: ProjectInfo;
+  /** 按剧本源过滤片段（可选，不传则显示全部） */
+  sourceId?: string | null;
+  /** 选中的剧本源信息 */
+  source?: ScriptSource | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -26,13 +29,6 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "失败",
 };
 
-const SPLIT_STATUS_LABEL: Record<string, string> = {
-  pending: "等待拆解",
-  running: "拆解中…",
-  success: "拆解完成",
-  failed: "拆解失败",
-};
-
 /**
  * 片段列表面板（剧本管理阶段）。
  *
@@ -44,10 +40,9 @@ const SPLIT_STATUS_LABEL: Record<string, string> = {
  *
  * @author yt @date 20260702
  */
-export function ClipListPanel({ project }: ClipListPanelProps) {
+export function ClipListPanel({ project, sourceId, source }: ClipListPanelProps) {
   const { toast } = useToast();
   const [clips, setClips] = useState<Clip[]>([]);
-  const [source, setSource] = useState<ScriptSource | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -58,29 +53,36 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
   const [deleteConfirmClipId, setDeleteConfirmClipId] = useState<string | null>(null);
   const editingTitleRef = useRef("");
 
+  // 重置选中状态（切换剧本时）
+  useEffect(() => {
+    setExpandedId(null);
+    setSelectedIds(new Set());
+  }, [sourceId]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [clipList, src, csList] = await Promise.all([
+      const [clipList, csList] = await Promise.all([
         listClips(project.id),
-        getScriptSource(project.id),
         getClipScripts(project.id),
       ]);
-      setClips(clipList);
-      setSource(src);
+      // 按剧本源过滤
+      const filtered = sourceId
+        ? clipList.filter((c) => c.source_id === sourceId)
+        : clipList;
+      setClips(filtered);
       setClipScripts(csList);
       setDeleteConfirmClipId(null);
-      // 清理已不存在的选中项（删除后可能残留）
       setSelectedIds((prev) => {
         const next = new Set<string>();
-        const ids = new Set(clipList.map((c) => c.id));
+        const ids = new Set(filtered.map((c) => c.id));
         for (const id of prev) if (ids.has(id)) next.add(id);
         return next;
       });
     } finally {
       setLoading(false);
     }
-  }, [project.id]);
+  }, [project.id, sourceId]);
 
   useEffect(() => {
     load();
@@ -104,6 +106,7 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
 
   const isSplitting =
     source?.split_status === "pending" || source?.split_status === "running";
+  const isPending = source?.split_status === "pending";
   const allSelected = clips.length > 0 && selectedIds.size === clips.length;
 
   const toggleSelect = (id: string) => {
@@ -232,11 +235,6 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
     <div className="clip-list-panel">
       <div className="panel-header">
         <h3>片段列表</h3>
-        {source && (
-          <span className={`split-status split-status--${source.split_status}`}>
-            {SPLIT_STATUS_LABEL[source.split_status] ?? source.split_status}
-          </span>
-        )}
         <button type="button" className="ghost-button btn-sm" onClick={load} disabled={operating}>
           刷新
         </button>
@@ -245,12 +243,14 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
       <div className="clip-list-extra">
         {isSplitting && (
           <div className="split-running-banner">
-            <span className="spinner" aria-hidden />
-            <span>
-              {source?.split_status === "pending"
-                ? "剧本拆解已排队，等待执行…"
-                : "剧本拆解中，请稍候…"}
-            </span>
+            {isPending ? (
+              <span className="pending-dots">排队等待中</span>
+            ) : (
+              <>
+                <span className="spinner" aria-hidden />
+                <span>剧本拆解中</span>
+              </>
+            )}
           </div>
         )}
         {source?.split_status === "failed" && (
@@ -297,9 +297,18 @@ export function ClipListPanel({ project }: ClipListPanelProps) {
 
       {clips.length === 0 ? (
         <div className="empty-clip-list">
-          {isSplitting
-            ? "剧本拆解中，片段生成后将在此显示…"
-            : "暂无片段，导入剧本后自动生成。"}
+          {isSplitting ? (
+            isPending ? (
+              <span className="pending-dots">排队等待中</span>
+            ) : (
+              <>
+                <span className="spinner" aria-hidden style={{ width: 16, height: 16, marginRight: 8 }} />
+                剧本拆解中
+              </>
+            )
+          ) : (
+            "暂无片段"
+          )}
         </div>
       ) : (
         <div className="clip-list">

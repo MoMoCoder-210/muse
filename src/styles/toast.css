@@ -10,23 +10,20 @@
   flex-direction: column;
   gap: 8px;
   pointer-events: none;
-  max-width: 420px;
-  width: calc(100vw - 40px);
+  max-width: calc(100vw - 40px);
+  width: max-content;
 }
 
 .toast-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  border-radius: 12px;
-  background: var(--bg-surface-modal);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border-faint);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: var(--bg-surface-deep);
   color: var(--text-primary);
   font-size: var(--font-size-sm);
-  line-height: 1.4;
+  line-height: var(--line-height-base);
   pointer-events: auto;
   cursor: pointer;
   animation: toast-in 200ms ease-out;

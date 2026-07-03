@@ -1,0 +1,7 @@
+# @author yt @date 20260703 本机编译时避免内存溢出
+# 单线程编译 + 增大编译器栈空间，防止 STATUS_STACK_BUFFER_OVERRUN
+[build]
+jobs = 2
+
+[env]
+RUST_MIN_STACK = "16777216"

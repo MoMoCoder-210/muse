@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_project,
             commands::list_projects,
             commands::import_script,
+            commands::list_script_sources,
             commands::list_clips,
             commands::get_script_source,
             commands::get_settings,

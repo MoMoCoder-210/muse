@@ -32,6 +32,19 @@ export type ScriptSource = {
   updated_at: string;
 };
 
+/** @author yt @date 20260703 剧本源列表项（不含原文内容，仅元数据） */
+export type ScriptSourceListItem = {
+  id: string;
+  project_id: string;
+  source_type: "paste" | "txt";
+  file_name: string | null;
+  split_status: "pending" | "running" | "success" | "failed";
+  error_message: string | null;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ClipStatus =
   | "pending"
   | "running"

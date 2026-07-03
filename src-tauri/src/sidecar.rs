@@ -425,10 +425,10 @@ impl SidecarManager {
 
     /// 发送 enqueue 命令，通知 Worker 立即调度任务。
     /// @author yt @date 20260703
-    pub fn send_enqueue(&mut self, task_id: &str) -> Result<(), SidecarError> {
+    pub fn send_enqueue(&mut self, task_id: &str, task_type: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
-            let cmd = serde_json::json!({ "version": 1, "cmd": "enqueue", "taskId": task_id });
+            let cmd = serde_json::json!({ "version": 1, "cmd": "enqueue", "taskId": task_id, "taskType": task_type });
             let _ = writeln!(stdin, "{}", cmd);
         }
         Ok(())
