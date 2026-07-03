@@ -16,6 +16,18 @@ export function DeleteClipConfirm({ clip, onConfirm, onCancel, disabled }: Delet
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
       <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="delete-confirm-title">删除片段</h2>
+          <button
+            type="button"
+            className="icon-button modal-close-button"
+            aria-label="关闭"
+            onClick={onCancel}
+            disabled={disabled}
+          >
+            ×
+          </button>
+        </div>
         <p className="clip-delete-modal-text">
           确认删除 <strong>「第 {clip.sort_index} 集」</strong>？
         </p>

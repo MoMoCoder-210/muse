@@ -68,7 +68,6 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
       <ProjectSidebar
         projects={projects}
         selectedProjectId={selectedProjectId}
-        loading={loading}
         onSelectProject={(id) => {
           setSelectedProjectId(id);
           setProjectOverrides((prev) => {
@@ -79,10 +78,6 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
         }}
         onCreateProject={() => setModalOpen(true)}
         onDeleteProject={(project) => setDeleteTarget(project)}
-        onRefresh={() => {
-          setProjectOverrides({});
-          load();
-        }}
         onGoHome={onGoHome}
         onOpenSettings={onOpenSettings}
       />

@@ -3,10 +3,6 @@
   max-width: 420px;
 }
 
-.delete-confirm-panel .modal-header {
-  justify-content: center;
-}
-
 .delete-confirm-panel .modal-header h2 {
   margin: 0 0 16px;
   font-size: var(--font-size-lg);

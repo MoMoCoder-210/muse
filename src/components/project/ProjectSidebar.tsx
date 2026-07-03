@@ -5,11 +5,9 @@ import { ProjectList } from "./ProjectList";
 type ProjectSidebarProps = {
   projects: ProjectInfo[];
   selectedProjectId: string;
-  loading: boolean;
   onSelectProject: (id: string) => void;
   onCreateProject: () => void;
   onDeleteProject: (project: ProjectInfo) => void;
-  onRefresh: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
 };
@@ -24,35 +22,32 @@ type ProjectSidebarProps = {
 export function ProjectSidebar({
   projects,
   selectedProjectId,
-  loading,
   onSelectProject,
   onCreateProject,
   onDeleteProject,
-  onRefresh,
   onGoHome,
   onOpenSettings,
 }: ProjectSidebarProps) {
   return (
     <aside className="project-sidebar">
-      {/* 头部：应用名居中 */}
+      {/* 头部：应用名 + 设置入口 */}
       <div className="sidebar-header">
         <h2 className="sidebar-title">{APP_NAME}</h2>
+        <button
+          type="button"
+          className="sidebar-settings-btn"
+          onClick={onOpenSettings}
+          aria-label="打开设置"
+          title="设置"
+        >
+          ⚙
+        </button>
       </div>
 
-      {/* 操作区：创建 + 刷新 */}
+      {/* 操作区：创建 */}
       <div className="sidebar-actions">
         <button type="button" className="primary-button btn-sm sidebar-create-btn" onClick={onCreateProject}>
           + 新建项目
-        </button>
-        <button
-          type="button"
-          className="ghost-button btn-icon-sm"
-          onClick={onRefresh}
-          disabled={loading}
-          aria-label="刷新列表"
-          title="刷新列表"
-        >
-          {loading ? "…" : "↻"}
         </button>
       </div>
 
@@ -70,15 +65,6 @@ export function ProjectSidebar({
       <div className="sidebar-footer">
         <button type="button" className="sidebar-back-btn" onClick={onGoHome}>
           返回首页
-        </button>
-        <button
-          type="button"
-          className="sidebar-settings-btn"
-          onClick={onOpenSettings}
-          aria-label="打开设置"
-          title="设置"
-        >
-          ⚙
         </button>
       </div>
     </aside>

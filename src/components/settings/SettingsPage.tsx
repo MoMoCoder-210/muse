@@ -34,19 +34,19 @@ const API_FIELDS = [
     key: "apiKey",
     label: "API Key",
     type: "password" as const,
-    placeholder: "输入火山方舟 API Key",
+    placeholder: "输入 API Key",
   },
   {
     key: "baseUrl",
     label: "Base URL",
     type: "text" as const,
-    placeholder: "https://ark.cn-beijing.volces.com/api/v3",
+    placeholder: "输入 API URL",
   },
   {
     key: "model",
     label: "模型 ID",
     type: "text" as const,
-    placeholder: "填写方舟模型接入点 ID",
+    placeholder: "输入 模型 ID",
   },
 ];
 
@@ -62,12 +62,12 @@ const TIMEOUT_FIELD = {
 const TEXT_GROUPS = [
   {
     title: "基础 API 设置",
-    description: "管理语言模型接入所需的密钥、服务地址与模型 ID。",
+    description: "管理语言模型接入所需的密钥、服务地址与模型",
     fields: API_FIELDS,
   },
   {
     title: "其他参数设置",
-    description: "控制文本生成的长度、采样温度与请求超时。",
+    description: "控制文本生成的长度、采样温度与请求超时",
     fields: [
       TIMEOUT_FIELD,
       {
@@ -75,7 +75,7 @@ const TEXT_GROUPS = [
         label: "最大 Token 数",
         type: "number" as const,
         min: 256,
-        max: 128000,
+        max: 256000,
         step: 256,
       },
       {
@@ -137,7 +137,7 @@ function TextModelSection({ settings, onChange }: ModelSectionProps) {
   return (
     <ModelConfigSection<AppSettings["text"]>
       title="语言模型"
-      description="用于剧本理解、拆分、提示词生成等文本任务。"
+      description="用于剧本理解、拆分"
       groups={TEXT_GROUPS}
       values={settings.text}
       onChange={(next) => onChange({ ...settings, text: next })}
@@ -149,7 +149,7 @@ function ImageModelSection({ settings, onChange }: ModelSectionProps) {
   return (
     <ModelConfigSection<AppSettings["image"]>
       title="生图模型"
-      description="用于角色、场景、物品资产生成及分镜融合图生成。"
+      description="用于资产图片生成"
       groups={IMAGE_GROUPS}
       values={settings.image}
       onChange={(next) => onChange({ ...settings, image: next })}
@@ -161,7 +161,7 @@ function VoiceModelSection({ settings, onChange }: ModelSectionProps) {
   return (
     <ModelConfigSection<AppSettings["voice"]>
       title="语音模型"
-      description="用于分镜旁白与对白的语音合成（TTS）。音色不在这里固定，生成时再选。"
+      description="用于语音合成"
       groups={VOICE_GROUPS}
       values={settings.voice}
       onChange={(next) => onChange({ ...settings, voice: next })}
@@ -171,8 +171,6 @@ function VoiceModelSection({ settings, onChange }: ModelSectionProps) {
 
 /**
  * 设置页面
- *
- * 管理应用基础设置与各模型（语言/生图/语音）的 API 配置。
  *
  * @author yt @date 20260702
  */
@@ -324,14 +322,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         </div>
 
         <div className="settings-footer">
-          <a
-            className="settings-docs-link"
-            href="https://www.volcengine.com/docs/82379"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            火山方舟文档 ↗
-          </a>
+          <span className="settings-docs-link" />
           <div className="settings-footer-actions">
             <button type="button" className="ghost-button" onClick={onClose}>
               取消

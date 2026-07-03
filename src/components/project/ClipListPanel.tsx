@@ -367,14 +367,16 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                   )}
                   <button
                     type="button"
-                    className="ghost-button btn-sm"
+                    className="project-delete-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteOne(clip);
                     }}
                     disabled={operating}
+                    aria-label="删除片段"
+                    title="删除片段"
                   >
-                    删除
+                    ✕
                   </button>
                   <span className="clip-expand-icon" aria-hidden>
                     {isExpanded ? "▲" : "▼"}
