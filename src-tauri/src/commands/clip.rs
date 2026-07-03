@@ -3,6 +3,7 @@
 //! @author yt @date 20260703
 
 use crate::commands::util;
+use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 
 /// @author yt @date 20260702 片段信息
@@ -289,7 +290,11 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
 
 /// 更新片段内容
 #[tauri::command]
-pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
+pub fn update_clip(
+    input: UpdateClipInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
+) -> Result<ClipInfo, String> {
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
@@ -306,6 +311,15 @@ pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<Clip
     }
 
     let source_changed = input.source_text.is_some();
+
+    // 查询该片段是否已有成功的拆解记录（用于判断是否需要自动重拆）
+    let had_success: bool = tx
+        .query_row(
+            "SELECT COUNT(*) FROM clip_scripts WHERE clip_id = ?1 AND status = 'success'",
+            rusqlite::params![&input.clip_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0) > 0;
 
     // 使用参数化 SQL，避免动态拼接
     let title_val = input.title.as_deref().unwrap_or("");
@@ -360,6 +374,81 @@ pub fn update_clip(input: UpdateClipInput, app: tauri::AppHandle) -> Result<Clip
             },
         )
         .map_err(|e| e.to_string())?;
+
+    // source_text 变更且之前有成功拆解记录 → 自动触发重新拆解
+    if source_changed && had_success && !source_text_val.is_empty() {
+        let project_id = clip.project_id.clone();
+        let clip_id = clip.id.clone();
+        let source_text = source_text_val.to_string();
+
+        // 确保 Worker 在线
+        if let Err(e) = util::ensure_worker_running(&state, &app, &project_id) {
+            crate::project_log::append_log(
+                &crate::project_log::log_path_for_app_data(
+                    &crate::app_paths::resolve_app_data_dir(&app)?,
+                ),
+                "拆解",
+                "WARN",
+                &format!("自动重拆失败（Worker 未就绪）：{}", e),
+            );
+        } else {
+            // 插入重拆任务 + 通知 Worker
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let lock_key = format!("generate_clip_script:{}", clip_id);
+            let input_json = serde_json::json!({
+                "projectId": &project_id,
+                "clipId": &clip_id,
+                "sourceText": &source_text,
+            })
+            .to_string();
+
+            // 删旧拆解记录 + 插入新任务
+            conn.execute(
+                "DELETE FROM clip_scripts WHERE clip_id = ?1",
+                rusqlite::params![&clip_id],
+            )
+            .map_err(|e| e.to_string())?;
+
+            let script_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO clip_scripts (id, project_id, clip_id, source_text, status)
+                 VALUES (?1, ?2, ?3, ?4, 'pending')",
+                rusqlite::params![&script_id, &project_id, &clip_id, &source_text],
+            )
+            .map_err(|e| e.to_string())?;
+
+            conn.execute(
+                "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
+                 VALUES (?1, ?2, ?3, 'generate_clip_script', 'pending', ?4, ?5, 3)",
+                rusqlite::params![
+                    &task_id,
+                    &project_id,
+                    &clip_id,
+                    &lock_key,
+                    &input_json
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+
+            conn.execute(
+                "UPDATE clips SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![&clip_id],
+            )
+            .map_err(|e| e.to_string())?;
+
+            if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "generate_clip_script") {
+                crate::project_log::append_log(
+                    &crate::project_log::log_path_for_app_data(
+                        &crate::app_paths::resolve_app_data_dir(&app)?,
+                    ),
+                    "拆解",
+                    "WARN",
+                    &format!("自动重拆 enqueue 通知失败（任务仍会被轮询拾取）：{}", e),
+                );
+            }
+        }
+    }
+
     Ok(clip)
 }
 

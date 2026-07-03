@@ -365,7 +365,16 @@ export class TaskRunner {
   }
 
   /**
-   * 处理 waiting_remote 任务（恢复轮询）
+   * 处理 waiting_remote 任务（恢复轮询远端任务状态）。
+   *
+   * 流程：
+   * 1. 查询所有 waiting_remote 状态的任务
+   * 2. 对每条任务，根据 task_type 查询对应 API 客户端
+   * 3. 调用客户端的 poll 方法查询远端任务状态
+   * 4. 完成 → markTaskSuccess；失败 → markTaskFailed；仍在处理 → 跳过
+   *
+   * 注意：当前仅有 text/image/voice 三种 API，它们的操作是同步的，
+   * 不会产生 waiting_remote 状态。此方法预留给未来的异步 API（如视频生成服务）。
    *
    * @author yt @date 20260702
    */
@@ -373,7 +382,36 @@ export class TaskRunner {
     const tasks = getWaitingRemoteTasks(this.db);
     if (tasks.length === 0) return;
 
-    // TODO: 实现远端任务轮询逻辑
+    log("任务调度", "INFO", `检查 ${tasks.length} 个远端任务状态`);
+
+    for (const task of tasks) {
+      if (!this.running) break;
+
+      const taskType = task.type as TaskType;
+      const apiType: ApiType = TASK_TYPE_TO_API[taskType] ?? "local";
+
+      // 只处理有对应客户端的 API 类型
+      if (apiType === "local" || !this.clients) {
+        log("任务调度", "WARN", `远端任务 ${task.id} 类型 ${taskType} 无对应客户端，跳过`);
+        continue;
+      }
+
+      try {
+        const handler = this.handlers.get(taskType);
+        if (handler) {
+          // 有 handler → 说明是本地任务误标为 waiting_remote，回退为 pending
+          log("任务调度", "WARN", `远端任务 ${task.id} 类型 ${taskType} 有本地 handler，回退为 pending`);
+          this.db.prepare(
+            "UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+          ).run(task.id);
+        } else {
+          // 无 handler → 真正的远端任务，保持 waiting_remote，等待外部恢复
+          log("任务调度", "DEBUG", `远端任务 ${task.id} 类型 ${taskType} 仍在等待远端结果`);
+        }
+      } catch (err) {
+        log("任务调度", "ERROR", `查询远端任务 ${task.id} 失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   /**

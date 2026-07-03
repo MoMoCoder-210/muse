@@ -32,6 +32,94 @@ pub fn run() {
                 std::sync::Mutex::new(sidecar::SidecarManager::new());
             app.manage(sidecar_manager);
 
+            // 应用启动时自动启动 Worker（使用全局数据库，不绑定具体项目）
+            // Worker 启动后即可处理所有项目的 pending 任务
+            let config_path = app_data_dir
+                .join("settings.json")
+                .to_string_lossy()
+                .to_string();
+            let db_path = crate::app_paths::app_db_path(app.handle())
+                .map_err(|e| std::io::Error::other(e))?
+                .to_string_lossy()
+                .to_string();
+            // 使用全局默认 workspace（非项目特定），Worker 只需 db + config 即可工作
+            let default_workspace = app_data_dir
+                .join("workspace")
+                .to_string_lossy()
+                .to_string();
+            std::fs::create_dir_all(&default_workspace).ok();
+
+            let state = app.state::<sidecar::SharedSidecarManager>();
+            let mut mgr = state.lock().map_err(|e| std::io::Error::other(e.to_string()))?;
+            match mgr.start(&db_path, &default_workspace, &config_path, &log_path.to_string_lossy()) {
+                Ok(()) => {
+                    project_log::append_log(&log_path, "应用", "INFO", "Worker 已随应用启动");
+                }
+                Err(e) => {
+                    // Worker 启动失败不应阻止应用启动（如 worker/dist/index.js 不存在）
+                    project_log::append_log(
+                        &log_path,
+                        "应用",
+                        "WARN",
+                        &format!("Worker 启动失败（应用仍可正常运行）：{}", e),
+                    );
+                }
+            }
+            drop(mgr);
+
+            // 启动心跳监控：每 5 秒检查 Worker 是否存活，超时 30 秒自动重启
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        let state = handle.state::<sidecar::SharedSidecarManager>();
+                        let mut mgr = match state.lock() {
+                            Ok(m) => m,
+                            Err(_) => break,
+                        };
+                        if !mgr.is_running() {
+                            continue;
+                        }
+                        match mgr.check_heartbeat() {
+                            Ok(()) => {
+                                // 心跳正常，继续
+                            }
+                            Err(sidecar::SidecarError::Crashed(msg)) => {
+                                log::warn!("Worker 心跳超时：{}", msg);
+                                project_log::append_log(
+                                    &log_path, "应用", "WARN",
+                                    &format!("Worker 心跳超时，尝试重启：{}", msg),
+                                );
+                                // 清理锁
+                                if let Ok(db_path) = crate::app_paths::app_db_path(&handle) {
+                                    if let Ok(conn) = crate::db::init_db(&db_path) {
+                                        let _ = mgr.cleanup_locks(&conn);
+                                    }
+                                }
+                                // 重启
+                                match mgr.restart() {
+                                    Ok(()) => {
+                                        project_log::append_log(
+                                            &log_path, "应用", "INFO", "Worker 已自动重启",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        project_log::append_log(
+                                            &log_path, "应用", "ERROR",
+                                            &format!("Worker 自动重启失败：{}", e),
+                                        );
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                // NotRunning，无需处理
+                            }
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

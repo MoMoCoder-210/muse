@@ -152,12 +152,22 @@ function saveResults(
   const summary = storyboards.map((s) => s.description).join("；").slice(0, 200);
   const resourcesJson = JSON.stringify(resources);
 
-  // 写入 clip_scripts
-  db.prepare(`
-    INSERT INTO clip_scripts (id, project_id, clip_id, source_text, script_summary,
-      raw_model_output, extracted_resources_json, mode, status)
-    VALUES (?, ?, ?, '', ?, ?, ?, ?, 'success')
-  `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, actualMode);
+  // 写入 clip_scripts — UPDATE 已有的 pending 记录，而非 INSERT 新行
+  const updated = db.prepare(`
+    UPDATE clip_scripts
+    SET script_summary = ?, raw_model_output = ?, extracted_resources_json = ?,
+        mode = ?, status = 'success', updated_at = datetime('now')
+    WHERE clip_id = ? AND status = 'pending'
+  `).run(summary, rawOutput, resourcesJson, actualMode, clipId);
+
+  // 兜底：如果没有 pending 记录（直接调用 handler 场景），则 INSERT
+  if (updated.changes === 0) {
+    db.prepare(`
+      INSERT INTO clip_scripts (id, project_id, clip_id, source_text, script_summary,
+        raw_model_output, extracted_resources_json, mode, status)
+      VALUES (?, ?, ?, '', ?, ?, ?, ?, 'success')
+    `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, actualMode);
+  }
 
   // 写入故事板
   const insertSb = db.prepare(`
@@ -242,7 +252,7 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
   advanceProjectStep(db, input.clipId);
 
   l("拆解", `拆解成功 clipId=${input.clipId} 分镜数=${storyboards.length}`);
-  emit({ type: "task_success", taskId: "" });
+  emit({ type: "task_success", taskId: ctx.taskId });
 
   return JSON.stringify({
     sbidCount: storyboards.length,

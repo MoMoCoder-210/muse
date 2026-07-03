@@ -190,8 +190,10 @@ pub(crate) fn normalize_text(text: &str) -> String {
     text.trim().to_string()
 }
 
-/// 确保 Worker 进程在线：已运行且参数匹配则跳过，否则启动。
-/// 所有依赖 Worker 的命令在插入任务前都应调用此函数。
+/// 确保 Worker 进程在线：已运行则跳过，否则启动。
+///
+/// Worker 随应用启动后全局唯一，通过全局 db 访问所有项目数据，
+/// 不再按项目 workspace_path 区分。切换项目不会导致 Worker 重启。
 ///
 /// @author yt @date 20260703
 pub(crate) fn ensure_worker_running(
@@ -202,33 +204,30 @@ pub(crate) fn ensure_worker_running(
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let config_path = app_data_dir.join("settings.json").to_string_lossy().to_string();
     let db_path = crate::app_paths::app_db_path(app)?.to_string_lossy().to_string();
-    let workspace_path = get_project_workspace_path(app, project_id)?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let log_path_str = log_path.to_string_lossy().to_string();
 
     let mut manager = state.lock().map_err(|e| e.to_string())?;
 
-    // 已运行且参数匹配 → 无需操作
-    if manager.matches_runtime(&db_path, &workspace_path, &config_path, &log_path_str) {
+    // Worker 已运行 → 无需操作（全局唯一 Worker，不按项目区分）
+    if manager.is_running() {
         return Ok(());
     }
 
-    // 已运行但参数不匹配 → 先关闭
-    if manager.is_running() {
-        crate::project_log::append_log(
-            &log_path, "项目", "INFO",
-            "Worker 参数变更，正在重启",
-        );
-        manager.shutdown(5000).map_err(|e| e.to_string())?;
-    }
-
+    // Worker 未运行 → 启动（使用全局默认 workspace）
     crate::project_log::append_log(
         &log_path, "项目", "INFO",
-        &format!("启动 Worker projectId={}", project_id),
+        &format!("Worker 未运行，启动中（由 projectId={} 触发）", project_id),
     );
 
+    let default_workspace = app_data_dir
+        .join("workspace")
+        .to_string_lossy()
+        .to_string();
+    std::fs::create_dir_all(&default_workspace).map_err(|e| e.to_string())?;
+
     manager
-        .start(&db_path, &workspace_path, &config_path, &log_path_str)
+        .start(&db_path, &default_workspace, &config_path, &log_path_str)
         .map_err(|e| e.to_string())?;
 
     Ok(())

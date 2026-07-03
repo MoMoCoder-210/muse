@@ -42,6 +42,7 @@ pub struct ClipScriptInfo {
 pub fn import_script(
     input: ImportScriptInput,
     app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
 ) -> Result<ImportScriptResult, String> {
     let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
@@ -110,6 +111,17 @@ pub fn import_script(
             source_id, task_id, input.source_type
         ),
     );
+
+    // 通知 Worker 立即调度（与 generate_clip_script 保持一致）
+    if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "split_script") {
+        crate::project_log::append_log(
+            &log_path,
+            "剧本",
+            "WARN",
+            &format!("发送 enqueue 通知失败（任务仍会被轮询拾取）：{}", e),
+        );
+    }
+
     Ok(ImportScriptResult { source_id })
 }
 
@@ -294,12 +306,19 @@ pub fn get_clip_scripts(
     app: tauri::AppHandle,
 ) -> Result<Vec<ClipScriptInfo>, String> {
     let conn = util::open_app_conn(&app)?;
+    // 子查询取每个 clip_id 最新一条记录（按 created_at DESC），避免历史 pending 记录干扰
     let mut stmt = conn
         .prepare(
             "SELECT cs.id, cs.clip_id, cs.script_summary, cs.extracted_resources_json, cs.status
              FROM clip_scripts cs
              JOIN clips c ON c.id = cs.clip_id
              WHERE c.project_id = ?1 AND c.deleted_at IS NULL
+               AND cs.id IN (
+                 SELECT id FROM (
+                   SELECT id, ROW_NUMBER() OVER (PARTITION BY clip_id ORDER BY created_at DESC) AS rn
+                   FROM clip_scripts
+                 ) WHERE rn = 1
+               )
              ORDER BY cs.created_at DESC",
         )
         .map_err(|e| e.to_string())?;

@@ -602,12 +602,20 @@ export async function splitScriptWithInput(
   l("剧本拆分", `剧本已加载：${wordCount} 字，${text.length} 字符`);
 
   // 规则拆分（≤1500 字或正则匹配到集数标志）
+  // 检查取消信号，避免规则拆分在取消后继续执行
+  if (ctx.signal?.aborted) {
+    throw new Error("任务已取消");
+  }
   const ruleClips = input.forceAi ? null : ruleSplit(text);
 
   if (ruleClips) {
+    // 规则拆分成功后再次检查取消信号
+    if (ctx.signal?.aborted) {
+      throw new Error("任务已取消");
+    }
     l("剧本拆分", `规则拆分成功：共 ${ruleClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, ruleClips);
-    emit({ type: "task_success", taskId: "" });
+    emit({ type: "task_success", taskId: ctx.taskId });
     return JSON.stringify({
       splitMode: "rule",
       clipCount: ruleClips.length,
@@ -624,7 +632,7 @@ export async function splitScriptWithInput(
     const modelClips = await modelSplit(ctx, text);
     l("剧本拆分", `模型拆分成功：共 ${modelClips.length} 个片段`);
     insertClips(db, input.projectId, input.sourceId, modelClips);
-    emit({ type: "task_success", taskId: "" });
+    emit({ type: "task_success", taskId: ctx.taskId });
     return JSON.stringify({
       splitMode: "model",
       clipCount: modelClips.length,

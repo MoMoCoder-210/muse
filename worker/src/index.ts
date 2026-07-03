@@ -196,9 +196,15 @@ async function main(): Promise<void> {
 
   // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
   if (configPath) {
+    const { existsSync } = await import("fs");
+    const configExists = existsSync(configPath);
     settings = new SettingsManager(configPath);
     clients = createClients(settings);
-    sendLog("info", `配置已加载：${configPath}`);
+    if (configExists) {
+      sendLog("info", `配置已加载：${configPath}`);
+    } else {
+      sendLog("warn", `配置文件不存在，使用默认配置（API Key 为空）：${configPath}`);
+    }
   } else {
     sendLog("warn", "未提供配置路径，API 客户端未初始化");
   }

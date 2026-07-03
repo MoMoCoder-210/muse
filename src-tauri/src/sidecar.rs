@@ -21,7 +21,6 @@ const RESTART_DELAY_SECS: u64 = 2;
 
 /// @author yt @date 20260702 Sidecar 错误类型
 #[derive(Debug, Error)]
-#[allow(dead_code)]
 pub enum SidecarError {
     #[error("sidecar already running")]
     AlreadyRunning,
@@ -67,12 +66,20 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
 }
 
 /// @author yt @date 20260702 解析 stdout 行内容
-fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
+///
+/// 返回 Option<&str>：heartbeat 消息返回 Some("heartbeat")，调用方可据此更新心跳时间戳。
+fn parse_stdout_line<'a>(
+    log_path: &Arc<std::path::PathBuf>,
+    text: &'a str,
+) -> Option<&'a str> {
     if let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) {
         let msg_type = msg.get("msg").and_then(|v| v.as_str()).unwrap_or("");
         match msg_type {
-            "heartbeat" | "batch_progress"
-            | "quota_exhausted" | "shutting_down" => {}
+            "heartbeat" => {
+                // 返回标记，调用方应更新心跳时间戳
+                return Some("heartbeat");
+            }
+            "batch_progress" | "quota_exhausted" | "shutting_down" => {}
             "ready" => {
                 let wid = msg.get("workerId").and_then(|v| v.as_str()).unwrap_or("?");
                 crate::project_log::append_log(log_path, "主进程", "INFO", &format!("Worker 就绪，workerId={}", wid));
@@ -113,6 +120,7 @@ fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
     } else {
         crate::project_log::append_log(log_path, "主进程(stdout)", "INFO", text);
     }
+    None
 }
 
 /// SidecarManager 管理 Node worker 子进程的完整生命周期。
@@ -126,7 +134,8 @@ fn parse_stdout_line(log_path: &Arc<std::path::PathBuf>, text: &str) {
 pub struct SidecarManager {
     worker_id: String,
     child: Option<Child>,
-    last_heartbeat: Option<Instant>,
+    /// 心跳时间戳，由 stdout 读取线程在收到 heartbeat 消息时更新
+    last_heartbeat: Arc<Mutex<Option<Instant>>>,
     #[allow(dead_code)]
     restart_count: u32,
     #[allow(dead_code)]
@@ -146,7 +155,7 @@ impl SidecarManager {
         Self {
             worker_id: uuid::Uuid::new_v4().to_string(),
             child: None,
-            last_heartbeat: None,
+            last_heartbeat: Arc::new(Mutex::new(None)),
             restart_count: 0,
             restart_window_start: None,
             db_path: String::new(),
@@ -230,15 +239,25 @@ impl SidecarManager {
         if let Some(stdout) = child.stdout.take() {
             let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
             let log_path_clone = log_path_arc.clone();
+            let hb = self.last_heartbeat.clone();
             let processor: LogLineProcessor = Box::new(move |text: &str| {
-                parse_stdout_line(&log_path_clone, text);
+                if let Some("heartbeat") = parse_stdout_line(&log_path_clone, text).as_deref() {
+                    // 收到心跳，更新时间戳
+                    if let Ok(mut ts) = hb.lock() {
+                        *ts = Some(Instant::now());
+                    }
+                }
             });
             let handle = spawn_log_reader(stdout, log_path_arc, "主进程(stdout)", "INFO", Some(processor));
             self.log_handles.push(handle);
         }
 
         self.child = Some(child);
-        self.last_heartbeat = Some(Instant::now());
+        // 初始化心跳时间戳
+        {
+            let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+            *ts = Some(Instant::now());
+        }
 
         if !log_path.is_empty() {
             crate::project_log::append_log(
@@ -296,7 +315,10 @@ impl SidecarManager {
         }
 
         self.child = None;
-        self.last_heartbeat = None;
+        {
+            let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+            *ts = None;
+        }
 
         // 等待日志读取线程结束（子进程退出后管道关闭，线程会自动退出）
         for handle in self.log_handles.drain(..) {
@@ -357,8 +379,9 @@ impl SidecarManager {
         }
         self.restart_count += 1;
 
-        // 生成新的 workerId
+        // 生成新的 workerId 和心跳时间戳
         self.worker_id = uuid::Uuid::new_v4().to_string();
+        self.last_heartbeat = Arc::new(Mutex::new(None));
 
         log::info!(
             "重启 Worker（第 {}/{} 次）",
@@ -381,7 +404,8 @@ impl SidecarManager {
             return Err(SidecarError::NotRunning);
         }
 
-        if let Some(last) = self.last_heartbeat {
+        let ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(last) = *ts {
             if last.elapsed() > Duration::from_secs(HEARTBEAT_TIMEOUT_SECS) {
                 return Err(SidecarError::Crashed("heartbeat timeout".to_string()));
             }
@@ -391,9 +415,11 @@ impl SidecarManager {
     }
 
     /// 更新心跳时间戳（收到 heartbeat 消息时调用）
+    /// 注意：现在由 stdout 读取线程自动更新，此方法保留用于手动场景。
     /// @author yt @date 20260702
     pub fn update_heartbeat(&mut self) {
-        self.last_heartbeat = Some(Instant::now());
+        let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+        *ts = Some(Instant::now());
     }
 
     /// 崩溃恢复：清理该 workerId 持有的所有逻辑锁。

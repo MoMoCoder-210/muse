@@ -62,13 +62,11 @@ export function useClipPolling(projectId: string) {
         );
         setSplitStatus(activeSource?.split_status ?? null);
 
+        // 始终更新 UI，busy 仅控制是否需要继续轮询
+        setClipScripts(csList);
+        setClips(clipList);
+
         const isBusy = hasRunning || !!activeSource;
-
-        if (isBusy) {
-          setClipScripts(csList);
-          setClips(clipList);
-        }
-
         pollingRef.current = isBusy;
       } catch { /* ignore */ }
     }, 3000);
