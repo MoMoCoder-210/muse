@@ -11,10 +11,9 @@ export const DEFAULT_TEXT_CONFIG: TextModelConfig = {
   apiKey: "",
   baseUrl: "",
   model: "",
-  maxTokens: 4096,
+  maxTokens: 131072,
   temperature: 0.5,
-  // @author yt @date 20260702 由 60s 调至 600s，与生图模型超时对齐
-  timeoutMs: 600000,
+  timeoutMs: 300000,
 };
 
 // ── 生图模型 ──────────────────────────────────────────────
@@ -22,16 +21,16 @@ export const DEFAULT_IMAGE_CONFIG: ImageModelConfig = {
   apiKey: "",
   baseUrl: "",
   model: "",
-  timeoutMs: 600000,
+  timeoutMs: 300000,
 };
 
 // ── 语音模型 ─────────────────────────────────────────────
 export const DEFAULT_VOICE_CONFIG: VoiceModelConfig = {
   apiKey: "",
-  baseUrl:"",
+  baseUrl: "",
   model: "",
   speed: 1.0,
-  timeoutMs: 600000,
+  timeoutMs: 300000,
 };
 
 // ── 配置类型定义 ─────────────────────────────────────────

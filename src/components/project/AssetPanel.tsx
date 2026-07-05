@@ -1,30 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ProjectInfo, Clip, ClipScriptInfo } from "../../types/project";
-import { listClips, getClipScripts } from "../../services/tauri";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from "../../types/project";
+import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, importLocalAssetImage } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
-
-/** 资产资源类型 */
-type AssetType = "character" | "scene" | "item";
-
-/** 单个资产资源 */
-interface AssetResource {
-  type: AssetType;
-  name: string;
-  description: string;
-  prompt: string;
-  tags?: string[];
-}
-
-/** 拆解输出的资源集合 */
-interface ParsedResources {
-  characters: AssetResource[];
-  scenes: AssetResource[];
-  items: AssetResource[];
-}
+import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
+import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
+import { AddAssetModal, type AddAssetInput } from "./AddAssetModal";
+import { AssetDrawer, type GenerateParams } from "./AssetDrawer";
+import { open } from "@tauri-apps/plugin-dialog";
 
 /** type → 属性名映射 */
-const TYPE_TO_KEY: Record<AssetType, keyof ParsedResources> = {
+const TYPE_TO_KEY: Record<AssetType, keyof ParsedAssets> = {
   character: "characters",
   scene: "scenes",
   item: "items",
@@ -54,6 +40,16 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [clipScripts, setClipScripts] = useState<ClipScriptInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetCardId>>(new Set());
+  const [operating, setOperating] = useState(false);
+
+  // 弹窗/抽屉状态
+  const [deleteTarget, setDeleteTarget] = useState<AssetCardData[] | null>(null);
+  const [addAssetOpen, setAddAssetOpen] = useState<AssetType | null>(null);
+  const [drawerTarget, setDrawerTarget] = useState<AssetCardData[] | null>(null);
+
+  // 卡片绑定图片路径映射：key = `${type}:${name}`
+  const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
 
   // 加载片段和拆解数据
   const load = useCallback(async () => {
@@ -85,23 +81,226 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
   // 选中片段的资产数据
   const selectedScript = clipScripts.find((s) => s.clip_id === selectedClipId);
-  const selectedClip = clips.find((c) => c.id === selectedClipId);
 
-  let parsedResources: ParsedResources | null = null;
+  let parsedResources: ParsedAssets | null = null;
   if (selectedScript?.extracted_resources_json) {
     try {
-      parsedResources = JSON.parse(selectedScript.extracted_resources_json) as ParsedResources;
+      parsedResources = JSON.parse(selectedScript.extracted_resources_json) as ParsedAssets;
     } catch {
       // JSON 解析失败
     }
   }
 
-  // 自动选中第一个已拆解片段
-  useEffect(() => {
-    if (disassembledClips.length > 0 && !selectedClipId) {
-      setSelectedClipId(disassembledClips[0].id);
+  // 当前片段所有资产卡片
+  const allAssetCards = useMemo<AssetCardData[]>(() => {
+    if (!selectedClipId || !parsedResources) return [];
+    return ASSET_CATEGORIES.flatMap((cat) =>
+      buildAssetCards(selectedClipId, cat.type, parsedResources[TYPE_TO_KEY[cat.type]] ?? [])
+    );
+  }, [selectedClipId, parsedResources]);
+
+  const allSelected = allAssetCards.length > 0 && selectedAssetIds.size === allAssetCards.length;
+
+  // 切换单个资产选中
+  const toggleSelect = (id: AssetCardId) => {
+    setSelectedAssetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // 全选 / 取消全选
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedAssetIds(new Set());
+    else setSelectedAssetIds(new Set(allAssetCards.map((card) => card.id)));
+  };
+
+  // 切换片段时：清空跨片段选中项 + 加载选定图片映射
+  const loadSelectedImages = useCallback(async (clipId: string) => {
+    if (!clipId) { setSelectedImageMap({}); return; }
+    try {
+      const items = await batchGetAssetSelectedImages({ clip_id: clipId });
+      const map: Record<string, string> = {};
+      for (const item of items) {
+        if (item.selected_image_path) {
+          map[`${item.asset_type}:${item.name}`] = item.selected_image_path;
+        }
+      }
+      setSelectedImageMap(map);
+    } catch {
+      setSelectedImageMap({});
     }
-  }, [disassembledClips, selectedClipId]);
+  }, []);
+
+  useEffect(() => {
+    setSelectedAssetIds((prev) => {
+      const next = new Set<AssetCardId>();
+      for (const id of prev) {
+        if (id.startsWith(`${selectedClipId}:`)) next.add(id);
+      }
+      return next;
+    });
+    loadSelectedImages(selectedClipId ?? "");
+  }, [selectedClipId, loadSelectedImages]);
+
+  // 抽屉关闭时刷新卡片缩略图（可能新绑定了图片）
+  useEffect(() => {
+    if (!drawerTarget && selectedClipId) {
+      loadSelectedImages(selectedClipId);
+    }
+  }, [drawerTarget, selectedClipId, loadSelectedImages]);
+
+  // 点击卡片图片/生成按钮 → 打开抽屉（单个）
+  const handleOpenDrawer = useCallback((data: AssetCardData) => {
+    setDrawerTarget([data]);
+  }, []);
+
+  // 批量生成 → 打开抽屉（多个）
+  const handleOpenBatchDrawer = useCallback((cards: AssetCardData[]) => {
+    if (cards.length === 0) return;
+    setDrawerTarget(cards);
+  }, []);
+
+  // 构建最终生图 prompt（按资产类型拼系统指令）
+  const buildImagePrompt = useCallback((card: AssetCardData, style: string): string => {
+    const appearance = card.resource.prompt;
+    if (card.type === "character") {
+      return `[风格:${style}] Character design illustration, on a white background. On the left is a large facial and half-body close-up, while on the right are three full-body views (front, side, and back). ${appearance}`;
+    }
+    if (card.type === "item") {
+      return `[风格:${style}] product photography, isolated object on white background, detailed texture. ${appearance}`;
+    }
+    // scene
+    return `[风格:${style}] ${appearance}`;
+  }, []);
+
+  // 抽屉内单个生成
+  const handleDrawerGenerate = useCallback(async (data: AssetCardData, params: GenerateParams) => {
+    setOperating(true);
+    try {
+      const prompt = buildImagePrompt(data, params.style);
+      await generateAssetImage({
+        project_id: project.id,
+        clip_id: data.clipId,
+        asset_type: data.type,
+        name: data.resource.name,
+        prompt,
+        size: params.size,
+        n: params.n,
+        style: params.style,
+      });
+      toast(`已为资产「${data.resource.name}」发起图片生成`, "success");
+    } catch (_err) {
+      toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
+    } finally {
+      setOperating(false);
+    }
+  }, [project.id, buildImagePrompt, toast]);
+
+  // 抽屉内批量生成
+  const handleDrawerBatchGenerate = useCallback(async (cards: AssetCardData[], params: GenerateParams) => {
+    setDrawerTarget(null);
+    setOperating(true);
+    try {
+      await Promise.all(
+        cards.map((card) =>
+          generateAssetImage({
+            project_id: project.id,
+            clip_id: card.clipId,
+            asset_type: card.type,
+            name: card.resource.name,
+            prompt: buildImagePrompt(card, params.style),
+            size: params.size,
+            n: params.n,
+            style: params.style,
+          })
+        )
+      );
+      toast(`已为 ${cards.length} 个资产发起图片生成`, "success");
+    } catch (_err) {
+      toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
+    } finally {
+      setOperating(false);
+    }
+  }, [project.id, toast]);
+
+  // 选择本地图片（返回 Promise 供抽屉刷新）
+  const handleSelectLocalImage = useCallback(async (data: AssetCardData): Promise<void> => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }],
+      title: `选择「${data.resource.name}」的本地图片`,
+    });
+    if (!selected || typeof selected !== "string") return;
+    try {
+      const result = await importLocalAssetImage({
+        clip_id: data.clipId,
+        asset_type: data.type,
+        name: data.resource.name,
+        local_file_path: selected,
+      });
+      const msg = result.is_selected
+        ? `已导入并绑定图片`
+        : `已导入图片`;
+      toast(msg, "success");
+    } catch (err) {
+      toast(`导入图片失败：${String(err)}`, "error");
+    }
+  }, [toast]);
+
+  // 点击删除 → 弹出确认弹窗
+  const handleDeleteClick = useCallback((cards: AssetCardData[]) => {
+    if (cards.length === 0) return;
+    setDeleteTarget(cards);
+  }, []);
+
+  // 删除确认 → 执行删除
+  const handleDeleteConfirm = useCallback(async (cards: AssetCardData[]) => {
+    setDeleteTarget(null);
+    setOperating(true);
+    try {
+      await Promise.all(
+        cards.map((card) =>
+          deleteAssetFromClip({
+            clip_id: card.clipId,
+            asset_type: card.type,
+            name: card.resource.name,
+          })
+        )
+      );
+      toast(`已删除 ${cards.length} 个资产`, "success");
+      setSelectedAssetIds(new Set());
+      await load();
+    } catch (_err) {
+      toast("删除资产失败，请检查后端的日志。", "error");
+    } finally {
+      setOperating(false);
+    }
+  }, [load, toast]);
+
+  // 添加资产确认
+  const handleAddAsset = useCallback(async (input: AddAssetInput) => {
+    setAddAssetOpen(null);
+    if (!selectedClipId) return;
+    setOperating(true);
+    try {
+      await addAssetToClip({
+        clip_id: selectedClipId,
+        asset_type: input.type,
+        name: input.name,
+        description: input.description,
+        prompt: input.prompt,
+      });
+      toast(`已添加资产「${input.name}」`, "success");
+      await load();
+    } catch (_err) {
+      toast("添加资产失败，请检查后端的日志。", "error");
+    } finally {
+      setOperating(false);
+    }
+  }, [selectedClipId, load, toast]);
 
   return (
     <div className="workspace-split-layout">
@@ -143,20 +342,47 @@ export function AssetPanel({ project }: AssetPanelProps) {
       {/* ── 右侧：资产展示 ── */}
       <div className="workspace-right-panel">
         <div className="asset-display-panel">
-          <div className="panel-header">
-            <h3>
-              {selectedClip
-                ? `第 ${selectedClip.sort_index} 集 · 资产`
-                : "资产管理"}
-            </h3>
-          </div>
-
           {!selectedClipId ? (
             <p className="empty-clip-list">请从左侧选择已拆解的片段</p>
           ) : !parsedResources ? (
             <p className="empty-clip-list">暂无资产数据</p>
           ) : (
             <div className="asset-display-body">
+              {allAssetCards.length > 0 && (
+                <div className="asset-toolbar">
+                  <label className="asset-select-all">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      disabled={operating}
+                    />
+                    <span>全选</span>
+                  </label>
+                  <span className="asset-selected-count">
+                    {selectedAssetIds.size > 0 ? `已选 ${selectedAssetIds.size}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="primary-button btn-sm"
+                    style={{ visibility: selectedAssetIds.size > 0 ? "visible" : "hidden" }}
+                    onClick={() => handleOpenBatchDrawer(allAssetCards.filter((c) => selectedAssetIds.has(c.id)))}
+                    disabled={operating || selectedAssetIds.size === 0}
+                  >
+                    批量生成（{selectedAssetIds.size}）
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button btn-sm"
+                    style={{ visibility: selectedAssetIds.size > 0 ? "visible" : "hidden" }}
+                    onClick={() => handleDeleteClick(allAssetCards.filter((c) => selectedAssetIds.has(c.id)))}
+                    disabled={operating || selectedAssetIds.size === 0}
+                  >
+                    批量删除
+                  </button>
+                </div>
+              )}
+
               {ASSET_CATEGORIES.map((cat) => {
                 const resources = parsedResources![TYPE_TO_KEY[cat.type]] ?? [];
                 if (resources.length === 0) return null;
@@ -168,33 +394,29 @@ export function AssetPanel({ project }: AssetPanelProps) {
                         {cat.label}
                         <span className="asset-category-count">{resources.length}</span>
                       </h4>
+                      <button
+                        type="button"
+                        className="ghost-button btn-sm asset-add-btn"
+                        onClick={() => setAddAssetOpen(cat.type)}
+                        disabled={operating}
+                        title={`添加${cat.label}`}
+                      >
+                        + 添加
+                      </button>
                     </div>
                     <div className="asset-card-grid">
-                      {resources.map((res, i) => (
-                        <div key={`${cat.type}-${i}`} className="asset-card">
-                          <div className="asset-card-frame">
-                            <svg
-                              className="asset-card-placeholder"
-                              viewBox="0 0 120 120"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <rect width="120" height="120" rx="10" fill="var(--chip-bg)" />
-                              <path
-                                d="M40 70 L55 50 L70 60 L85 40 L100 55"
-                                stroke="var(--text-muted)"
-                                strokeWidth="1.5"
-                                fill="none"
-                                opacity="0.5"
-                              />
-                              <circle cx="45" cy="40" r="8" stroke="var(--text-muted)" strokeWidth="1.5" opacity="0.5" />
-                            </svg>
-                          </div>
-                          <div className="asset-card-info">
-                            <span className="asset-card-name">{res.name}</span>
-                            <span className="asset-card-desc">{res.description}</span>
-                          </div>
-                        </div>
+                      {buildAssetCards(selectedClipId, cat.type, resources).map((card) => (
+                        <AssetCard
+                          key={card.id}
+                          data={card}
+                          icon={cat.icon}
+                          selected={selectedAssetIds.has(card.id)}
+                          selectedImagePath={selectedImageMap[`${card.type}:${card.resource.name}`] ?? null}
+                          onToggle={toggleSelect}
+                          onDelete={(data) => handleDeleteClick([data])}
+                          onDetail={(data) => handleOpenDrawer(data)}
+                          disabled={operating}
+                        />
                       ))}
                     </div>
                   </div>
@@ -204,6 +426,38 @@ export function AssetPanel({ project }: AssetPanelProps) {
           )}
         </div>
       </div>
+
+      {/* 资产删除确认弹窗 */}
+      {deleteTarget ? (
+        <DeleteAssetConfirm
+          cards={deleteTarget}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+          disabled={operating}
+        />
+      ) : null}
+
+      {/* 添加资产弹窗 */}
+      {addAssetOpen ? (
+        <AddAssetModal
+          assetType={addAssetOpen}
+          onConfirm={handleAddAsset}
+          onCancel={() => setAddAssetOpen(null)}
+          disabled={operating}
+        />
+      ) : null}
+
+      {/* 资产详情+生成抽屉 */}
+      {drawerTarget ? (
+        <AssetDrawer
+          cards={drawerTarget}
+          onClose={() => setDrawerTarget(null)}
+          onGenerate={handleDrawerGenerate}
+          onBatchGenerate={handleDrawerBatchGenerate}
+          onSelectLocal={handleSelectLocalImage}
+          disabled={operating}
+        />
+      ) : null}
     </div>
   );
 }

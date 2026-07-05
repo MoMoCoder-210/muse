@@ -59,17 +59,17 @@
   --border-accent-subtle: rgba(96, 165, 250, 0.22);
 
   /* ── 基础语义色（纯值，供组件变量引用） ── */
-  --color-danger:         #e04040;
-  --color-danger-dark:    #c62828;
-  --color-danger-darker:  #b71c1c;
-  --color-danger-light:   #ef5350;
-  --color-danger-lighter: #d32f2f;
+  --color-danger:         #e57373;
+  --color-danger-dark:    #ef5350;
+  --color-danger-darker:  #e04040;
+  --color-danger-light:   #ef9a9a;
+  --color-danger-lighter: #e57373;
   --color-success:        #50c878;
   --color-warning:        #ffb432;
   --color-info:           #6cb4ff;
 
   /* ── RGB 通道（供 rgba() 组合使用） ── */
-  --color-danger-rgb:     224, 64, 64;
+  --color-danger-rgb:     229, 115, 115;
   --color-success-rgb:    80, 200, 120;
   --color-warning-rgb:    255, 180, 50;
   --color-info-rgb:       100, 160, 255;

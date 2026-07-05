@@ -2,11 +2,6 @@
  * 生图模型客户端
  *
  * 兼容 OpenAI Images API
- * 返回图片 URL，调用方负责下载并存储到本地工作区。
- *
- * 注意：
- *   - 方舟生图为异步任务，SDK 会轮询直到完成，timeout 需设置较大值（默认 120s）
- *   - URL 有效期通常为 1 小时，必须及时下载
  *
  * @author yt @date 20260702
  */
@@ -19,16 +14,16 @@ import type { ImageModelConfig } from "../config/defaults.js";
 import { FALLBACK_API_KEY } from "./constants.js";
 
 export interface ImageGenerateOptions {
-  /** 生图尺寸，默认 1024x1024；调用时可覆盖 */
+  /** 生图尺寸 */
   size?: string;
-  /** 是否添加水印（方舟扩展参数） */
+  /** 是否添加水印 */
   watermark?: boolean;
   /** AbortSignal */
   signal?: AbortSignal;
 }
 
 export interface ImageGenerateResult {
-  /** 图片临时 URL（1小时有效） */
+  /** 图片临时 URL*/
   url: string;
   model: string;
 }
@@ -73,6 +68,15 @@ export class ImageClient {
       | "256x256" | "512x512" | "1024x1024" | "1792x1024" | "1024x1792"
       | (string & {});
 
+    const requestParams = {
+      model: this.config.model,
+      prompt: prompt.slice(0, 60) + (prompt.length > 60 ? "…" : ""),
+      n: 1,
+      size,
+      response_format: "url",
+    };
+    console.log("[ImageClient]", JSON.stringify(requestParams));
+
     const response = await this.client.images.generate(
       {
         model: this.config.model,
@@ -80,7 +84,7 @@ export class ImageClient {
         n: 1,
         size,
         response_format: "url",
-        // 方舟扩展参数：水印
+        // OpenAI 兼容端点扩展参数：水印
         ...(options.watermark !== undefined
           ? { extra_body: { watermark: options.watermark } }
           : {}),
@@ -92,7 +96,10 @@ export class ImageClient {
       throw new Error("ImageClient: unexpected streaming response");
     }
 
-    const url = response.data[0]?.url;
+    const resultData = response.data[0];
+    console.log("[ImageClient] 响应:", JSON.stringify({ url: resultData?.url?.slice(0, 80) + "…", revised_prompt: (resultData as any)?.revised_prompt?.slice(0, 80) }));
+
+    const url = resultData?.url;
     if (!url) {
       throw new Error("ImageClient: no URL in response");
     }
@@ -112,7 +119,9 @@ export class ImageClient {
     options: ImageGenerateOptions = {}
   ): Promise<string> {
     const { url } = await this.generate(prompt, options);
+    console.log("[ImageClient] 保存路径:", savePath);
     await downloadFile(url, savePath, options.signal);
+    console.log("[ImageClient] 下载完成:", savePath);
     return savePath;
   }
 }

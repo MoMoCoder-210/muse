@@ -17,6 +17,7 @@ import type {
   UpdateClipInput,
   SplitClipInput,
   SplitClipResult,
+  AssetType,
 } from "../types/project";
 import type { AppSettings } from "../types/settings";
 
@@ -192,6 +193,182 @@ import type { ClipScriptInfo, GenerateClipScriptInput } from "../types/project";
 export async function generateClipScript(input: GenerateClipScriptInput): Promise<{ task_id: string }> {
   return invoke<{ task_id: string }>("generate_clip_script", { input });
 }
+
+/**
+ * 资产生图
+ *
+ * 根据资产拆解阶段生成的 prompt 创建 image 生成任务。
+ *
+ * @author yt @date 20260704
+ */
+export async function generateAssetImage(input: {
+  project_id: string;
+  clip_id: string;
+  asset_type: AssetType;
+  name: string;
+  prompt: string;
+  size?: string;
+  n?: number;
+  style?: string;
+}): Promise<{ task_id: string }> {
+  return invoke<{ task_id: string }>("generate_asset_image", { input });
+}
+
+/**
+ * 添加资产到片段拆解结果
+ *
+ * @author yt @date 20260704
+ */
+export async function addAssetToClip(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  description: string;
+  prompt: string;
+}): Promise<void> {
+  return invoke<void>("add_asset_to_clip", { input });
+}
+
+/**
+ * 获取资产图片信息
+ *
+ * @author yt @date 20260705
+ */
+export async function getAssetImageInfo(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+}): Promise<{
+  generated_image_path: string | null;
+  selected_image_id: string | null;
+  status: string;
+  image_count: number;
+}> {
+  return invoke("get_asset_image_info", { input });
+}
+
+/**
+ * 批量获取片段下所有资产的选定图片路径
+ *
+ * AssetPanel 快速渲染卡片缩略图用。
+ *
+ * @author yt @date 20260705
+ */
+export async function batchGetAssetSelectedImages(input: {
+  clip_id: string;
+}): Promise<{ asset_type: string; name: string; selected_image_path: string | null }[]> {
+  return invoke("batch_get_asset_selected_images", { input });
+}
+
+/**
+ * 导入本地图片到指定资产（复制到项目目录 + 注册 + 自动绑定）
+ *
+ * @author yt @date 20260705
+ */
+export async function importLocalAssetImage(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  local_file_path: string;
+}): Promise<{ image_id: string; image_path: string; is_selected: boolean }> {
+  return invoke("import_local_asset_image", { input });
+}
+
+/**
+ * 获取资产所有生成图片列表
+ *
+ * @author yt @date 20260705
+ */
+export async function listAssetImages(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+}): Promise<{
+  id: string;
+  image_path: string;
+  size: string | null;
+  style: string | null;
+  is_selected: boolean;
+  created_at: string;
+}[]> {
+  return invoke("list_asset_images", { input });
+}
+
+/**
+ * 获取资产图片+任务混合列表（含 pending / running / failed 任务）
+ *
+ * 供抽屉实时展示：已完成图片 + 进行中任务统一排序。
+ *
+ * @author yt @date 20260705
+ */
+export async function listAssetImageTasks(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+}): Promise<{
+  id: string;
+  image_path: string | null;
+  size: string | null;
+  style: string | null;
+  is_selected: boolean;
+  status: string;       // "ready" | "pending" | "running" | "failed"
+  error_message: string | null;
+  created_at: string;
+}[]> {
+  return invoke("list_asset_image_tasks", { input });
+}
+
+/**
+ * 选中资产的指定图片作为最终使用图片
+ *
+ * @author yt @date 20260705
+ */
+export async function selectAssetImage(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  image_id: string;
+}): Promise<void> {
+  return invoke("select_asset_image", { input });
+}
+
+/**
+ * 删除单张资产图片（可选同时删除文件）
+ *
+ * @author yt @date 20260705
+ */
+export async function deleteAssetImage(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  image_id: string;
+  delete_file: boolean;
+}): Promise<void> {
+  return invoke("delete_asset_image", { input });
+}
+
+/**
+ * 从片段拆解结果中删除资产
+ *
+ * @author yt @date 20260704
+ */
+export async function deleteAssetFromClip(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+}): Promise<void> {
+  return invoke<void>("delete_asset_from_clip", { input });
+}
+
+/**
+ * 删除资产（批量）
+ *
+ * @author yt @date 20260704
+ */
+export async function deleteAssets(assetIds: string[]): Promise<void> {
+  return invoke<void>("delete_assets", { input: { asset_ids: assetIds } });
+}
+
 
 /**
  * 查询项目所有拆解记录（按 clip_id 去重，最新一条为准）

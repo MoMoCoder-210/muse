@@ -134,6 +134,27 @@
 
 ---
 
+## 5.5 资产生图提示词生成规则 (Asset Prompt Rules)
+
+每个资产（角色/场景/物品）的 `prompt` 字段将直接用于生图模型，因此必须严格遵守以下类型专属规则：
+
+### 角色 prompt（Character）
+- **仅描述人物外观特征**：年龄、体型、发型发色、五官特征、服装款式与颜色、配饰、标志性外观元素
+- **禁止包含**：动作姿态、站位、场景环境、视角（如 front view / side view）、镜头描述
+- 示例（✅正确）：`18-year-old Chinese male, slender build, short black hair, sharp eyebrows, wearing white t-shirt and blue jeans, silver necklace with dragon pendant`
+- 示例（❌错误）：`18-year-old Chinese male standing in front of a school gate, looking confused, front view, anime style`
+
+### 场景 prompt（Scene）
+- **详细描述场景环境**：地理位置、建筑风格、空间布局、时间光线、天气氛围、色调
+- 示例（✅正确）：`ancient Chinese palace hall, grand golden pillars, dragon carvings on the walls, warm candlelight, red and gold color scheme, afternoon sunlight streaming through paper windows, cinematic wide shot`
+
+### 物品 prompt（Item）
+- **仅描述物品物理属性**：外形、材质、颜色、尺寸感、纹理细节
+- **禁止包含**：持有者、使用场景、角色
+- 示例（✅正确）：`ancient bronze sword, intricate cloud patterns on the blade, jade pommel, slightly worn edge showing age, resting on a wooden display stand`
+
+---
+
 ## 6. 连贯性追踪系统 (Continuity Tracking)
 
 ### 必须追踪的状态信息：
@@ -218,9 +239,9 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 - `sbid`：执行层分镜编号，如 `1-1`、`1-2`
 - `description`：对应来源的用户分镜描述内容，忠实保留原意
 - `originalText`：该 sbid 对应的剧本原文，一字不差地摘录
-- `characters`：角色列表，每个角色包含 `name` / `description` / `prompt`（英文生图提示词）
-- `scenes`：场景列表，包含 `name` / `description` / `time` / `weather` / `direction` / `prompt`
-- `items`：物品列表，每个物品包含 `name` / `description` / `prompt`
+- `characters`：角色列表，每个角色包含 `name` / `description` / `prompt`（英文生图提示词，**仅描述人物外观特征**，不含动作/姿态/场景/视角）
+- `scenes`：场景列表，包含 `name` / `description` / `time` / `weather` / `direction` / `prompt`（英文生图提示词，需**详细描述场景环境、建筑、氛围、光照**）
+- `items`：物品列表，每个物品包含 `name` / `description` / `prompt`（英文生图提示词，**仅描述物品形态/材质/颜色等物理属性**）
 - `fusionPrompt`：该 sbid 涉及的全部角色、场景、物品融合为一张完整的参考图片描述（英文生图提示词）
 - `animationPrompt`：一个15秒 sbid 对应的完整视频提示词，内部可包含多个切镜
 
@@ -234,14 +255,14 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
     "description": "苏墨在校门口遇见了一个老道",
     "originalText": "该sbid对应的剧本原文，一字不差地从剧本中摘录",
     "characters": [
-      { "name": "苏墨", "description": "18岁大学生，穿着干净白T恤和牛仔裤，背着双肩包，短发清爽", "prompt": "18-year-old Chinese male student, clean white t-shirt and jeans, short neat hair, backpack, youthful appearance, anime style" },
-      { "name": "雷老道", "description": "60岁老道士，破旧灰色道袍，树枝发髻，胡须凌乱，面容沧桑", "prompt": "60-year-old Chinese Taoist priest, worn gray robes, twig hairpin, messy beard, weathered face, mysterious aura, anime style" }
+      { "name": "苏墨", "description": "18岁大学生，穿着干净白T恤和牛仔裤，背着双肩包，短发清爽", "prompt": "18-year-old Chinese male, slender build, short neat black hair, clean white t-shirt, blue jeans, black nylon backpack, youthful appearance" },
+      { "name": "雷老道", "description": "60岁老道士，破旧灰色道袍，树枝发髻，胡须凌乱，面容沧桑", "prompt": "60-year-old Chinese man, weathered face, messy gray beard, rough gray Taoist robe, twig hairpin, deep-set eyes, mysterious aura" }
     ],
     "scenes": [
-      { "name": "学校门口", "description": "渝城大学正门，宏伟的石柱校门，学生人流穿梭", "time": "日", "weather": "晴", "direction": "北", "prompt": "grand university entrance gate, stone pillars, modern campus, sunny day, bustling with students, anime background style" }
+      { "name": "学校门口", "description": "渝城大学正门，宏伟的石柱校门，学生人流穿梭", "time": "日", "weather": "晴", "direction": "北", "prompt": "grand university entrance gate, tall stone pillars, modern campus architecture, bright sunny day with clear sky, warm natural lighting, wide establishing shot" }
     ],
     "items": [
-      { "name": "双肩包", "description": "黑色尼龙双肩包", "prompt": "black nylon backpack, simple design" }
+      { "name": "双肩包", "description": "黑色尼龙双肩包", "prompt": "black nylon backpack, simple minimalist design, two shoulder straps, medium size" }
     ],
     "fusionPrompt": "masterpiece, best quality, cinematic lighting, 4k, anime style. A grand university entrance with stone pillars on a sunny day. Young male student Su Mo, 18 years old, wearing clean white t-shirt and jeans with a black backpack, stands on the left side with a speechless expression. An old Taoist priest Lei Lao Dao, 60 years old, in worn gray robes with twig hairpin and messy beard, stands on the right side, leaning close to Su Mo and mysteriously pointing at his forehead. Wide shot, natural daylight, bustling background with students passing by. Character interaction emphasized, mysterious atmosphere.",
     "animationPrompt": "c01,2s,[空间:渝城大学正门][姿态:人群走动] 渝城大学宏伟的正门，牌匾特写，学生人流穿梭。 c02,5s,[空间:校门左侧][姿态:苏墨-背包站立不动] 苏墨穿着干净T恤，背着双肩包，站在原地一脸无语。 c03,4s,[空间:校门右侧][姿态:雷老道-站立] 雷老道穿着破旧道袍，树枝发髻，胡须凌乱，从脚往上摇镜展示形象。 c04,4s,[空间:两人相对][姿态:苏墨-站立不动，雷老道-凑近站立] 雷老道保持站立姿势凑近苏墨，神秘兮兮地指着苏墨的额头。"

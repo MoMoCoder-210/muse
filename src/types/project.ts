@@ -109,6 +109,22 @@ export type SplitClipResult = {
 
 /** @author yt @date 20260702 拆解类型 */
 
+export type AssetType = "character" | "scene" | "item";
+
+export type AssetResource = {
+  type: AssetType;
+  name: string;
+  description: string;
+  prompt: string;
+  tags?: string[];
+};
+
+export type ParsedAssets = {
+  characters: AssetResource[];
+  scenes: AssetResource[];
+  items: AssetResource[];
+};
+
 export type ClipScriptInfo = {
   id: string;
   clip_id: string;

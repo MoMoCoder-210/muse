@@ -143,32 +143,849 @@
   border-radius: 10px;
 }
 
-/* 资产卡片网格 */
+/* 资产工具栏 */
+.asset-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 8px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  flex-wrap: wrap;
+}
+
+.asset-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.asset-select-all input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 1.5px solid var(--border-base);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms ease, background 120ms ease;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.asset-select-all input[type="checkbox"]:hover {
+  border-color: var(--border-accent);
+}
+
+.asset-select-all input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.asset-select-all input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.asset-selected-count {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* 选中遮罩层 */
+.asset-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.12);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 生成参数弹窗 */
+.generate-asset-panel {
+  max-width: 460px;
+}
+
+/* ── 资产详情+生成抽屉 ── */
+
+/* 遮罩层 */
+.asset-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  background: var(--overlay-modal);
+}
+
+/* 抽屉面板：右侧悬浮，不挤压页面 */
+.asset-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 90vw);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface-deep);
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-modal);
+  animation: asset-drawer-slide-in 260ms cubic-bezier(0.25, 0, 0.25, 1);
+}
+
+@keyframes asset-drawer-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* 头部 */
+.asset-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+  border-bottom: 1px solid var(--border-faint);
+  position: relative;
+}
+
+.asset-drawer-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+/* 左右切换按钮 */
+.asset-drawer-nav-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.asset-drawer-nav-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-base);
+}
+
+/* 批量计数 */
+.asset-drawer-counter {
+  padding: 0 var(--spacing-lg) var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.asset-drawer-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  line-height: var(--line-height-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 滚动内容区 */
+.asset-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-base) transparent;
+}
+
+.asset-drawer-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.asset-drawer-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.asset-drawer-body::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: var(--radius-full);
+}
+
+.asset-drawer-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* 分隔线 */
+.asset-drawer-divider {
+  height: 1px;
+  background: var(--border-faint);
+  margin: var(--spacing-xs) 0;
+}
+
+/* 区块标题 */
+.asset-drawer-section-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+/* 底部操作栏 */
+.asset-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--border-faint);
+}
+
+.asset-drawer-footer .primary-button {
+  flex: 1;
+}
+
+.generate-asset-panel .modal-header h2,
+.asset-detail-panel .modal-header h2 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.generate-asset-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.generate-asset-form .segmented button {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: var(--font-size-sm);
+}
+
+/* 添加资产按钮 */
+.asset-add-btn {
+  margin-left: auto;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+}
+
+/* 生成参数表单 */
+.generate-asset-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.generate-asset-form .field span {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.generate-asset-form .segmented button {
+  font-size: var(--font-size-sm);
+}
+
+/* 添加资产弹窗 */
+.add-asset-panel {
+  max-width: 460px;
+}
+
+.add-asset-panel .modal-header h2 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.add-asset-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.add-asset-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.add-asset-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.add-asset-required {
+  color: var(--color-danger);
+  margin-left: 2px;
+}
+
+.add-asset-field input,
+.add-asset-field textarea {
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.add-asset-field input:focus,
+.add-asset-field textarea:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.add-asset-field textarea {
+  min-height: 60px;
+  resize: vertical;
+  line-height: var(--line-height-base);
+}
+
+/* 资产详情弹窗 */
+.asset-detail-panel {
+  max-width: 480px;
+}
+
+/* 详情头部：标题 + 类型标签 */
+.asset-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  position: relative;
+}
+
+.asset-detail-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  line-height: var(--line-height-tight);
+}
+
+.asset-detail-type-tag {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 详情图片预览 */
+.asset-detail-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: min(280px, 40vh);
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--chip-bg) 0%, var(--bg-canvas) 100%);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--spacing-lg);
+  overflow: hidden;
+}
+
+.asset-detail-placeholder {
+  font-size: 64px;
+  opacity: 0.35;
+  filter: grayscale(0.3);
+}
+
+/* 图片展示 */
+.asset-detail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 状态提示 */
+.asset-detail-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.asset-detail-status .spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-base);
+  border-top-color: var(--border-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.asset-detail-status--failed {
+  color: var(--color-danger);
+}
+
+.asset-detail-image--loading {
+  background: linear-gradient(135deg, var(--chip-bg) 0%, var(--bg-canvas) 100%);
+  animation: pulse-bg 2s ease-in-out infinite;
+}
+
+@keyframes pulse-bg {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ── 资产图片预览组件（大厂风格） ── */
+
+.asset-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* 主图区 */
+.asset-gallery-main {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: min(280px, 40vh);
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--chip-bg) 0%, var(--bg-canvas) 100%);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-gallery--loading .asset-gallery-main {
+  animation: pulse-bg 2s ease-in-out infinite;
+}
+
+.asset-gallery-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+}
+
+.asset-gallery-placeholder {
+  font-size: 64px;
+  opacity: 0.35;
+  filter: grayscale(0.3);
+}
+
+/* 状态提示（gallery 版） */
+.asset-gallery-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.asset-gallery-status .spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-base);
+  border-top-color: var(--border-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.asset-gallery-status--failed {
+  color: var(--color-danger);
+}
+
+.asset-gallery-status-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.asset-gallery-retry {
+  margin-top: var(--spacing-xs);
+  padding: 4px 12px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.asset-gallery-retry:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 已选定徽章 */
+.asset-gallery-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* 左右切换 */
+.asset-gallery-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 120ms ease, color 120ms ease;
+  z-index: 2;
+}
+
+.asset-gallery-nav:hover {
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+
+.asset-gallery-nav--prev { left: 6px; }
+.asset-gallery-nav--next { right: 6px; }
+
+/* 计数器 */
+.asset-gallery-counter {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  z-index: 2;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+/* 缩略图条 */
+.asset-gallery-thumbs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+
+.asset-gallery-thumbs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.asset-gallery-thumbs::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: 2px;
+}
+
+.asset-gallery-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--bg-canvas);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.asset-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.asset-gallery-thumb:hover {
+  transform: translateY(-1px);
+}
+
+.asset-gallery-thumb--active {
+  border-color: var(--border-accent);
+}
+
+.asset-gallery-thumb--selected {
+  border-color: var(--accent-primary);
+}
+
+/* 缩略图选中标记 */
+.asset-gallery-thumb-check {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-gallery-thumb-check::after {
+  content: "";
+  width: 4px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+/* 底部操作行 */
+.asset-gallery-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: var(--spacing-xs);
+  padding-bottom: var(--spacing-xs);
+}
+
+.asset-gallery-action .primary-button {
+  width: 100%;
+}
+
+.asset-gallery-local {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--spacing-xs);
+}
+
+.asset-gallery-local .primary-button {
+  width: 100%;
+}
+
+.asset-gallery-action--info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-selected);
+  color: var(--accent-primary);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+/* 删除图片按钮 */
+.asset-gallery-delete {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--bg-surface-modal);
+  color: var(--text-muted);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.asset-gallery-delete:hover {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+  border-color: var(--danger-color);
+}
+
+/* 生成中角标（叠加在已有图片上） */
+.asset-gallery-generating {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--color-white);
+  font-size: var(--font-size-xs);
+  z-index: 2;
+  backdrop-filter: blur(4px);
+}
+
+.asset-gallery-generating .spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: var(--color-white);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 详情只读内容：与添加资产表单同风格，但不可编辑 */
+.add-asset-readonly {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+  padding: 12px 14px;
+  border: 1px solid var(--border-faint);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  min-height: 42px;
+}
+
+.add-asset-prompt {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 卡片操作按钮：浮于图片区上 */
+.asset-card-actions {
+  position: absolute;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+/* 删除按钮：图片右上角 */
+.asset-card-actions--delete {
+  top: 8px;
+  right: 8px;
+  transform: translateY(-4px);
+}
+
+.asset-card:hover .asset-card-actions {
+  opacity: 1;
+}
+
+.asset-card:hover .asset-card-actions--delete {
+  transform: translateY(0);
+}
+
+.asset-card-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  background: var(--bg-surface-modal);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  font-size: var(--font-size-xs);
+  backdrop-filter: blur(8px);
+}
+
+.asset-card-btn:hover {
+  border-color: var(--border-base);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.asset-card-btn--delete:hover {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+}
+
 .asset-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(173px, 1fr));
   gap: var(--spacing-md);
 }
 
 .asset-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-faint);
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-surface-deep);
-  transition: border-color 120ms ease;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 160ms ease;
 }
-
 .asset-card:hover {
   border-color: var(--border-base);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.asset-card--selected {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 1px var(--border-accent), 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+.asset-card--selected:hover {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 1px var(--border-accent), 0 4px 18px rgba(0, 0, 0, 0.12);
 }
 
 /* 图片框占位 */
 .asset-card-frame {
+  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: var(--bg-canvas);
+  background: linear-gradient(135deg, var(--chip-bg) 0%, var(--bg-canvas) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -176,8 +993,15 @@
 }
 
 .asset-card-placeholder {
-  width: 100%;
-  height: 100%;
+  font-size: 36px;
+  opacity: 0.35;
+  filter: grayscale(0.3);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.asset-card:hover .asset-card-placeholder {
+  opacity: 0.5;
+  transform: scale(1.05);
 }
 
 /* 资产信息 */
@@ -205,4 +1029,47 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 资产卡片已绑定图片缩略图 */
+.asset-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+}
+
+/* ── 缩略图条任务状态标记 ── */
+.asset-gallery-thumb-status {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-gallery-thumb-status--pending {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+}
+
+.asset-gallery-thumb-status--pending .spinner,
+.asset-gallery-thumb-status--running .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-base);
+  border-top-color: var(--border-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.asset-gallery-thumb-status--failed {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.asset-gallery-thumb--error {
+  border-color: var(--danger-color);
 }

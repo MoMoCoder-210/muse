@@ -406,7 +406,7 @@ export class TaskRunner {
           ).run(task.id);
         } else {
           // 无 handler → 真正的远端任务，保持 waiting_remote，等待外部恢复
-          log("任务调度", "DEBUG", `远端任务 ${task.id} 类型 ${taskType} 仍在等待远端结果`);
+          log("任务调度", "INFO", `远端任务 ${task.id} 类型 ${taskType} 仍在等待远端结果`);
         }
       } catch (err) {
         log("任务调度", "ERROR", `查询远端任务 ${task.id} 失败：${err instanceof Error ? err.message : String(err)}`);

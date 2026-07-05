@@ -1,8 +1,8 @@
 /**
- * 文本模型客户端（豆包 Chat Completions）
+ * 文本模型客户端
  *
- * 火山方舟完全兼容 OpenAI Chat Completions API，直接用 openai SDK。
- * base_url 指向方舟端点，model 填方舟的模型接入点 ID。
+ * 兼容 OpenAI Chat Completions API，直接用 openai SDK。
+ * base_url 指向 OpenAI 兼容端点，model 填对应模型 ID。
  *
  * 支持：
  *   - 普通对话（单轮 / 多轮）

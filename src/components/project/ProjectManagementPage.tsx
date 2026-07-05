@@ -19,11 +19,12 @@ type ProjectManagementPageProps = {
  * @author yt @date 20260702
  */
 export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManagementPageProps) {
-  const { projects, loading, load } = useProjects();
+  const { projects, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectInfo | null>(null);
   const [projectOverrides, setProjectOverrides] = useState<Record<string, ProjectInfo>>({});
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     load();
@@ -64,23 +65,44 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
   }, [selectedProjectId, load]);
 
   return (
-    <section className="projects-screen">
-      <ProjectSidebar
-        projects={projects}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={(id) => {
-          setSelectedProjectId(id);
-          setProjectOverrides((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-        }}
-        onCreateProject={() => setModalOpen(true)}
-        onDeleteProject={(project) => setDeleteTarget(project)}
-        onGoHome={onGoHome}
-        onOpenSettings={onOpenSettings}
-      />
+    <section className={`projects-screen${sidebarOpen ? " projects-screen--sidebar-open" : ""}`}>
+      <div className={`sidebar-drawer${sidebarOpen ? " sidebar-drawer--open" : ""}`}>
+        <ProjectSidebar
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={(id) => {
+            setSelectedProjectId(id);
+            setProjectOverrides((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          }}
+          onCreateProject={() => setModalOpen(true)}
+          onDeleteProject={(project) => setDeleteTarget(project)}
+          onGoHome={onGoHome}
+          onOpenSettings={onOpenSettings}
+        />
+
+        {/* 切换按钮：紧贴侧边栏右边缘 */}
+        <button
+          type="button"
+          className="sidebar-toggle-btn sidebar-toggle-btn--edge"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={sidebarOpen ? "收起项目列表" : "展开项目列表"}
+          title={sidebarOpen ? "收起项目列表" : "展开项目列表"}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d={sidebarOpen ? "M10 4L6 8L10 12" : "M6 4L10 8L6 12"}
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
 
       <main className="project-workspace">
         <ProjectWorkspace

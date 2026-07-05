@@ -7,29 +7,31 @@ use serde_json::{Map, Value};
 
 /// 返回默认设置 JSON，包含 text / image / voice 三个大模型的默认配置。
 ///
+/// baseUrl 和 model 默认为空，用户需在设置页填入 OpenAI 兼容端点信息。
+///
 /// @author yt @date 20260703
 pub(crate) fn default_settings_json() -> Value {
     serde_json::json!({
         "text": {
             "apiKey": "",
-            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-            "model": "doubao-pro-32k-241215",
-            "maxTokens": 4096,
+            "baseUrl": "",
+            "model": "",
+            "maxTokens": 131072,
             "temperature": 0.7,
-            "timeoutMs": 60000
+            "timeoutMs": 300000
         },
         "image": {
             "apiKey": "",
-            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-            "model": "doubao-seedream-4-5-251128",
-            "timeoutMs": 120000
+            "baseUrl": "",
+            "model": "",
+            "timeoutMs": 300000
         },
         "voice": {
             "apiKey": "",
-            "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-            "model": "doubao-tts",
+            "baseUrl": "",
+            "model": "",
             "speed": 1.0,
-            "timeoutMs": 60000
+            "timeoutMs": 300000
         }
     })
 }
@@ -45,14 +47,11 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
             source.and_then(|obj| obj.get("text")),
             &[
                 ("apiKey", Value::String(String::new())),
-                (
-                    "baseUrl",
-                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
-                ),
-                ("model", Value::String("doubao-pro-32k-241215".to_string())),
-                ("maxTokens", Value::from(4096)),
+                ("baseUrl", Value::String(String::new())),
+                ("model", Value::String(String::new())),
+                ("maxTokens", Value::from(131072)),
                 ("temperature", Value::from(0.7)),
-                ("timeoutMs", Value::from(60000)),
+                ("timeoutMs", Value::from(300000)),
             ],
         ),
     );
@@ -63,15 +62,9 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
             source.and_then(|obj| obj.get("image")),
             &[
                 ("apiKey", Value::String(String::new())),
-                (
-                    "baseUrl",
-                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
-                ),
-                (
-                    "model",
-                    Value::String("doubao-seedream-4-5-251128".to_string()),
-                ),
-                ("timeoutMs", Value::from(120000)),
+                ("baseUrl", Value::String(String::new())),
+                ("model", Value::String(String::new())),
+                ("timeoutMs", Value::from(300000)),
             ],
         ),
     );
@@ -82,13 +75,10 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
             source.and_then(|obj| obj.get("voice")),
             &[
                 ("apiKey", Value::String(String::new())),
-                (
-                    "baseUrl",
-                    Value::String("https://ark.cn-beijing.volces.com/api/v3".to_string()),
-                ),
-                ("model", Value::String("doubao-tts".to_string())),
+                ("baseUrl", Value::String(String::new())),
+                ("model", Value::String(String::new())),
                 ("speed", Value::from(1.0)),
-                ("timeoutMs", Value::from(60000)),
+                ("timeoutMs", Value::from(300000)),
             ],
         ),
     );

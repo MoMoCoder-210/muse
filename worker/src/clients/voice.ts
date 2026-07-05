@@ -1,7 +1,7 @@
 /**
- * 语音模型客户端（豆包 TTS）
+ * 语音模型客户端
  *
- * 火山方舟 TTS 兼容 OpenAI Audio Speech API（client.audio.speech.create）。
+ * 兼容 OpenAI Audio Speech API（client.audio.speech.create）。
  * 输出格式默认 mp3，返回二进制流，直接写入本地文件。
  *
  * @author yt @date 20260702

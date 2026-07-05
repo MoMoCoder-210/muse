@@ -283,6 +283,27 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
             rusqlite::params![id],
         )
         .map_err(|e| e.to_string())?;
+
+        // 删除关联资产的生成图片记录（不删除文件）
+        tx.execute(
+            "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 删除关联资产
+        tx.execute(
+            "DELETE FROM assets WHERE clip_id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 取消该片段下所有 pending/running 资产生图任务
+        tx.execute(
+            "DELETE FROM tasks WHERE clip_id = ?1 AND type = 'generate_asset_image' AND status IN ('pending', 'running')",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -450,6 +471,40 @@ pub fn update_clip(
     }
 
     Ok(clip)
+}
+
+/// 删除资产输入
+#[derive(Debug, Deserialize)]
+pub struct DeleteAssetsInput {
+    pub asset_ids: Vec<String>,
+}
+
+/// 删除资产
+#[tauri::command]
+pub fn delete_assets(
+    input: DeleteAssetsInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    for asset_id in &input.asset_ids {
+        conn.execute(
+            "DELETE FROM assets WHERE id = ?1",
+            rusqlite::params![asset_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    crate::project_log::append_log(
+        &log_path,
+        "资产",
+        "INFO",
+        &format!("已删除 {} 个资产", input.asset_ids.len()),
+    );
+
+    Ok(())
 }
 
 /// 在指定位置拆分片段

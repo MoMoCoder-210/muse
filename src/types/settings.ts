@@ -31,23 +31,23 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   text: {
     apiKey: "",
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    model: "doubao-pro-32k-241215",
-    maxTokens: 4096,
+    baseUrl: "",
+    model: "",
+    maxTokens: 131072,
     temperature: 0.7,
-    timeoutMs: 60000,
+    timeoutMs: 300000,
   },
   image: {
     apiKey: "",
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    model: "doubao-seedream-4-5-251128",
-    timeoutMs: 120000,
+    baseUrl: "",
+    model: "",
+    timeoutMs: 300000,
   },
   voice: {
     apiKey: "",
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    model: "doubao-tts",
+    baseUrl: "",
+    model: "",
     speed: 1.0,
-    timeoutMs: 60000,
+    timeoutMs: 300000,
   },
 };

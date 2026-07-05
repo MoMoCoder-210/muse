@@ -20,6 +20,7 @@ import { PROTOCOL_VERSION } from "./types.js";
 import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
 import { splitScriptHandler } from "./handlers/split-script.js";
 import { generateClipScriptHandler } from "./handlers/generate-clip-script.js";
+import { generateAssetImageHandler } from "./handlers/generate-asset-image.js";
 import { SettingsManager } from "./config/settings.js";
 import { createClients } from "./clients/index.js";
 import type { ApiClients } from "./clients/index.js";
@@ -249,7 +250,8 @@ async function main(): Promise<void> {
     // 注册任务处理器
     taskRunner.registerHandler("split_script", splitScriptHandler);
     taskRunner.registerHandler("generate_clip_script", generateClipScriptHandler);
-    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script");
+    taskRunner.registerHandler("generate_asset_image", generateAssetImageHandler);
+    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script, generate_asset_image");
 
     sendLog("info", `数据库初始化完成：${shortDb}`);
   } else {

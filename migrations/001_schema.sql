@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS assets (
     reference_image_path       TEXT,
     generated_image_path       TEXT,
     generated_image_thumb_path TEXT,
+    selected_image_id          TEXT,
     -- model | manual | imported
     source                     TEXT NOT NULL DEFAULT 'model',
     -- draft | confirmed | image_pending | image_ready | failed
@@ -147,6 +148,36 @@ CREATE INDEX IF NOT EXISTS idx_assets_project_type_name
 
 CREATE INDEX IF NOT EXISTS idx_assets_clip
     ON assets(clip_id);
+
+
+-- ============================================================================
+-- 5.1 asset_images — 资产生成图片（一个资产可生成多张）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS asset_images (
+    id              TEXT PRIMARY KEY,
+    asset_id        TEXT NOT NULL REFERENCES assets(id),
+    -- 生成参数快照
+    prompt          TEXT NOT NULL,
+    size            TEXT,
+    style           TEXT,
+    -- 图片文件路径
+    image_path      TEXT NOT NULL,
+    thumb_path      TEXT,
+    -- 是否被选中为资产的最终图片
+    is_selected     INTEGER NOT NULL DEFAULT 0,
+    -- generation | manual | imported
+    source          TEXT NOT NULL DEFAULT 'generation',
+    task_id         TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_images_asset
+    ON asset_images(asset_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_images_selected
+    ON asset_images(asset_id, is_selected)
+    WHERE is_selected = 1;
 
 
 -- ============================================================================
