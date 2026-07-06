@@ -133,42 +133,99 @@
   white-space: nowrap;
 }
 
-/* 自定义 checkbox（列表项 + 全选，暗色主题 accent 配色） */
-.clip-item-header input[type="checkbox"],
+/* 全选 checkbox：更大更醒目，带 hover 光晕 */
+.clip-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 4px 10px 4px 6px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-md);
+  transition: background 140ms ease;
+}
+
+.clip-select-all:hover {
+  background: var(--bg-hover-subtle);
+}
+
 .clip-select-all input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  border: 1.5px solid var(--border-base);
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border: 2px solid var(--border-base);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background: var(--bg-hover-subtle);
   cursor: pointer;
   position: relative;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
   flex-shrink: 0;
+  margin: 0;
 }
 
-.clip-item-header input[type="checkbox"]:hover,
 .clip-select-all input[type="checkbox"]:hover {
-  border-color: var(--border-accent);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
-.clip-item-header input[type="checkbox"]:checked,
 .clip-select-all input[type="checkbox"]:checked {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 24%, transparent);
 }
 
-.clip-item-header input[type="checkbox"]:checked::after,
 .clip-select-all input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 5px;
+  top: 3px;
+  left: 6px;
   width: 5px;
-  height: 9px;
+  height: 10px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* 片段列表项 checkbox */
+.clip-item-header input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border: 2px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover-subtle);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.clip-item-header input[type="checkbox"]:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.clip-item-header input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 24%, transparent);
+}
+
+.clip-item-header input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  width: 5px;
+  height: 10px;
   border: solid var(--color-white);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
