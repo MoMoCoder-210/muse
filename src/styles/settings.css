@@ -9,7 +9,7 @@
   grid-template-rows: auto 1fr auto;
   width: min(1040px, 100%);
   max-height: calc(100vh - 40px);
-  border-radius: 22px;
+  border-radius: var(--radius-2xl);
   padding: 0;
   overflow: hidden;
 }
@@ -19,7 +19,10 @@
 }
 
 .settings-header {
+  display: flex;
+  align-items: center;
   margin: 0;
+  min-height: 68px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--border-faint);
   background: transparent;
@@ -33,7 +36,7 @@
   min-width: 32px;
   min-height: 32px;
   font-size: var(--font-size-icon);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-header h2.settings-title {
@@ -82,7 +85,7 @@
   width: 100%;
   padding: 12px 14px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
@@ -172,7 +175,7 @@
   gap: 18px;
   padding: 18px;
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
 }
 
@@ -217,7 +220,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
-  padding: 16px 22px;
+  padding: 12px 22px;
   border-top: 1px solid var(--border-faint);
 }
 

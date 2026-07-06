@@ -9,7 +9,7 @@
   min-height: 0;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
 }
 
@@ -142,7 +142,7 @@
   height: 18px;
   min-width: 18px;
   border: 1.5px solid var(--border-base);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   position: relative;
@@ -182,7 +182,7 @@
   width: 22px;
   height: 22px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-sm);
@@ -253,7 +253,7 @@
   overflow-y: auto;
   padding: var(--spacing-md);
   background: var(--bg-canvas);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 /* ── 片段选择/工具栏/标题编辑/拆分（模块 02 第 9 节） ──────── */
@@ -271,7 +271,7 @@
   max-width: 260px;
   min-width: 80px;
   border: 1px solid var(--focus-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-base);
@@ -387,7 +387,7 @@
   min-height: 0;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
 }
 
@@ -406,7 +406,7 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 120ms ease;
   border: 1px solid var(--border-faint);

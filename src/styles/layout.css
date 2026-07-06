@@ -36,7 +36,7 @@
   width: min(540px, 100%);
   text-align: center;
   padding: 42px 38px;
-  border-radius: 24px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border-base);
   background: var(--bg-surface);
   backdrop-filter: blur(20px);

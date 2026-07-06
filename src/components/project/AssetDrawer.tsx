@@ -80,6 +80,10 @@ type AssetDrawerProps = {
   onBatchGenerate?: (cards: AssetCardData[], params: GenerateParams) => void;
   /** 选择本地图片 */
   onSelectLocal?: (data: AssetCardData) => Promise<void>;
+  /** 绑定图片后通知外部刷新卡片列表 */
+  onImageSelected?: () => void;
+  /** 抽屉是否正在执行关闭动画 */
+  closing?: boolean;
   disabled?: boolean;
 };
 
@@ -91,7 +95,7 @@ type AssetDrawerProps = {
  *
  * @author yt @date 20260705
  */
-export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSelectLocal, disabled }: AssetDrawerProps) {
+export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSelectLocal, onImageSelected, closing, disabled }: AssetDrawerProps) {
   const { toast } = useToast();
   const [ratio, setRatio] = useState<AspectRatio>("16:9");
   const [tier, setTier] = useState<ResolutionTier>("2K");
@@ -194,10 +198,11 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
         image_id: imageId,
       });
       setGalleryImages((prev) => prev.map((img) => ({ ...img, is_selected: img.id === imageId })));
+      onImageSelected?.();
     } catch {
       toast("绑定图片失败，请重试", "error");
     }
-  }, [current, toast]);
+  }, [current, toast, onImageSelected]);
 
   // 删除图片
   const handleDeleteImage = useCallback(async (imageId: string, deleteFile: boolean) => {
@@ -224,37 +229,15 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
   return (
     <>
       {/* 遮罩层 */}
-      <div className="asset-drawer-backdrop" onClick={onClose} />
+      <div className={`asset-drawer-backdrop${closing ? " asset-drawer-backdrop--closing" : ""}`} onClick={onClose} />
 
       {/* 抽屉面板 */}
-      <aside className="asset-drawer" onClick={(e) => e.stopPropagation()}>
+      <aside className={`asset-drawer${closing ? " asset-drawer--closing" : ""}`} onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div className="asset-drawer-header">
           <div className="asset-drawer-title-row">
-            {isBatch && (
-              <button
-                type="button"
-                className="asset-drawer-nav-btn"
-                onClick={goPrev}
-                disabled={disabled}
-                aria-label="上一个"
-              >
-                ‹
-              </button>
-            )}
             <h2 className="asset-drawer-title">{resource.name}</h2>
             <span className="asset-detail-type-tag">{typeLabel}</span>
-            {isBatch && (
-              <button
-                type="button"
-                className="asset-drawer-nav-btn"
-                onClick={goNext}
-                disabled={disabled}
-                aria-label="下一个"
-              >
-                ›
-              </button>
-            )}
           </div>
           <button
             type="button"
@@ -266,10 +249,44 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
           </button>
         </div>
 
-        {/* 批量模式计数 */}
+        {/* 批量模式导航条：独立一行，大厂 pagination 风格 */}
         {isBatch && (
-          <div className="asset-drawer-counter">
-            {currentIndex + 1} / {cards.length}
+          <div className="asset-drawer-nav-strip">
+            <button
+              type="button"
+              className="asset-drawer-nav-pill"
+              onClick={goPrev}
+              disabled={disabled || currentIndex === 0}
+              aria-label="上一个"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            <div className="asset-drawer-nav-progress">
+              {cards.map((_c, i) => (
+                <span
+                  key={i}
+                  className={`asset-drawer-nav-dot${i === currentIndex ? " asset-drawer-nav-dot--active" : ""}`}
+                />
+              ))}
+              <span className="asset-drawer-nav-count">
+                {currentIndex + 1} / {cards.length}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className="asset-drawer-nav-pill"
+              onClick={goNext}
+              disabled={disabled || currentIndex >= cards.length - 1}
+              aria-label="下一个"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M6 3L10 8L6 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
         )}
 

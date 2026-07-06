@@ -105,7 +105,7 @@ pub fn create_project(...) -> ... { }
 | 类别 | 可用变量 |
 |------|---------|
 | 颜色 | `--text-*`、`--bg-*`、`--border-*`、`--accent-*` |
-| 圆角 | `--radius-sm/md/lg/xl/2xl/full`（4→999px） |
+| 圆角 | `--radius-sm/md/lg/xl/2xl/full`（4/6/8/10/12/999px） |
 | 间距 | `--spacing-xs/sm/md/lg/xl/2xl/3xl`（4→32px） |
 | 字体 | `--font-size-xs/sm/base/lg/xl/section` |
 

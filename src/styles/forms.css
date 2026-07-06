@@ -18,7 +18,7 @@
 .field textarea {
   width: 100%;
   border: 1px solid var(--border-base);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-control);
@@ -80,7 +80,7 @@
   gap: var(--spacing-md);
   padding: 12px 14px;
   border: 1px solid var(--border-base);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-control);
@@ -172,7 +172,7 @@
   min-height: 30px;
   padding: 6px 16px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-sm);

@@ -17,6 +17,8 @@ type AssetCardProps = {
   selected: boolean;
   /** 当前资产绑定的图片路径（为空时显示占位 icon） */
   selectedImagePath?: string | null;
+  /** 图片 URL 缓存破坏参数（路径不变但文件内容被替换时需要） */
+  renderKey?: number;
   onToggle: (id: AssetCardId) => void;
   onDelete: (data: AssetCardData) => void;
   onDetail: (data: AssetCardData) => void;
@@ -37,6 +39,7 @@ export function AssetCard({
   icon,
   selected,
   selectedImagePath,
+  renderKey = 0,
   onToggle,
   onDelete,
   onDetail,
@@ -56,7 +59,7 @@ export function AssetCard({
         {selectedImagePath ? (
           <img
             className="asset-card-img"
-            src={convertFileSrc(selectedImagePath)}
+            src={`${convertFileSrc(selectedImagePath)}?r=${renderKey}`}
             alt={resource.name}
             draggable={false}
           />

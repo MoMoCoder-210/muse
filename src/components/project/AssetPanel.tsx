@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from "../../types/project";
 import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, importLocalAssetImage } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
@@ -47,9 +47,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [deleteTarget, setDeleteTarget] = useState<AssetCardData[] | null>(null);
   const [addAssetOpen, setAddAssetOpen] = useState<AssetType | null>(null);
   const [drawerTarget, setDrawerTarget] = useState<AssetCardData[] | null>(null);
+  const [drawerClosing, setDrawerClosing] = useState(false);
 
   // 卡片绑定图片路径映射：key = `${type}:${name}`
   const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
+
+  // 强制卡片重渲染 key（图片绑定路径不变但文件内容被替换，需重建 DOM 绕过浏览器缓存）
+  const [cardRenderKey, setCardRenderKey] = useState(0);
 
   // 加载片段和拆解数据
   const load = useCallback(async () => {
@@ -250,6 +254,28 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [toast]);
 
+  // 抽屉内确认绑定图片后强制卡片 DOM 重建（路径不变但文件被替换，需绕过浏览器 img 缓存）
+  const handleImageSelected = useCallback(() => {
+    setCardRenderKey((k) => k + 1);
+  }, []);
+
+  // 抽屉关闭：先播退出动画再移除 DOM
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleCloseDrawer = useCallback(() => {
+    setDrawerClosing(true);
+    closeTimerRef.current = setTimeout(() => {
+      setDrawerTarget(null);
+      setDrawerClosing(false);
+    }, 260);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
   // 点击删除 → 弹出确认弹窗
   const handleDeleteClick = useCallback((cards: AssetCardData[]) => {
     if (cards.length === 0) return;
@@ -407,11 +433,12 @@ export function AssetPanel({ project }: AssetPanelProps) {
                     <div className="asset-card-grid">
                       {buildAssetCards(selectedClipId, cat.type, resources).map((card) => (
                         <AssetCard
-                          key={card.id}
+                          key={`${card.id}-r${cardRenderKey}`}
                           data={card}
                           icon={cat.icon}
                           selected={selectedAssetIds.has(card.id)}
                           selectedImagePath={selectedImageMap[`${card.type}:${card.resource.name}`] ?? null}
+                          renderKey={cardRenderKey}
                           onToggle={toggleSelect}
                           onDelete={(data) => handleDeleteClick([data])}
                           onDetail={(data) => handleOpenDrawer(data)}
@@ -451,10 +478,12 @@ export function AssetPanel({ project }: AssetPanelProps) {
       {drawerTarget ? (
         <AssetDrawer
           cards={drawerTarget}
-          onClose={() => setDrawerTarget(null)}
+          closing={drawerClosing}
+          onClose={handleCloseDrawer}
           onGenerate={handleDrawerGenerate}
           onBatchGenerate={handleDrawerBatchGenerate}
           onSelectLocal={handleSelectLocalImage}
+          onImageSelected={handleImageSelected}
           disabled={operating}
         />
       ) : null}

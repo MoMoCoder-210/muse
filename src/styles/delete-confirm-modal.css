@@ -35,7 +35,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
   border: 1px solid var(--border-faint);
   cursor: pointer;
@@ -55,7 +55,7 @@
   height: 18px;
   min-width: 18px;
   border: 1.5px solid var(--border-base);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   position: relative;

@@ -53,7 +53,7 @@
   display: grid;
   gap: var(--spacing-sm);
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
 }
 

@@ -14,7 +14,7 @@
   width: min(720px, 100%);
   padding: 22px;
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
   box-shadow: var(--shadow-modal);
 }
