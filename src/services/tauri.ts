@@ -232,6 +232,19 @@ export async function addAssetToClip(input: {
 }
 
 /**
+ * 更新资产的提示词与描述（按 clip_id + type + name 匹配）。
+ */
+export async function updateAssetInClip(input: {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  description: string;
+  prompt: string;
+}): Promise<void> {
+  return invoke<void>("update_asset_in_clip", { input });
+}
+
+/**
  * 获取资产图片信息
  *
  * @author yt @date 20260705
@@ -260,6 +273,15 @@ export async function batchGetAssetSelectedImages(input: {
   clip_id: string;
 }): Promise<{ asset_type: string; name: string; selected_image_path: string | null }[]> {
   return invoke("batch_get_asset_selected_images", { input });
+}
+
+/**
+ * 查询片段下正在生成图片的资产（实时展示「生成中」角标用）。
+ */
+export async function batchGetAssetGenerating(input: {
+  clip_id: string;
+}): Promise<{ asset_type: string; name: string }[]> {
+  return invoke("batch_get_asset_generating", { input });
 }
 
 /**

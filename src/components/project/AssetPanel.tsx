@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from "../../types/project";
-import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, importLocalAssetImage, copyAssetImageFrom } from "../../services/tauri";
+import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, batchGetAssetGenerating, importLocalAssetImage, copyAssetImageFrom } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
@@ -8,7 +8,16 @@ import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
 import { AddAssetModal, type AddAssetInput } from "./AddAssetModal";
 import { AssetDrawer, type GenerateParams } from "./AssetDrawer";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_VALUE_MAP, type StyleMode } from "../../config/muse";
+
+/** Worker → 前端的资产生图进度事件 */
+type AssetImageProgressEvent = {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  status: "running" | "success" | "failed";
+};
 
 /** type → 属性名映射 */
 const TYPE_TO_KEY: Record<AssetType, keyof ParsedAssets> = {
@@ -53,8 +62,22 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 卡片绑定图片路径映射：key = `${type}:${name}`
   const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
 
+  // 正在生成图片的资产集合：key = `${type}:${name}`，实时轮询
+  const [generatingMap, setGeneratingMap] = useState<Record<string, boolean>>({});
+  const generatingRef = useRef<Record<string, boolean>>({});
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollingRef = useRef(false);
+
   // 强制卡片重渲染 key（图片绑定路径不变但文件内容被替换，需重建 DOM 绕过浏览器缓存）
   const [cardRenderKey, setCardRenderKey] = useState(0);
+
+  // 资产提示词/描述编辑覆盖（key = card.id，生成时使用最新值）
+  const [assetOverrides, setAssetOverrides] = useState<Record<string, { prompt: string; description: string }>>({});
+
+  // 切换片段时清空覆盖，避免不同片段同名资产复用过期 prompt
+  useEffect(() => {
+    setAssetOverrides({});
+  }, [selectedClipId]);
 
   // 加载片段和拆解数据
   const load = useCallback(async () => {
@@ -139,6 +162,34 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, []);
 
+  // 监听 Worker 实时推送的资产生图进度，替代纯轮询，实现即时状态更新
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    listen<AssetImageProgressEvent>("asset-image-progress", (e) => {
+      const { clip_id, asset_type, name, status } = e.payload;
+      if (clip_id !== selectedClipId) return;
+      const key = `${asset_type}:${name}`;
+      if (status === "running") {
+        setGeneratingMap((prev) => {
+          const next = { ...prev, [key]: true };
+          generatingRef.current = next;
+          return next;
+        });
+      } else {
+        // success / failed：任务结束，移出生成中集合并刷新缩略图
+        setGeneratingMap((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          generatingRef.current = next;
+          return next;
+        });
+        setCardRenderKey((k) => k + 1);
+        loadSelectedImages(clip_id);
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [selectedClipId, loadSelectedImages]);
+
   useEffect(() => {
     setSelectedAssetIds((prev) => {
       const next = new Set<AssetCardId>();
@@ -157,6 +208,63 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [drawerTarget, selectedClipId, loadSelectedImages]);
 
+  // 查询片段下「生成中」的资产集合；若检测到任务刚完成则刷新缩略图
+  const loadGenerating = useCallback(async (clipId: string) => {
+    if (!clipId) return;
+    try {
+      const items = await batchGetAssetGenerating({ clip_id: clipId });
+      const map: Record<string, boolean> = {};
+      for (const it of items) map[`${it.asset_type}:${it.name}`] = true;
+      const prev = generatingRef.current;
+      const completed = Object.keys(prev).some((k) => prev[k] && !map[k]);
+      generatingRef.current = map;
+      setGeneratingMap(map);
+      if (completed) {
+        setCardRenderKey((k) => k + 1);
+        loadSelectedImages(clipId);
+      }
+    } catch {
+      /* 轮询错误忽略 */
+    }
+  }, [loadSelectedImages]);
+
+  // 轮询控制：有生成中任务时每 2.5s 刷新，全部完成后自动停止
+  const stopPoll = useCallback(() => {
+    pollingRef.current = false;
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const startPoll = useCallback((clipId: string) => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    const loop = async () => {
+      if (!pollingRef.current) return;
+      await loadGenerating(clipId);
+      if (!pollingRef.current) return;
+      if (Object.keys(generatingRef.current).length > 0) {
+        pollRef.current = setTimeout(loop, 2500);
+      } else {
+        pollingRef.current = false;
+      }
+    };
+    loop();
+  }, [loadGenerating]);
+
+  // 切换片段时启动生成状态轮询；无选中片段则清空
+  useEffect(() => {
+    if (!selectedClipId) {
+      stopPoll();
+      generatingRef.current = {};
+      setGeneratingMap({});
+      return;
+    }
+    startPoll(selectedClipId);
+    return () => stopPoll();
+  }, [selectedClipId, startPoll, stopPoll]);
+
   // 点击卡片图片/生成按钮 → 打开抽屉（单个）
   const handleOpenDrawer = useCallback((data: AssetCardData) => {
     setDrawerTarget([data]);
@@ -173,17 +281,17 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
   // 构建最终生图 prompt（按资产类型拼系统指令）
   const buildImagePrompt = useCallback((card: AssetCardData, style: string): string => {
-    const appearance = card.resource.prompt;
+    const appearance = assetOverrides[card.id]?.prompt ?? card.resource.prompt;
     const styleValue = resolveStyle(style);
     if (card.type === "character") {
-      return `[风格:${styleValue}] Character design drawing, on a pure white background. On the left is a large facial and half-body close-up, while on the right are three full-body views (front, side, and back). ${appearance}`;
+      return `[风格:${styleValue}] 角色设定图，纯白背景。画面左侧为一张大幅的脸部与半身特写，右侧排布三个全身视图（正面、侧面、背面），三视图比例协调、姿态清晰。${appearance}`;
     }
     if (card.type === "item") {
-      return `[风格:${styleValue}] product photography, isolated object on white background, detailed texture. ${appearance}`;
+      return `[风格:${styleValue}] 产品摄影，主体独立置于纯白背景上，居中构图，无遮挡，展现清晰的材质与细节纹理，柔光均匀布光。${appearance}`;
     }
     // scene
-    return `[风格:${styleValue}] ${appearance}`;
-  }, [resolveStyle]);
+    return `[风格:${styleValue}] 场景概念图，注重空间层次与氛围营造，不能出现任何一个人物。${appearance}`;
+  }, [resolveStyle, assetOverrides]);
 
   // 抽屉内单个生成
   const handleDrawerGenerate = useCallback(async (data: AssetCardData, params: GenerateParams) => {
@@ -202,12 +310,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
         style: styleValue,
       });
       toast(`已为资产「${data.resource.name}」发起图片生成`, "success");
+      startPoll(selectedClipId ?? "");
     } catch (_err) {
       toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
     } finally {
       setOperating(false);
     }
-  }, [project.id, buildImagePrompt, resolveStyle, toast]);
+  }, [project.id, buildImagePrompt, resolveStyle, toast, selectedClipId, startPoll]);
 
   // 抽屉内批量生成
   const handleDrawerBatchGenerate = useCallback(async (cards: AssetCardData[], params: GenerateParams) => {
@@ -230,12 +339,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
         )
       );
       toast(`已为 ${cards.length} 个资产发起图片生成`, "success");
+      startPoll(selectedClipId ?? "");
     } catch (_err) {
       toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
     } finally {
       setOperating(false);
     }
-  }, [project.id, toast]);
+  }, [project.id, toast, selectedClipId, startPoll]);
 
   // 选择本地图片（返回 Promise 供抽屉刷新）
   const handleSelectLocalImage = useCallback(async (data: AssetCardData): Promise<void> => {
@@ -282,6 +392,38 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 抽屉内确认绑定图片后强制卡片 DOM 重建（路径不变但文件被替换，需绕过浏览器 img 缓存）
   const handleImageSelected = useCallback(() => {
     setCardRenderKey((k) => k + 1);
+  }, []);
+
+  // 抽屉内保存提示词/描述后：更新覆盖值，使生成使用最新 prompt
+  const handleAssetUpdated = useCallback((card: AssetCardData, patch: { prompt: string; description: string }) => {
+    setAssetOverrides((prev) => ({ ...prev, [card.id]: patch }));
+    // 同步底层数据源 clipScripts，使退出抽屉后重新打开卡片时展示最新 prompt/description
+    // （clipScripts 才是 allAssetCards 的真正来源；不更新则重新打开会读到编辑前的旧值）
+    setClipScripts((prev) =>
+      prev.map((cs) => {
+        if (cs.clip_id !== card.clipId || !cs.extracted_resources_json) return cs;
+        try {
+          const parsed = JSON.parse(cs.extracted_resources_json) as ParsedAssets;
+          const key = TYPE_TO_KEY[card.type];
+          const list = parsed[key] ?? [];
+          const updated = list.map((r) =>
+            r.name === card.resource.name
+              ? { ...r, prompt: patch.prompt, description: patch.description }
+              : r
+          );
+          return { ...cs, extracted_resources_json: JSON.stringify({ ...parsed, [key]: updated }) };
+        } catch {
+          return cs;
+        }
+      })
+    );
+    setDrawerTarget((prev) =>
+      prev?.map((c) =>
+        c.id === card.id
+          ? { ...c, resource: { ...c.resource, prompt: patch.prompt, description: patch.description } }
+          : c
+      ) ?? null
+    );
   }, []);
 
   // 抽屉关闭：先播退出动画再移除 DOM
@@ -463,6 +605,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                           icon={cat.icon}
                           selected={selectedAssetIds.has(card.id)}
                           selectedImagePath={selectedImageMap[`${card.type}:${card.resource.name}`] ?? null}
+                          generating={generatingMap[`${card.type}:${card.resource.name}`] ?? false}
                           renderKey={cardRenderKey}
                           onToggle={toggleSelect}
                           onDelete={(data) => handleDeleteClick([data])}
@@ -511,6 +654,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
           onSelectLocal={handleSelectLocalImage}
           onCopyFromProject={handleCopyFromProject}
           onImageSelected={handleImageSelected}
+          onAssetUpdated={handleAssetUpdated}
           disabled={operating}
         />
       ) : null}

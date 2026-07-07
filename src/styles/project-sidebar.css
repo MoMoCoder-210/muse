@@ -54,7 +54,7 @@
   right: 0;
   top: 50%;
   transform: translate(50%, -50%);
-  z-index: 11;
+  z-index: var(--z-dropdown);
   border: 0;
   border-radius: var(--radius-sm);
   width: 22px;

@@ -223,7 +223,7 @@
   position: absolute;
   inset: 0;
   background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.12);
-  z-index: 1;
+  z-index: var(--z-base);
   pointer-events: none;
 }
 
@@ -238,7 +238,7 @@
 .asset-drawer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 9;
+  z-index: var(--z-drawer-backdrop);
   background: var(--overlay-modal);
   animation: asset-drawer-fade-in 260ms cubic-bezier(0.25, 0, 0.25, 1);
 }
@@ -264,7 +264,7 @@
   right: 0;
   bottom: 0;
   width: min(420px, 90vw);
-  z-index: 13;
+  z-index: var(--z-drawer);
   display: flex;
   flex-direction: column;
   background: var(--bg-surface-deep);
@@ -742,7 +742,7 @@
   color: #fff;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  z-index: 2;
+  z-index: var(--z-badge);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
@@ -763,7 +763,7 @@
   cursor: pointer;
   backdrop-filter: blur(4px);
   transition: background 120ms ease, color 120ms ease;
-  z-index: 2;
+  z-index: var(--z-above);
 }
 
 .asset-gallery-nav:hover {
@@ -785,7 +785,7 @@
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   font-size: var(--font-size-xs);
-  z-index: 2;
+  z-index: var(--z-above);
   backdrop-filter: blur(4px);
   pointer-events: none;
 }
@@ -927,7 +927,7 @@
   color: var(--text-muted);
   cursor: pointer;
   backdrop-filter: blur(6px);
-  z-index: 2;
+  z-index: var(--z-above);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
@@ -951,7 +951,7 @@
   background: rgba(0, 0, 0, 0.6);
   color: var(--color-white);
   font-size: var(--font-size-xs);
-  z-index: 2;
+  z-index: var(--z-badge);
   backdrop-filter: blur(4px);
 }
 
@@ -986,7 +986,7 @@
 /* 卡片操作按钮：浮于图片区上 */
 .asset-card-actions {
   position: absolute;
-  z-index: 2;
+  z-index: var(--z-above);
   opacity: 0;
   transition: opacity 160ms ease, transform 160ms ease;
 }
@@ -1031,6 +1031,50 @@
 .asset-card-btn--delete:hover {
   background: var(--danger-bg);
   color: var(--danger-color);
+}
+
+/* 生成中状态角标：图片左上角，实时显示 */
+.asset-card-status {
+  position: absolute;
+  top: var(--spacing-sm);
+  left: var(--spacing-sm);
+  z-index: var(--z-badge);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px; /* 设计系统无 6px 档位，暂保留 */
+  padding: 3px var(--spacing-sm) 3px 7px; /* 3px/7px 无对应 token，保留 */
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  background: rgba(245, 158, 11, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.asset-card-status--generating {
+  animation: asset-card-pulse 1.4s ease-in-out infinite;
+}
+
+/* 旋转加载小圈 */
+.asset-card-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: asset-card-spin 0.7s linear infinite;
+}
+
+@keyframes asset-card-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes asset-card-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
 }
 
 .asset-card-grid {
@@ -1221,7 +1265,7 @@
   background: var(--overlay-modal);
   color: var(--color-white);
   font-size: var(--font-size-sm);
-  z-index: 3;
+  z-index: var(--z-badge);
 }
 
 .asset-gallery-upload-pending {
@@ -1246,7 +1290,7 @@
 .asset-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-lightbox);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1366,7 +1410,7 @@
 .asset-picker-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 11;
+  z-index: var(--z-picker-backdrop);
   background: var(--overlay-modal);
   animation: asset-picker-fade-in 260ms cubic-bezier(0.25, 0, 0.25, 1);
 }
@@ -1392,7 +1436,7 @@
   left: 0;
   bottom: 0;
   width: min(380px, 85vw);
-  z-index: 14;
+  z-index: var(--z-picker);
   display: flex;
   flex-direction: column;
   background: var(--bg-surface-deep);

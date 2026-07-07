@@ -581,6 +581,99 @@ pub fn delete_asset_from_clip(
     Ok(())
 }
 
+/// 更新 clip_scripts 中的单个资产（提示词/描述）。
+///
+/// 按 type + name 匹配并就地更新对应字段，再写回 extracted_resources_json。
+#[tauri::command]
+pub fn update_asset_in_clip(
+    input: UpdateAssetInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    let row = conn
+        .query_row(
+            "SELECT id, extracted_resources_json FROM clip_scripts WHERE clip_id = ?1 ORDER BY created_at DESC LIMIT 1",
+            rusqlite::params![&input.clip_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
+        )
+        .map_err(|e| format!("未找到该片段的拆解记录：{}", e))?;
+
+    let (script_id, resources_json) = row;
+
+    let mut parsed: serde_json::Value = if resources_json.is_empty() {
+        serde_json::json!({ "characters": [], "scenes": [], "items": [] })
+    } else {
+        serde_json::from_str(&resources_json).map_err(|e| format!("解析资源 JSON 失败：{}", e))?
+    };
+
+    let key = match input.asset_type.as_str() {
+        "character" => "characters",
+        "scene" => "scenes",
+        "item" => "items",
+        _ => return Err(format!("无效的资产类型：{}", input.asset_type)),
+    };
+
+    let mut found = false;
+    if let Some(arr) = parsed[key].as_array_mut() {
+        for item in arr.iter_mut() {
+            if item.get("name").and_then(|v| v.as_str()) == Some(input.name.as_str()) {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("prompt".to_string(), serde_json::Value::String(input.prompt.clone()));
+                    obj.insert("description".to_string(), serde_json::Value::String(input.description.clone()));
+                    found = true;
+                }
+                break;
+            }
+        }
+    }
+
+    if !found {
+        return Err(format!("未找到资产：{}/{}", input.asset_type, input.name));
+    }
+
+    let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
+
+    // 同步绑定层：assets 表的 prompt/description 仅首次生图时写入一次，编辑后不会自动更新，
+    // 会导致「从项目复制」选择器展示过期 prompt。按 clip_id + type + name 对齐更新。
+    conn.execute(
+        "UPDATE assets SET prompt = ?1, description = ?2
+         WHERE clip_id = ?3 AND type = ?4 AND name = ?5",
+        rusqlite::params![&input.prompt, &input.description, &input.clip_id, &input.asset_type, &input.name],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE clip_scripts SET extracted_resources_json = ?, updated_at = datetime('now') WHERE id = ?",
+        rusqlite::params![&updated_json, &script_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "资产",
+        "INFO",
+        &format!(
+            "已更新资产 clipId={} type={} name={}",
+            input.clip_id, input.asset_type, input.name
+        ),
+    );
+
+    Ok(())
+}
+
+/// 更新资产输入
+#[derive(Debug, Deserialize)]
+pub struct UpdateAssetInput {
+    pub clip_id: String,
+    pub asset_type: String,
+    pub name: String,
+    pub description: String,
+    pub prompt: String,
+}
+
 /// 查询资产图片信息
 #[derive(Debug, Serialize)]
 pub struct AssetImageInfo {
@@ -873,6 +966,72 @@ pub fn batch_get_asset_selected_images(
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+
+    Ok(items)
+}
+
+/// 查询片段下「正在生成图片」的资产
+///
+/// 返回所有存在 `generate_asset_image` 类型、且状态为 pending/running 任务的
+/// 资产（按 assetType + name 去重）。供资产列表实时展示「生成中」角标。
+#[derive(Debug, Deserialize)]
+pub struct BatchAssetGeneratingQuery {
+    pub clip_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GeneratingAssetItem {
+    pub asset_type: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn batch_get_asset_generating(
+    input: BatchAssetGeneratingQuery,
+    app: tauri::AppHandle,
+) -> Result<Vec<GeneratingAssetItem>, String> {
+    let conn = util::open_app_conn(&app)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT input_json FROM tasks
+             WHERE type = 'generate_asset_image'
+               AND clip_id = ?1
+               AND status IN ('pending', 'running')",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![&input.clip_id], |row| {
+            let raw: String = row.get(0)?;
+            Ok(raw)
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut seen = std::collections::HashSet::<(String, String)>::new();
+    let mut items = Vec::new();
+    for raw in rows {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+            let asset_type = val
+                .get("assetType")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = val
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if asset_type.is_empty() || name.is_empty() {
+                continue;
+            }
+            if seen.insert((asset_type.clone(), name.clone())) {
+                items.push(GeneratingAssetItem { asset_type, name });
+            }
+        }
+    }
 
     Ok(items)
 }

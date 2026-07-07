@@ -19,6 +19,8 @@ type AssetCardProps = {
   selectedImagePath?: string | null;
   /** 图片 URL 缓存破坏参数（路径不变但文件内容被替换时需要） */
   renderKey?: number;
+  /** 该资产关联的图片是否有正在生成的任务 */
+  generating?: boolean;
   onToggle: (id: AssetCardId) => void;
   onDelete: (data: AssetCardData) => void;
   onDetail: (data: AssetCardData) => void;
@@ -40,6 +42,7 @@ export function AssetCard({
   selected,
   selectedImagePath,
   renderKey = 0,
+  generating = false,
   onToggle,
   onDelete,
   onDetail,
@@ -69,6 +72,14 @@ export function AssetCard({
 
         {/* 选中遮罩 */}
         {selected && <div className="asset-card-overlay" />}
+
+        {/* 生成中状态角标（实时） */}
+        {generating && (
+          <div className="asset-card-status asset-card-status--generating">
+            <span className="asset-card-spinner" />
+            生成中
+          </div>
+        )}
 
         {/* 右上角：删除按钮 */}
         <div className="asset-card-actions asset-card-actions--delete">

@@ -1,7 +1,7 @@
 /* 设置页 */
 
 .settings-overlay {
-  z-index: 20;
+  z-index: var(--z-sticky);
   animation: settings-overlay-in 220ms ease;
 }
 

@@ -110,6 +110,16 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
       generatedPaths.push({ path: savePath, imageId });
       l("资产生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath}`);
 
+      // 单张图片已 ready，通知前端即时刷新画廊
+      emit({
+        type: "asset_image_task_update",
+        clipId: input.clipId,
+        assetType: input.assetType,
+        name: input.name,
+        imageId,
+        status: "ready",
+      });
+
       // 同步上传至方舟平台，成功/失败均写入 DB 状态
       const assetClient = ctx.clients?.asset;
       if (assetClient) {

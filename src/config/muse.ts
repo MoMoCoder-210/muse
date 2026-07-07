@@ -29,15 +29,10 @@ export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
 /**
  * 工作流阶段定义。
  *
- * id 对应 projects.current_step 的英文标识（部分聚合到同一阶段），
- * label 为 UI 展示中文。
- *
- * 阶段索引与 current_step 的映射见 utils/workflow.stepToIndex。
- *
- * @author yt @date 20260702 改为 {id,label} 结构，解决中英文不匹配导致步骤板全灰
+ * @author yt @date 20260702
  */
 export const WORKFLOW_STEPS = [
-  { id: "script", label: "剧本管理" },
+  { id: "script", label: "片段管理" },
   { id: "asset", label: "资产管理" },
   { id: "storyboard", label: "分镜编辑" },
   { id: "video", label: "视频编辑" },

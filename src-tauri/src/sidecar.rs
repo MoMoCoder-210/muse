@@ -6,6 +6,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 use thiserror::Error;
 
 #[allow(dead_code)]
@@ -65,11 +66,40 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     })
 }
 
+/// 资产生图进度事件负载（转发给前端）
+#[derive(Clone, serde::Serialize)]
+struct AssetImageProgressPayload {
+    clip_id: String,
+    asset_type: String,
+    name: String,
+    status: String,
+}
+
+/// 单张资产生成图片状态更新负载
+#[derive(Clone, serde::Serialize)]
+struct AssetImageTaskUpdatePayload {
+    clip_id: String,
+    asset_type: String,
+    name: String,
+    image_id: String,
+    status: String,
+}
+
+/// 片段拆解任务完成/失败负载
+#[derive(Clone, serde::Serialize)]
+struct ClipScriptReadyPayload {
+    project_id: String,
+    clip_id: String,
+    status: String,
+    error_message: Option<String>,
+}
+
 /// @author yt @date 20260702 解析 stdout 行内容
 ///
 /// 返回 Option<&str>：heartbeat 消息返回 Some("heartbeat")，调用方可据此更新心跳时间戳。
 fn parse_stdout_line<'a>(
     log_path: &Arc<std::path::PathBuf>,
+    app: &tauri::AppHandle,
     text: &'a str,
 ) -> Option<&'a str> {
     if let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) {
@@ -99,6 +129,37 @@ fn parse_stdout_line<'a>(
                         "task_failed" => {
                             let err = event.get("errorMessage").and_then(|v| v.as_str()).unwrap_or("");
                             crate::project_log::append_log(log_path, "任务调度", "ERROR", &format!("任务失败 taskId={} 错误={}", task_id, err));
+                        }
+                        "asset_image_progress" => {
+                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let asset_type = event.get("assetType").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            if !clip_id.is_empty() && !asset_type.is_empty() && !name.is_empty() && !status.is_empty() {
+                                let payload = AssetImageProgressPayload { clip_id, asset_type, name, status };
+                                let _ = app.emit("asset-image-progress", payload);
+                            }
+                        }
+                        "asset_image_task_update" => {
+                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let asset_type = event.get("assetType").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let image_id = event.get("imageId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            if !clip_id.is_empty() && !asset_type.is_empty() && !name.is_empty() && !image_id.is_empty() && !status.is_empty() {
+                                let payload = AssetImageTaskUpdatePayload { clip_id, asset_type, name, image_id, status };
+                                let _ = app.emit("asset-image-task-update", payload);
+                            }
+                        }
+                        "clip_script_ready" => {
+                            let project_id = event.get("projectId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let error_message = event.get("errorMessage").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            if !project_id.is_empty() && !clip_id.is_empty() && !status.is_empty() {
+                                let payload = ClipScriptReadyPayload { project_id, clip_id, status, error_message };
+                                let _ = app.emit("clip-script-ready", payload);
+                            }
                         }
                         _ => {}
                     }
@@ -147,11 +208,13 @@ pub struct SidecarManager {
     log_path: String,
     // stderr 读取线程，shutdown 时 join
     log_handles: Vec<JoinHandle<()>>,
+    /// Tauri 应用句柄，用于把 Worker 事件转发到前端
+    app: tauri::AppHandle,
 }
 
 #[allow(dead_code)]
 impl SidecarManager {
-    pub fn new() -> Self {
+    pub fn new(app: tauri::AppHandle) -> Self {
         Self {
             worker_id: uuid::Uuid::new_v4().to_string(),
             child: None,
@@ -163,6 +226,7 @@ impl SidecarManager {
             config_path: String::new(),
             log_path: String::new(),
             log_handles: Vec::new(),
+            app,
         }
     }
 
@@ -240,8 +304,9 @@ impl SidecarManager {
             let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
             let log_path_clone = log_path_arc.clone();
             let hb = self.last_heartbeat.clone();
+            let app = self.app.clone();
             let processor: LogLineProcessor = Box::new(move |text: &str| {
-                if let Some("heartbeat") = parse_stdout_line(&log_path_clone, text).as_deref() {
+                if let Some("heartbeat") = parse_stdout_line(&log_path_clone, &app, text).as_deref() {
                     // 收到心跳，更新时间戳
                     if let Ok(mut ts) = hb.lock() {
                         *ts = Some(Instant::now());
@@ -523,11 +588,7 @@ impl SidecarManager {
     }
 }
 
-impl Default for SidecarManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+
 
 // 需要 Mutex 包装以便在 Tauri State 中使用
 pub type SharedSidecarManager = Mutex<SidecarManager>;

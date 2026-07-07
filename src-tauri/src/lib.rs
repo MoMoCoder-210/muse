@@ -29,7 +29,7 @@ pub fn run() {
             project_log::append_log(&log_path, "应用", "INFO", "数据库就绪");
 
             let sidecar_manager: sidecar::SharedSidecarManager =
-                std::sync::Mutex::new(sidecar::SidecarManager::new());
+                std::sync::Mutex::new(sidecar::SidecarManager::new(app.handle().clone()));
             app.manage(sidecar_manager);
 
             // 应用启动时自动启动 Worker（使用全局数据库，不绑定具体项目）
@@ -145,12 +145,14 @@ pub fn run() {
             commands::generate_asset_image,
             commands::add_asset_to_clip,
             commands::delete_asset_from_clip,
+            commands::update_asset_in_clip,
             commands::get_asset_image_info,
             commands::list_asset_images,
             commands::select_asset_image,
             commands::delete_asset_image,
             commands::list_asset_image_tasks,
             commands::batch_get_asset_selected_images,
+            commands::batch_get_asset_generating,
             commands::import_local_asset_image,
             commands::retry_upload_asset_image,
             commands::list_project_asset_images,

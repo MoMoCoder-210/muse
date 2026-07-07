@@ -1,11 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
-import { listAssetImageTasks, selectAssetImage, deleteAssetImage, retryUploadAssetImage } from "../../services/tauri";
+import { listAssetImageTasks, selectAssetImage, deleteAssetImage, retryUploadAssetImage, updateAssetInClip } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import type { AssetCardData } from "./AssetCard";
 import { AssetImageGallery, type GalleryImage } from "./AssetImageGallery";
 import { AssetPickerDrawer } from "./AssetPickerDrawer";
+
+/** Worker → 前端的单张资产生成图片更新事件 */
+type AssetImageTaskUpdateEvent = {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  imageId: string;
+  status: "ready" | "failed";
+};
+
+/** Worker → 前端的资产生图任务级进度事件 */
+type AssetImageProgressEvent = {
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  status: "running" | "success" | "failed";
+};
 
 /** 画幅比例 */
 type AspectRatio = "16:9" | "9:16" | "4:3" | "3:4" | "1:1";
@@ -87,6 +105,8 @@ type AssetDrawerProps = {
   onCopyFromProject?: (data: AssetCardData, sourceImageId: string) => Promise<void>;
   /** 绑定图片后通知外部刷新卡片列表 */
   onImageSelected?: () => void;
+  /** 资产提示词/描述被更新后通知外部（用于生成时使用最新值） */
+  onAssetUpdated?: (card: AssetCardData, patch: { prompt: string; description: string }) => void;
   /** 抽屉是否正在执行关闭动画 */
   closing?: boolean;
   disabled?: boolean;
@@ -100,7 +120,7 @@ type AssetDrawerProps = {
  *
  * @author yt @date 20260705
  */
-export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, closing, disabled }: AssetDrawerProps) {
+export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, onAssetUpdated, closing, disabled }: AssetDrawerProps) {
   const { toast } = useToast();
   const [ratio, setRatio] = useState<AspectRatio>("16:9");
   const [tier, setTier] = useState<ResolutionTier>("2K");
@@ -127,6 +147,33 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
   const goNext = useCallback(() => {
     setCurrentIndex((prev) => (prev < cards.length - 1 ? prev + 1 : 0));
   }, [cards.length]);
+
+  // 监听 Worker 推送的图片生成事件，即时刷新画廊（事件驱动 + 轮询兜底）
+  useEffect(() => {
+    if (!current) return;
+    let unlistenTask: UnlistenFn | undefined;
+    let unlistenProgress: UnlistenFn | undefined;
+
+    const matches = (payload: { clip_id: string; asset_type: string; name: string }) =>
+      payload.clip_id === current.clipId &&
+      payload.asset_type === current.type &&
+      payload.name === current.resource.name;
+
+    listen<AssetImageTaskUpdateEvent>("asset-image-task-update", (e) => {
+      if (matches(e.payload)) setPollKey((k) => k + 1);
+    }).then((fn) => { unlistenTask = fn; });
+
+    listen<AssetImageProgressEvent>("asset-image-progress", (e) => {
+      if (matches(e.payload) && e.payload.status !== "running") {
+        setPollKey((k) => k + 1);
+      }
+    }).then((fn) => { unlistenProgress = fn; });
+
+    return () => {
+      unlistenTask?.();
+      unlistenProgress?.();
+    };
+  }, [current?.clipId, current?.type, current?.resource.name]);
 
   // 轮询当前资产的图片+任务状态（含 pending / running / failed）
   useEffect(() => {
@@ -278,6 +325,43 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
   const typeLabel = TYPE_LABELS[current.type] ?? current.type;
   const icon = TYPE_ICONS[current.type] ?? "📄";
 
+  // 可编辑的提示词/描述草稿，切换资产时同步重置
+  const [promptDraft, setPromptDraft] = useState(resource.prompt ?? "");
+  const [descDraft, setDescDraft] = useState(resource.description ?? "");
+  const [savingAsset, setSavingAsset] = useState(false);
+
+  useEffect(() => {
+    setPromptDraft(resource.prompt ?? "");
+    setDescDraft(resource.description ?? "");
+  }, [resource.prompt, resource.description]);
+
+  // 失焦时保存提示词/描述到后端
+  const handleSaveAsset = useCallback(async () => {
+    if (!current) return;
+    const prompt = promptDraft;
+    const description = descDraft;
+    // 无变化则跳过
+    if (prompt === (resource.prompt ?? "") && description === (resource.description ?? "")) return;
+    setSavingAsset(true);
+    try {
+      await updateAssetInClip({
+        clip_id: current.clipId,
+        asset_type: current.type,
+        name: current.resource.name,
+        description,
+        prompt,
+      });
+      onAssetUpdated?.(current, { prompt, description });
+    } catch (err) {
+      toast(`保存失败：${String(err)}`, "error");
+      // 失败回滚草稿
+      setPromptDraft(resource.prompt ?? "");
+      setDescDraft(resource.description ?? "");
+    } finally {
+      setSavingAsset(false);
+    }
+  }, [current, resource.prompt, resource.description, promptDraft, descDraft, toast, onAssetUpdated]);
+
   return (
     <>
       {/* 遮罩层 */}
@@ -369,15 +453,30 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
             disabled={disabled}
           />
 
-          {/* 资产信息 */}
+          {/* 资产信息（提示词/描述可编辑，失焦保存） */}
           <div className="add-asset-form">
             <div className="add-asset-field">
               <label className="add-asset-label">描述</label>
-              <div className="add-asset-readonly">{resource.description || "暂无描述"}</div>
+              <textarea
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+                onBlur={handleSaveAsset}
+                placeholder="暂无描述"
+                rows={2}
+                disabled={disabled || savingAsset}
+              />
             </div>
             <div className="add-asset-field">
               <label className="add-asset-label">提示词</label>
-              <div className="add-asset-readonly add-asset-prompt">{resource.prompt || "暂无"}</div>
+              <textarea
+                className="add-asset-prompt"
+                value={promptDraft}
+                onChange={(e) => setPromptDraft(e.target.value)}
+                onBlur={handleSaveAsset}
+                placeholder="暂无"
+                rows={4}
+                disabled={disabled || savingAsset}
+              />
             </div>
           </div>
 

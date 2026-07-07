@@ -276,6 +276,39 @@ export class TaskRunner {
       clients: this.clients,
     };
 
+    // 资产生图任务：向前端推送实时进度，避免前端仅依赖轮询
+    const assetInput = taskType === "generate_asset_image"
+      ? (ctx.taskInput as { clipId?: string; assetType?: string; name?: string } | undefined)
+      : undefined;
+    const emitAssetProgress = (status: "running" | "success" | "failed") => {
+      if (assetInput?.clipId && assetInput?.assetType && assetInput?.name) {
+        this.emit({
+          type: "asset_image_progress",
+          clipId: assetInput.clipId,
+          assetType: assetInput.assetType,
+          name: assetInput.name,
+          status,
+        });
+      }
+    };
+    emitAssetProgress("running");
+
+    // 片段拆解任务：完成/失败时通知前端即时刷新片段列表
+    const emitClipScriptReady = (status: "success" | "failed", errorMessage?: string) => {
+      if (taskType === "generate_clip_script") {
+        const input = ctx.taskInput as { projectId?: string; clipId?: string } | undefined;
+        if (input?.projectId && input?.clipId) {
+          this.emit({
+            type: "clip_script_ready",
+            projectId: input.projectId,
+            clipId: input.clipId,
+            status,
+            errorMessage,
+          });
+        }
+      }
+    };
+
     log("任务调度", "INFO", `执行任务：id=${task.id} type=${taskType} apiType=${apiType} retry=${task.retry_count}/${task.max_retry}`);
 
     try {
@@ -289,6 +322,8 @@ export class TaskRunner {
       markTaskSuccess(this.db, task.id, outputJson);
       transitionEntityStatus(this.db, task, "success");
       this.emit({ type: "task_success", taskId: task.id, outputJson });
+      emitAssetProgress("success");
+      emitClipScriptReady("success");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
@@ -321,6 +356,8 @@ export class TaskRunner {
           markTaskFailed(this.db, task.id, errorMessage);
           recoverEntityStatusOnFinalFail(this.db, task);
           this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+          emitAssetProgress("failed");
+          emitClipScriptReady("failed", errorMessage);
         } catch (e) {
           log("任务调度", "ERROR", `标记任务失败写库失败：${e instanceof Error ? e.message : String(e)}`);
         }

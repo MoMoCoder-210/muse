@@ -121,7 +121,7 @@
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 12;
+  z-index: var(--z-dropdown);
   display: grid;
   gap: 6px;
   padding: var(--spacing-sm);

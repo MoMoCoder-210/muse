@@ -106,7 +106,22 @@
   --shadow-panel:           0 24px 70px rgba(0, 0, 0, 0.35);
 
   /* 遮罩 */
-  --overlay-modal:          rgba(2, 6, 23, 0.72);
+  --overlay-modal:          rgba(2, 6, 23, 0.85);
+
+  /* 层级系统 */
+  --z-behind:               0;   /* 背景层（如动态Backdrop） */
+  --z-base:                 1;   /* 普通内容层 */
+  --z-above:                2;   /* 浮于内容之上：卡片操作、导航箭头、提示等 */
+  --z-badge:                3;   /* 角标、状态标签，需浮于操作按钮之上 */
+  --z-dropdown:             10;  /* 下拉菜单、折叠按钮、浮层触发器 */
+  --z-drawer-backdrop:      100; /* 抽屉遮罩 */
+  --z-drawer:               110; /* 抽屉面板 */
+  --z-picker-backdrop:      120; /* 二级抽屉/选择器遮罩 */
+  --z-picker:               130; /* 二级抽屉/选择器面板 */
+  --z-sticky:               140; /* 粘性覆盖层、设置页遮罩 */
+  --z-modal:                1000;/* 弹窗 */
+  --z-lightbox:             1100;/* 图片灯箱 */
+  --z-toast:                1200;/* Toast 通知 */
 
   /* 工作流步骤 */
   --step-active-bg:         rgba(var(--accent-primary-rgb), 0.16);
