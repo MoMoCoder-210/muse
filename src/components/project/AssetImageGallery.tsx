@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 export type GalleryImage = {
@@ -54,6 +55,73 @@ export function AssetImageGallery({
   const [activeIndex, setActiveIndex] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteFile, setDeleteFile] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragInfo = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+
+  // 鼠标拖动平移
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (zoom <= 1) return; // 未放大时不触发拖动
+    e.preventDefault();
+    dragInfo.current = { startX: e.clientX, startY: e.clientY, originX: offset.x, originY: offset.y };
+    setIsDragging(true);
+  }, [zoom, offset]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!dragInfo.current) return;
+    const dx = e.clientX - dragInfo.current.startX;
+    const dy = e.clientY - dragInfo.current.startY;
+    setOffset({ x: dragInfo.current.originX + dx, y: dragInfo.current.originY + dy });
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    dragInfo.current = null;
+    setIsDragging(false);
+  }, []);
+
+  // 拖动期间监听全局 mousemove / mouseup
+  useEffect(() => {
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
+  // 键盘操作：lightbox 打开时支持 Esc 关闭、左右切换
+  const handleLightboxKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") setLightboxOpen(false);
+    if (e.key === "ArrowLeft") goPrev();
+    if (e.key === "ArrowRight") goNext();
+  }, [images.length]);
+
+  // 滚轮缩放：放大/缩小
+  const handleLightboxWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.15 : 0.15;
+    setZoom((prev) => Math.min(5, Math.max(1, prev + delta)));
+  }, []);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    window.addEventListener("keydown", handleLightboxKeyDown);
+    window.addEventListener("wheel", handleLightboxWheel, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", handleLightboxKeyDown);
+      window.removeEventListener("wheel", handleLightboxWheel);
+    };
+  }, [lightboxOpen, handleLightboxKeyDown, handleLightboxWheel]);
+
+  // 关闭 lightbox 时重置缩放和位移
+  useEffect(() => {
+    if (!lightboxOpen) {
+      setZoom(1);
+      setOffset({ x: 0, y: 0 });
+    }
+  }, [lightboxOpen]);
 
   // 图片列表变化时重置 activeIndex，优先跳到选中图片
   useEffect(() => {
@@ -68,6 +136,12 @@ export function AssetImageGallery({
   // 边界保护
   const currentIndex = images.length === 0 ? 0 : Math.min(activeIndex, images.length - 1);
   const currentImage = images[currentIndex] ?? null;
+
+  // 切换图片时重置缩放和位移
+  useEffect(() => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  }, [currentIndex]);
 
   const goPrev = () => {
     if (images.length <= 1) return;
@@ -143,10 +217,11 @@ export function AssetImageGallery({
       return (
         <>
           <img
-            className="asset-gallery-img"
+            className="asset-gallery-img asset-gallery-img--clickable"
             src={convertFileSrc(currentImage.path)}
             alt={altName}
             draggable={false}
+            onClick={() => setLightboxOpen(true)}
           />
           {currentImage.is_selected && (
             <div className="asset-gallery-badge">
@@ -355,6 +430,81 @@ export function AssetImageGallery({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 大图预览 Lightbox（Portal 到 body，避免抽屉 transform 导致 fixed 定位失效） */}
+      {lightboxOpen && currentImage?.status === "ready" && currentImage?.path && createPortal(
+        <div
+          className="asset-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="图片大图预览"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div className="asset-lightbox-content" onClick={(e) => e.stopPropagation()}>
+            <img
+              className="asset-lightbox-img"
+              src={convertFileSrc(currentImage.path)}
+              alt={altName}
+              draggable={false}
+              style={{
+                transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                transition: isDragging ? "none" : "transform 120ms ease",
+                cursor: zoom > 1 ? (isDragging ? "grabbing" : "grab") : "default",
+              }}
+              onMouseDown={handleMouseDown}
+            />
+
+            {/* 关闭按钮 */}
+            <button
+              type="button"
+              className="asset-lightbox-close"
+              onClick={() => setLightboxOpen(false)}
+              aria-label="关闭大图"
+            >
+              <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                <path d="M3 3L13 13M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+
+            {/* 多图切换 */}
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="asset-lightbox-nav asset-lightbox-nav--prev"
+                  onClick={goPrev}
+                  aria-label="上一张"
+                >
+                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                    <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="asset-lightbox-nav asset-lightbox-nav--next"
+                  onClick={goNext}
+                  aria-label="下一张"
+                >
+                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                    <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <div className="asset-lightbox-counter">
+                  {currentIndex + 1} / {images.length}
+                </div>
+              </>
+            )}
+
+            {/* 缩放比例 */}
+            {zoom !== 1 && (
+              <div className="asset-lightbox-zoom">
+                {Math.round(zoom * 100)}%
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

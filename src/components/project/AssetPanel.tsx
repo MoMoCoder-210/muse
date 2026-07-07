@@ -8,6 +8,7 @@ import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
 import { AddAssetModal, type AddAssetInput } from "./AddAssetModal";
 import { AssetDrawer, type GenerateParams } from "./AssetDrawer";
 import { open } from "@tauri-apps/plugin-dialog";
+import { STYLE_VALUE_MAP, type StyleMode } from "../../config/muse";
 
 /** type → 属性名映射 */
 const TYPE_TO_KEY: Record<AssetType, keyof ParsedAssets> = {
@@ -167,23 +168,28 @@ export function AssetPanel({ project }: AssetPanelProps) {
     setDrawerTarget(cards);
   }, []);
 
+  // 风格名称 → 提示词值
+  const resolveStyle = useCallback((style: string) => STYLE_VALUE_MAP[style as StyleMode] ?? style, []);
+
   // 构建最终生图 prompt（按资产类型拼系统指令）
   const buildImagePrompt = useCallback((card: AssetCardData, style: string): string => {
     const appearance = card.resource.prompt;
+    const styleValue = resolveStyle(style);
     if (card.type === "character") {
-      return `[风格:${style}] Character design illustration, on a white background. On the left is a large facial and half-body close-up, while on the right are three full-body views (front, side, and back). ${appearance}`;
+      return `[风格:${styleValue}] Character design drawing, on a pure white background. On the left is a large facial and half-body close-up, while on the right are three full-body views (front, side, and back). ${appearance}`;
     }
     if (card.type === "item") {
-      return `[风格:${style}] product photography, isolated object on white background, detailed texture. ${appearance}`;
+      return `[风格:${styleValue}] product photography, isolated object on white background, detailed texture. ${appearance}`;
     }
     // scene
-    return `[风格:${style}] ${appearance}`;
-  }, []);
+    return `[风格:${styleValue}] ${appearance}`;
+  }, [resolveStyle]);
 
   // 抽屉内单个生成
   const handleDrawerGenerate = useCallback(async (data: AssetCardData, params: GenerateParams) => {
     setOperating(true);
     try {
+      const styleValue = resolveStyle(params.style);
       const prompt = buildImagePrompt(data, params.style);
       await generateAssetImage({
         project_id: project.id,
@@ -193,7 +199,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         prompt,
         size: params.size,
         n: params.n,
-        style: params.style,
+        style: styleValue,
       });
       toast(`已为资产「${data.resource.name}」发起图片生成`, "success");
     } catch (_err) {
@@ -201,13 +207,14 @@ export function AssetPanel({ project }: AssetPanelProps) {
     } finally {
       setOperating(false);
     }
-  }, [project.id, buildImagePrompt, toast]);
+  }, [project.id, buildImagePrompt, resolveStyle, toast]);
 
   // 抽屉内批量生成
   const handleDrawerBatchGenerate = useCallback(async (cards: AssetCardData[], params: GenerateParams) => {
     setDrawerTarget(null);
     setOperating(true);
     try {
+      const styleValue = resolveStyle(params.style);
       await Promise.all(
         cards.map((card) =>
           generateAssetImage({
@@ -218,7 +225,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
             prompt: buildImagePrompt(card, params.style),
             size: params.size,
             n: params.n,
-            style: params.style,
+            style: styleValue,
           })
         )
       );

@@ -87,9 +87,12 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
         }
       }
       const genOptions = { signal: ctx.signal, size: input.size } as { signal: AbortSignal; size?: string };
-      l("资产生图", `使用 size=${input.size ?? "默认"} prompt长度=${input.prompt.length}`);
+      l("资产生图", `使用 size=${input.size ?? "默认"} prompt长度=${input.prompt.length} prompt=${input.prompt}`);
 
       await imageClient.generateAndSave(input.prompt, savePath, genOptions);
+
+      // 为每张图片生成唯一 ID
+      const imageId = randomUUID();
 
       // 创建 asset_images 记录（无已绑定时首张自动选中）
       const shouldSelect = !hasExistingBinding && i === 0;

@@ -16,6 +16,16 @@ export const CREATE_MODE_OPTIONS = [
 export const STYLE_OPTIONS = ["国漫", "动漫", "日漫", "韩漫", "二次元", "真人"] as const;
 export type StyleMode = (typeof STYLE_OPTIONS)[number];
 
+/** 风格名称 → 提示词值 映射 */
+export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
+  国漫: "Chinese-style anime style",
+  动漫: "anime style",
+  日漫: "Japanese anime style, Japanese animation aesthetic",
+  韩漫: "Korean anime style, Korean animation aesthetic",
+  二次元: "二次元风格",
+  真人: "photorealistic style",
+};
+
 /**
  * 工作流阶段定义。
  *
