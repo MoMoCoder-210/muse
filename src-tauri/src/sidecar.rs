@@ -471,6 +471,37 @@ impl SidecarManager {
         Ok(())
     }
 
+    /// 发送 upload_asset_image 命令，通知 Worker 将本地图片上传至方舟平台。
+    /// @author yt @date 20260707
+    pub fn send_upload_asset_image(&mut self, image_id: &str, file_path: &str) -> Result<(), SidecarError> {
+        let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            let cmd = serde_json::json!({
+                "version": 1,
+                "cmd": "upload_asset_image",
+                "imageId": image_id,
+                "filePath": file_path
+            });
+            let _ = writeln!(stdin, "{}", cmd);
+        }
+        Ok(())
+    }
+
+    /// 发送 delete_ark_file 命令，通知 Worker 从方舟平台删除文件。
+    /// @author yt @date 20260707
+    pub fn send_delete_ark_file(&mut self, file_id: &str) -> Result<(), SidecarError> {
+        let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            let cmd = serde_json::json!({
+                "version": 1,
+                "cmd": "delete_ark_file",
+                "fileId": file_id
+            });
+            let _ = writeln!(stdin, "{}", cmd);
+        }
+        Ok(())
+    }
+
     /// 获取当前 workerId
     /// @author yt @date 20260702
     pub fn worker_id(&self) -> &str {

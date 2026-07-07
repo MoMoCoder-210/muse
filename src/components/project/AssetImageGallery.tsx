@@ -8,6 +8,8 @@ export type GalleryImage = {
   is_selected: boolean;
   status: "ready" | "pending" | "running" | "failed";  // per-item status
   error_message?: string;
+  ark_upload_status?: "pending" | "uploaded" | "failed" | null;
+  ark_upload_error?: string;
 };
 
 type AssetImageGalleryProps = {
@@ -29,6 +31,12 @@ type AssetImageGalleryProps = {
   onRegenerate?: () => void;
   /** 选择本地图片回调 */
   onSelectLocal?: () => Promise<void>;
+  /** 从项目内其他资产选择图片回调 */
+  onSelectFromProject?: () => void;
+  /** 重试上传回调（上传失败时） */
+  onRetryUpload?: (imageId: string) => Promise<void>;
+  /** 是否正在导入本地图片 */
+  importing?: boolean;
   disabled?: boolean;
 };
 
@@ -50,6 +58,9 @@ export function AssetImageGallery({
   onDelete,
   onRegenerate,
   onSelectLocal,
+  onSelectFromProject,
+  onRetryUpload,
+  importing,
   disabled,
 }: AssetImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -214,6 +225,8 @@ export function AssetImageGallery({
 
     // 当前项有图片
     if (currentImage.status === "ready" && currentImage.path) {
+      const uploadFailed = currentImage.ark_upload_status === "failed";
+      const uploadPending = currentImage.ark_upload_status === "pending";
       return (
         <>
           <img
@@ -223,12 +236,43 @@ export function AssetImageGallery({
             draggable={false}
             onClick={() => setLightboxOpen(true)}
           />
+          {importing && (
+            <div className="asset-gallery-importing-overlay">
+              <span className="spinner spinner--lg" aria-hidden />
+              <span>导入中…</span>
+            </div>
+          )}
           {currentImage.is_selected && (
             <div className="asset-gallery-badge">
               <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                 <path d="M3 8L7 12L13 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               已选定
+            </div>
+          )}
+          {uploadFailed && (
+            <div className="asset-gallery-upload-error" title={currentImage.ark_upload_error ?? "上传失败"}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                <path d="M8 6V9.5M8 11.5V12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <span>上传失败</span>
+              {onRetryUpload && (
+                <button
+                  type="button"
+                  className="asset-gallery-upload-retry"
+                  onClick={(e) => { e.stopPropagation(); onRetryUpload(currentImage.id); }}
+                  disabled={disabled}
+                >
+                  重试
+                </button>
+              )}
+            </div>
+          )}
+          {uploadPending && (
+            <div className="asset-gallery-upload-pending">
+              <span className="spinner" aria-hidden />
+              <span>上传中…</span>
             </div>
           )}
           {onDelete && (
@@ -275,6 +319,16 @@ export function AssetImageGallery({
               重试
             </button>
           )}
+        </div>
+      );
+    }
+
+    // 导入中状态
+    if (importing) {
+      return (
+        <div className="asset-gallery-status">
+          <span className="spinner" aria-hidden />
+          <span>导入中…</span>
         </div>
       );
     }
@@ -340,7 +394,9 @@ export function AssetImageGallery({
                 `asset-gallery-thumb` +
                 `${i === currentIndex ? " asset-gallery-thumb--active" : ""}` +
                 `${img.is_selected ? " asset-gallery-thumb--selected" : ""}` +
-                `${img.status === "failed" ? " asset-gallery-thumb--error" : ""}`
+                `${img.status === "failed" ? " asset-gallery-thumb--error" : ""}` +
+                `${img.ark_upload_status === "failed" ? " asset-gallery-thumb--upload-error" : ""}` +
+                `${img.ark_upload_status === "pending" ? " asset-gallery-thumb--upload-pending" : ""}`
               }
               onClick={() => setActiveIndex(i)}
               aria-label={`第 ${i + 1} 张`}
@@ -374,17 +430,29 @@ export function AssetImageGallery({
         ) : null}
       </div>
 
-      {/* 选择本地图片 */}
-      {onSelectLocal && (
-        <div className="asset-gallery-local">
-          <button
-            type="button"
-            className="primary-button btn-sm"
-            onClick={async () => { await onSelectLocal(); }}
-            disabled={disabled}
-          >
-            选择本地图片
-          </button>
+      {/* 选择图片按钮行：本地图片 + 项目内其他资产 */}
+      {(onSelectLocal || onSelectFromProject) && (
+        <div className="asset-gallery-local-row">
+          {onSelectFromProject && (
+            <button
+              type="button"
+              className="secondary-button btn-sm"
+              onClick={onSelectFromProject}
+              disabled={disabled}
+            >
+              选择其他图片
+            </button>
+          )}
+          {onSelectLocal && (
+            <button
+              type="button"
+              className="primary-button btn-sm"
+              onClick={async () => { await onSelectLocal(); }}
+              disabled={disabled}
+            >
+              选择本地图片
+            </button>
+          )}
         </div>
       )}
 

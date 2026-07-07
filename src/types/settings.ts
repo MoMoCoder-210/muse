@@ -22,10 +22,17 @@ export interface VoiceModelConfig {
   timeoutMs: number;
 }
 
+export interface AssetModelConfig {
+  apiKey: string;
+  baseUrl: string;
+  timeoutMs: number;
+}
+
 export interface AppSettings {
   text: TextModelConfig;
   image: ImageModelConfig;
   voice: VoiceModelConfig;
+  asset: AssetModelConfig;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -48,6 +55,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: "",
     model: "",
     speed: 1.0,
+    timeoutMs: 300000,
+  },
+  asset: {
+    apiKey: "",
+    baseUrl: "",
     timeoutMs: 300000,
   },
 };

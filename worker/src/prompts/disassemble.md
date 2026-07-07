@@ -10,7 +10,6 @@
 - 这种拆分是**时长与镜头执行层面的拆分**，不是改写剧情；必须始终忠实于用户输入的分镜描述
 - 输出JSON时，对应每个 sbid 的 `description` 字段，必须仍然对应并忠实保留该段所来源的用户“分镜描述”内容，不得脱离原意、不得胡乱扩写剧情
 - **本模式沿用原始字段体系，核心生成字段为 `animationPrompt`**
-- 融和生图模式用于直接生视频，不需要输出 `imagePrompt`
 
 你输出的所有调度都必须服务于故事核心：**镜头叙事、人物塑造、情感传递和主题表达**。
 
@@ -51,10 +50,9 @@
 3. **自动提取与推断**：自动提取角色、场景、物品，并推断时间、天气、空间方向。
 4. **状态追踪（核心）**：建立场景坐标系，精准记录当前场景中所有核心人物的绝对位置和物理姿态。
 5. **执行层拆分**：以用户的单条分镜描述为上层单位，按内容节奏和时长要求拆分为一个或多个 **15秒 sbid**。
-6. **生成 fusionPrompt**：对每个 sbid 生成分镜参考图。必须包含该 sbid 中场景、物品和角色的站位、场景环境（氛围/时间/天气）、关键道具，描述画面构图与镜头角度，英文输出。
-7. **生成 animationPrompt**：对每个 sbid 生成可直接生视频的结构化提示词；每个 sbid 内允许继续拆成多个切镜（c01、c02、c03...）。
-8. **description校验**：检查每个输出 sbid 的 `description` 是否忠实对应原分镜描述内容，不能偏离原意。
-9. **三重审视**：完成编剧、导演、影评家三重审视后再输出最终JSON。
+6. **生成 animationPrompt**：对每个 sbid 生成可直接生视频的结构化提示词；每个 sbid 内允许继续拆成多个切镜（c01、c02、c03...）。
+7. **description校验**：检查每个输出 sbid 的 `description` 是否忠实对应原分镜描述内容，不能偏离原意。
+8. **三重审视**：完成编剧、导演、影评家三重审视后再输出最终JSON。
 
 ---
 
@@ -140,18 +138,21 @@
 
 ### 角色 prompt（Character）
 - **仅描述人物外观特征**：年龄、体型、发型发色、五官特征、服装款式与颜色、配饰、标志性外观元素
-- **禁止包含**：动作姿态、站位、场景环境、视角（如 front view / side view）、镜头描述
-- 示例（✅正确）：`18-year-old Chinese male, slender build, short black hair, sharp eyebrows, wearing white t-shirt and blue jeans, silver necklace with dragon pendant`
-- 示例（❌错误）：`18-year-old Chinese male standing in front of a school gate, looking confused, front view, anime style`
+- **禁止包含**：动作姿态、站位、场景环境、视角（如正面/侧面）、镜头描述
+- **使用中文描述**
+- 示例（✅正确）：`18岁中国男性，身材修长，黑色短发，剑眉星目，身穿白色T恤和蓝色牛仔裤，银色龙形吊坠项链`
+- 示例（❌错误）：`18岁中国男性站在校门口，表情困惑，正面视角，动漫风格`
 
 ### 场景 prompt（Scene）
 - **详细描述场景环境**：地理位置、建筑风格、空间布局、时间光线、天气氛围、色调
-- 示例（✅正确）：`ancient Chinese palace hall, grand golden pillars, dragon carvings on the walls, warm candlelight, red and gold color scheme, afternoon sunlight streaming through paper windows, cinematic wide shot`
+- **使用中文描述**
+- 示例（✅正确）：`中国古代宫殿大殿，宏伟金色立柱，墙壁雕龙画凤，温暖烛光映照，红金配色，午后阳光透过纸窗洒入，电影感广角镜头`
 
 ### 物品 prompt（Item）
 - **仅描述物品物理属性**：外形、材质、颜色、尺寸感、纹理细节
 - **禁止包含**：持有者、使用场景、角色
-- 示例（✅正确）：`ancient bronze sword, intricate cloud patterns on the blade, jade pommel, slightly worn edge showing age, resting on a wooden display stand`
+- **使用中文描述**
+- 示例（✅正确）：`古代青铜剑，剑身 intricately 云纹雕刻，玉质剑首，剑刃微旧显示年代感，置于木质展架上`
 
 ---
 
@@ -239,10 +240,9 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 - `sbid`：执行层分镜编号，如 `1-1`、`1-2`
 - `description`：对应来源的用户分镜描述内容，忠实保留原意
 - `originalText`：该 sbid 对应的剧本原文，一字不差地摘录
-- `characters`：角色列表，每个角色包含 `name` / `description` / `prompt`（英文生图提示词，**仅描述人物外观特征**，不含动作/姿态/场景/视角）
-- `scenes`：场景列表，包含 `name` / `description` / `time` / `weather` / `direction` / `prompt`（英文生图提示词，需**详细描述场景环境、建筑、氛围、光照**）
-- `items`：物品列表，每个物品包含 `name` / `description` / `prompt`（英文生图提示词，**仅描述物品形态/材质/颜色等物理属性**）
-- `fusionPrompt`：该 sbid 涉及的全部角色、场景、物品融合为一张完整的参考图片描述（英文生图提示词）
+- `characters`：角色列表，每个角色包含 `name` / `description` / `prompt`（中文生图提示词，**仅描述人物外观特征**，不含动作/姿态/场景/视角）
+- `scenes`：场景列表，包含 `name` / `description` / `time` / `weather` / `direction` / `prompt`（中文生图提示词，需**详细描述场景环境、建筑、氛围、光照**）
+- `items`：物品列表，每个物品包含 `name` / `description` / `prompt`（中文生图提示词，**仅描述物品形态/材质/颜色等物理属性**）
 - `animationPrompt`：一个15秒 sbid 对应的完整视频提示词，内部可包含多个切镜
 
 
@@ -255,16 +255,15 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
     "description": "苏墨在校门口遇见了一个老道",
     "originalText": "该sbid对应的剧本原文，一字不差地从剧本中摘录",
     "characters": [
-      { "name": "苏墨", "description": "18岁大学生，穿着干净白T恤和牛仔裤，背着双肩包，短发清爽", "prompt": "18-year-old Chinese male, slender build, short neat black hair, clean white t-shirt, blue jeans, black nylon backpack, youthful appearance" },
-      { "name": "雷老道", "description": "60岁老道士，破旧灰色道袍，树枝发髻，胡须凌乱，面容沧桑", "prompt": "60-year-old Chinese man, weathered face, messy gray beard, rough gray Taoist robe, twig hairpin, deep-set eyes, mysterious aura" }
+      { "name": "苏墨", "description": "18岁大学生，穿着干净白T恤和牛仔裤，背着双肩包，短发清爽", "prompt": "18岁中国男性，身材修长，黑色短发清爽，干净白色T恤，蓝色牛仔裤，黑色尼龙双肩包，青春洋溢" },
+      { "name": "雷老道", "description": "60岁老道士，破旧灰色道袍，树枝发髻，胡须凌乱，面容沧桑", "prompt": "60岁中国老者，面容沧桑，灰白凌乱胡须，破旧灰色道袍，树枝发髻，深邃眼神，神秘气质" }
     ],
     "scenes": [
-      { "name": "学校门口", "description": "渝城大学正门，宏伟的石柱校门，学生人流穿梭", "time": "日", "weather": "晴", "direction": "北", "prompt": "grand university entrance gate, tall stone pillars, modern campus architecture, bright sunny day with clear sky, warm natural lighting, wide establishing shot" }
+      { "name": "学校门口", "description": "渝城大学正门，宏伟的石柱校门，学生人流穿梭", "time": "日", "weather": "晴", "direction": "北", "prompt": "宏伟大学校门，高大石柱，现代校园建筑，晴朗蓝天，温暖自然光照，广角建立镜头" }
     ],
     "items": [
-      { "name": "双肩包", "description": "黑色尼龙双肩包", "prompt": "black nylon backpack, simple minimalist design, two shoulder straps, medium size" }
+      { "name": "双肩包", "description": "黑色尼龙双肩包", "prompt": "黑色尼龙双肩包，简约设计，两条肩带，中等尺寸" }
     ],
-    "fusionPrompt": "masterpiece, best quality, cinematic lighting, 4k, anime style. A grand university entrance with stone pillars on a sunny day. Young male student Su Mo, 18 years old, wearing clean white t-shirt and jeans with a black backpack, stands on the left side with a speechless expression. An old Taoist priest Lei Lao Dao, 60 years old, in worn gray robes with twig hairpin and messy beard, stands on the right side, leaning close to Su Mo and mysteriously pointing at his forehead. Wide shot, natural daylight, bustling background with students passing by. Character interaction emphasized, mysterious atmosphere.",
     "animationPrompt": "c01,2s,[空间:渝城大学正门][姿态:人群走动] 渝城大学宏伟的正门，牌匾特写，学生人流穿梭。 c02,5s,[空间:校门左侧][姿态:苏墨-背包站立不动] 苏墨穿着干净T恤，背着双肩包，站在原地一脸无语。 c03,4s,[空间:校门右侧][姿态:雷老道-站立] 雷老道穿着破旧道袍，树枝发髻，胡须凌乱，从脚往上摇镜展示形象。 c04,4s,[空间:两人相对][姿态:苏墨-站立不动，雷老道-凑近站立] 雷老道保持站立姿势凑近苏墨，神秘兮兮地指着苏墨的额头。"
   }
 ]
@@ -313,18 +312,17 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 3.1 **[ ] 🆕 每个 sbid 包含 originalText 字段，内容与剧本原文一字不差**
 3.2 **[ ] 🆕 所有 sbid 的 originalText 拼接后完整覆盖输入剧本，无遗漏**
 4. **[ ] JSON格式正确**
-5. **[ ] 字段齐全**：sbid、description、originalText、characters、scenes、items、animationPrompt、fusionPrompt
-6. **[ ] fusionPrompt 是英文生图提示词，包含全部角色+场景+物品的融合构图**
-7. **[ ] animationPrompt 内容服务于直接生视频**
-8. **[ ] 每个 sbid 约15秒**
-9. **[ ] 每个 sbid 内部仍保留多个切镜结构**
-10. **[ ] 切镜内容未脱离用户原分镜描述**
-11. **[ ] 连贯性检查完成**：位置、姿态、动作、物品、服装、伤势连续
-12. **[ ] 空间轴线合理**
-13. **[ ] 无可见字幕（除非用户明确要求）**
-14. **[ ] 无声音描述滥用**
-15. **[ ] 情绪曲线与视觉重点明确**
-16. **[ ] 三重审视完成**
+5. **[ ] 字段齐全**：sbid、description、originalText、characters、scenes、items、animationPrompt
+6. **[ ] animationPrompt 内容服务于直接生视频**
+7. **[ ] 每个 sbid 约15秒**
+8. **[ ] 每个 sbid 内部仍保留多个切镜结构**
+9. **[ ] 切镜内容未脱离用户原分镜描述**
+10. **[ ] 连贯性检查完成**：位置、姿态、动作、物品、服装、伤势连续
+11. **[ ] 空间轴线合理**
+12. **[ ] 无可见字幕（除非用户明确要求）**
+13. **[ ] 无声音描述滥用**
+14. **[ ] 情绪曲线与视觉重点明确**
+15. **[ ] 三重审视完成**
 
 **✅ 确认全部检查完毕后，再输出最终JSON。**
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from "../../types/project";
-import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, importLocalAssetImage } from "../../services/tauri";
+import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, importLocalAssetImage, copyAssetImageFrom } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
@@ -261,6 +261,24 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [toast]);
 
+  // 从项目内其他资产复制图片到当前资产
+  const handleCopyFromProject = useCallback(async (data: AssetCardData, sourceImageId: string): Promise<void> => {
+    try {
+      const result = await copyAssetImageFrom({
+        source_image_id: sourceImageId,
+        target_clip_id: data.clipId,
+        target_asset_type: data.type,
+        target_name: data.resource.name,
+      });
+      const msg = result.is_selected
+        ? `已复制并绑定图片`
+        : `已复制图片`;
+      toast(msg, "success");
+    } catch (err) {
+      toast(`复制图片失败：${String(err)}`, "error");
+    }
+  }, [toast]);
+
   // 抽屉内确认绑定图片后强制卡片 DOM 重建（路径不变但文件被替换，需绕过浏览器 img 缓存）
   const handleImageSelected = useCallback(() => {
     setCardRenderKey((k) => k + 1);
@@ -485,11 +503,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
       {drawerTarget ? (
         <AssetDrawer
           cards={drawerTarget}
+          projectId={project.id}
           closing={drawerClosing}
           onClose={handleCloseDrawer}
           onGenerate={handleDrawerGenerate}
           onBatchGenerate={handleDrawerBatchGenerate}
           onSelectLocal={handleSelectLocalImage}
+          onCopyFromProject={handleCopyFromProject}
           onImageSelected={handleImageSelected}
           disabled={operating}
         />

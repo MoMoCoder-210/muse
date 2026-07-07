@@ -72,9 +72,11 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
   const batchStamp = Date.now();
 
   for (let i = 0; i < count; i++) {
-    // 文件名：资产名_批次时间戳_序号.png，避免覆盖历史图片
+    // 文件名：资产名_uuid短码_批次时间戳[_序号].png，与 Rust 侧命名规范一致
+    const imageUuid = randomUUID();
+    const uuidShort = imageUuid.slice(0, 8);
     const suffix = count > 1 ? `_${batchStamp}_${i + 1}` : `_${batchStamp}`;
-    const imageFileName = `${safeName}${suffix}.png`;
+    const imageFileName = `${safeName}_${uuidShort}${suffix}.png`;
     const savePath = join(saveDir, imageFileName);
 
     try {
@@ -91,22 +93,45 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
 
       await imageClient.generateAndSave(input.prompt, savePath, genOptions);
 
-      // 为每张图片生成唯一 ID
-      const imageId = randomUUID();
+      // 复用上方生成的 UUID 作为图片唯一 ID
+      const imageId = imageUuid;
 
       // 创建 asset_images 记录（无已绑定时首张自动选中）
       const shouldSelect = !hasExistingBinding && i === 0;
       db.prepare(
-        `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, is_selected, source, task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'generation', ?)`
+        `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'generation', ?, 'pending')`
       ).run(
         imageId, assetId, input.prompt,
         input.size ?? null, input.style ?? null,
-        savePath, shouldSelect ? 1 : 0, ctx.taskId
+        savePath, imageFileName, shouldSelect ? 1 : 0, ctx.taskId
       );
 
       generatedPaths.push({ path: savePath, imageId });
       l("资产生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath}`);
+
+      // 同步上传至方舟平台，成功/失败均写入 DB 状态
+      const assetClient = ctx.clients?.asset;
+      if (assetClient) {
+        try {
+          const arkFile = await assetClient.uploadImage(savePath);
+          db.prepare(
+            "UPDATE asset_images SET ark_file_id = ?, ark_upload_status = 'uploaded' WHERE id = ?"
+          ).run(arkFile.id, imageId);
+          l("资产生图", `方舟上传成功 imageId=${imageId} arkFileId=${arkFile.id}`);
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+          db.prepare(
+            "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ? WHERE id = ?"
+          ).run(msg, imageId);
+          l("资产生图", `方舟上传失败 imageId=${imageId} 错误=${msg}`);
+        }
+      } else {
+        // 素材管理未配置，标记为无需上传
+        db.prepare(
+          "UPDATE asset_images SET ark_upload_status = NULL WHERE id = ?"
+        ).run(imageId);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       le("资产生图", `第${i + 1}张失败 assetType=${input.assetType} name=${input.name} 错误=${msg}`);

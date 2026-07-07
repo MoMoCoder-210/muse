@@ -6,6 +6,7 @@ import { ClipListPanel } from "./ClipListPanel";
 import type { ClipScriptInfo } from "../../types/project";
 import { StepPlaceholder } from "../common/StepPlaceholder";
 import { AssetPanel } from "./AssetPanel";
+import { StoryboardPanel } from "./StoryboardPanel";
 import { CreateClipModal } from "./CreateClipModal";
 
 type ProjectWorkspaceProps = {
@@ -79,6 +80,8 @@ export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated 
         />
       ) : activeStep === 1 ? (
         <AssetPanel project={project} />
+      ) : activeStep === 2 ? (
+        <StoryboardPanel project={project} />
       ) : (
         <StepPlaceholder stepIndex={activeStep} projectName={project.name} />
       )}

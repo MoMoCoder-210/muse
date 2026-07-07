@@ -380,6 +380,12 @@
   margin-right: var(--spacing-sm);
 }
 
+.spinner--lg {
+  width: 24px;
+  height: 24px;
+  border-width: 2.5px;
+}
+
 @keyframes clip-spinner {
   to { transform: rotate(360deg); }
 }

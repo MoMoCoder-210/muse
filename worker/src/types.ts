@@ -14,7 +14,6 @@ export type TaskType =
   | "generate_clip_script"  // 剧本理解（片段拆解）
   | "generate_asset_image"  // 资产生图
   | "generate_storyboard"   // 分镜生成
-  | "generate_fused_image"  // 融合图生成
   | "generate_voice"        // 语音生成
   | "generate_video"        // 视频生成
   | "import_storyboard_voice" // 导入分镜语音
@@ -102,7 +101,6 @@ export const TASK_TYPE_TO_API: Record<TaskType, ApiType> = {
   generate_clip_script: "text",
   generate_asset_image: "image",
   generate_storyboard: "text",
-  generate_fused_image: "image",
   generate_voice: "voice",
   generate_video: "video",
   import_storyboard_voice: "local",

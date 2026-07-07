@@ -29,6 +29,8 @@ dirs = "6"
 log = "0.4"
 env_logger = "0.11"
 thiserror = "2"
+ureq = { version = "2", features = ["json"] }
+percent-encoding = "2"
 
 [features]
 # this feature is used for production builds where `devUrl` is not needed

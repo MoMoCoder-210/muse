@@ -6,7 +6,7 @@
  *       script_summary：片段摘要
  *       extracted_resources_json：角色 / 场景 / 物品候选列表（JSON）
  *       raw_model_output：模型原始响应（诊断用）
- *   - storyboards 表：分镜列表（sbid / seq_num / source_text / visual_description / image_prompt / video_prompt）
+ *   - storyboards 表：分镜列表（sbid / seq_num / source_text / visual_description / video_prompt）
  *
  * 任务状态（clips.status / clip_scripts.status）由 task-runner 统一维护，handler 不直接修改。
  *
@@ -172,15 +172,15 @@ function saveResults(
   // 写入故事板
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
-      visual_description, image_prompt, video_prompt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      visual_description, video_prompt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (let i = 0; i < storyboards.length; i++) {
     const sb = storyboards[i];
     insertSb.run(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
-      sb.description, sb.fusionPrompt || "", sb.animationPrompt,
+      sb.description, sb.animationPrompt,
     );
   }
 }
@@ -284,7 +284,6 @@ interface StoryboardItem {
   scenes: ParsedSceneItem[];
   items: ParsedResourceItem[];
   animationPrompt: string;
-  fusionPrompt?: string;
 }
 
 // @author yt @date 20260702 解析模型返回的 JSON 为分镜数组
@@ -325,7 +324,6 @@ function parseModelOutput(raw: string): StoryboardItem[] {
         prompt: safeStr(it.prompt),
       })) : [],
       animationPrompt: safeStr(obj.animationPrompt),
-      fusionPrompt: safeStr(obj.fusionPrompt),
     };
   });
 }

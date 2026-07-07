@@ -18,6 +18,8 @@ import type {
   SplitClipInput,
   SplitClipResult,
   AssetType,
+  Storyboard,
+  StoryboardAssetInfo,
 } from "../types/project";
 import type { AppSettings } from "../types/settings";
 
@@ -275,6 +277,51 @@ export async function importLocalAssetImage(input: {
 }
 
 /**
+ * 重试上传失败的资产图片
+ *
+ * @author yt @date 20260707
+ */
+export async function retryUploadAssetImage(imageId: string): Promise<void> {
+  return invoke("retry_upload_asset_image", { imageId });
+}
+
+/**
+ * 查询项目下指定类型的所有资产及其选中图片（资产选择器用）
+ *
+ * @author yt @date 20260707
+ */
+export async function listProjectAssetImages(input: {
+  projectId: string;
+  assetType: string;
+  excludeClipId: string;
+}): Promise<{
+  asset_id: string;
+  clip_id: string;
+  asset_type: string;
+  name: string;
+  description: string;
+  prompt: string;
+  selected_image_path: string;
+  selected_image_id: string;
+}[]> {
+  return invoke("list_project_asset_images", input);
+}
+
+/**
+ * 从项目内另一个资产复制选中图片到当前资产
+ *
+ * @author yt @date 20260707
+ */
+export async function copyAssetImageFrom(input: {
+  source_image_id: string;
+  target_clip_id: string;
+  target_asset_type: string;
+  target_name: string;
+}): Promise<{ image_id: string; image_path: string; is_selected: boolean }> {
+  return invoke("copy_asset_image_from", { input });
+}
+
+/**
  * 获取资产所有生成图片列表
  *
  * @author yt @date 20260705
@@ -313,6 +360,8 @@ export async function listAssetImageTasks(input: {
   is_selected: boolean;
   status: string;       // "ready" | "pending" | "running" | "failed"
   error_message: string | null;
+  ark_upload_status: string | null;  // "pending" | "uploaded" | "failed" | null
+  ark_upload_error: string | null;
   created_at: string;
 }[]> {
   return invoke("list_asset_image_tasks", { input });
@@ -386,4 +435,38 @@ export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[
  */
 export async function cancelClipScript(clipId: string): Promise<void> {
   return invoke<void>("cancel_clip_script", { input: { clip_id: clipId } });
+}
+
+// ── 分镜 ─────────────────────────────────────────────────────────
+
+/**
+ * 查询指定片段的分镜列表
+ *
+ * @author yt @date 20260707
+ */
+export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
+  return invoke<Storyboard[]>("list_storyboards", { clipId });
+}
+
+/**
+ * 查询指定片段的所有资产（含绑定图片路径）
+ *
+ * @author yt @date 20260707
+ */
+export async function listClipAssets(clipId: string): Promise<StoryboardAssetInfo[]> {
+  return invoke<StoryboardAssetInfo[]>("list_clip_assets", { clipId });
+}
+
+/**
+ * 更新分镜关联资产
+ *
+ * @author yt @date 20260707
+ */
+export async function updateStoryboardAssets(input: {
+  storyboard_id: string;
+  character_ids: string[];
+  scene_ids: string[];
+  item_ids: string[];
+}): Promise<void> {
+  return invoke<void>("update_storyboard_assets", { input });
 }

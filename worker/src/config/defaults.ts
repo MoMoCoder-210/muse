@@ -33,6 +33,13 @@ export const DEFAULT_VOICE_CONFIG: VoiceModelConfig = {
   timeoutMs: 300000,
 };
 
+// ── 素材管理（火山方舟 File API） ──────────────────────────
+export const DEFAULT_ASSET_CONFIG: AssetModelConfig = {
+  apiKey: "",
+  baseUrl: "",
+  timeoutMs: 300000,
+};
+
 // ── 配置类型定义 ─────────────────────────────────────────
 
 export interface TextModelConfig {
@@ -59,15 +66,23 @@ export interface VoiceModelConfig {
   timeoutMs: number;
 }
 
+export interface AssetModelConfig {
+  apiKey: string;
+  baseUrl: string;
+  timeoutMs: number;
+}
+
 /** 完整应用配置结构 */
 export interface AppSettings {
   text: TextModelConfig;
   image: ImageModelConfig;
   voice: VoiceModelConfig;
+  asset: AssetModelConfig;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   text:  DEFAULT_TEXT_CONFIG,
   image: DEFAULT_IMAGE_CONFIG,
   voice: DEFAULT_VOICE_CONFIG,
+  asset: DEFAULT_ASSET_CONFIG,
 };

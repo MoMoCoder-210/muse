@@ -81,6 +81,11 @@ export class SettingsManager {
   isVoiceConfigured(): boolean {
     return this.cache.voice.apiKey.trim().length > 0;
   }
+
+  /** 检查素材管理是否已配置 apiKey */
+  isAssetConfigured(): boolean {
+    return this.cache.asset.apiKey.trim().length > 0;
+  }
 }
 
 // ── 工具：深合并（target 为默认值，source 为用户配置） ──────────────

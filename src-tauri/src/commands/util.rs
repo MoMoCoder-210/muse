@@ -32,6 +32,11 @@ pub(crate) fn default_settings_json() -> Value {
             "model": "",
             "speed": 1.0,
             "timeoutMs": 300000
+        },
+        "asset": {
+            "apiKey": "",
+            "baseUrl": "",
+            "timeoutMs": 300000
         }
     })
 }
@@ -78,6 +83,18 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
                 ("baseUrl", Value::String(String::new())),
                 ("model", Value::String(String::new())),
                 ("speed", Value::from(1.0)),
+                ("timeoutMs", Value::from(300000)),
+            ],
+        ),
+    );
+
+    root.insert(
+        "asset".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("asset")),
+            &[
+                ("apiKey", Value::String(String::new())),
+                ("baseUrl", Value::String(String::new())),
                 ("timeoutMs", Value::from(300000)),
             ],
         ),
@@ -246,4 +263,165 @@ pub(crate) fn send_cancel_to_worker(
 ) -> Result<(), String> {
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     manager.send_cancel(task_id).map_err(|e| e.to_string())
+}
+
+/// 方舟平台 API 配置（从 settings.json 的 asset 节读取）
+struct ArkConfig {
+    api_key: String,
+    base_url: String,
+    timeout_ms: u64,
+}
+
+/// 从 settings.json 加载方舟平台 API 配置
+///
+/// @author yt @date 20260707
+fn load_ark_config(app: &tauri::AppHandle) -> Result<ArkConfig, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
+    let settings_path = app_data_dir.join("settings.json");
+    let settings_content = std::fs::read_to_string(&settings_path)
+        .map_err(|e| format!("读取设置文件失败：{}", e))?;
+    let settings: Value = serde_json::from_str(&settings_content)
+        .map_err(|e| format!("解析设置文件失败：{}", e))?;
+    let settings = sanitize_settings(settings);
+
+    let asset = settings.get("asset").and_then(|v| v.as_object())
+        .ok_or("设置中缺少 asset 配置节")?;
+    let api_key = asset.get("apiKey").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let base_url = asset.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let timeout_ms = asset.get("timeoutMs").and_then(|v| v.as_u64()).unwrap_or(300000);
+
+    if api_key.is_empty() {
+        return Err("素材管理 API Key 未配置".to_string());
+    }
+    if base_url.is_empty() {
+        return Err("素材管理 Base URL 未配置".to_string());
+    }
+
+    Ok(ArkConfig { api_key, base_url, timeout_ms })
+}
+
+/// 同步上传本地图片到方舟平台，返回 file_id。
+///
+/// 使用 ureq 直接发起 HTTP 请求，阻塞当前线程直到完成。
+/// 用于导入本地图片时同步上传到方舟平台。
+///
+/// @author yt @date 20260707
+pub(crate) fn upload_ark_file_sync(
+    app: &tauri::AppHandle,
+    file_path: &str,
+) -> Result<String, String> {
+    use std::fs;
+
+    let config = load_ark_config(app)?;
+
+    // 读取文件内容
+    let file_data = fs::read(file_path)
+        .map_err(|e| format!("读取文件失败：{}", e))?;
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown.png");
+
+    // 推断 MIME 类型
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+    let mime_type = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    };
+
+    // 构建 multipart/form-data
+    let boundary = format!("----MuseUpload{}", chrono::Utc::now().timestamp_millis());
+    let mut body = Vec::new();
+
+    // file 字段
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(format!("Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n", file_name).as_bytes());
+    body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes());
+    body.extend_from_slice(&file_data);
+    body.extend_from_slice(b"\r\n");
+
+    // purpose 字段
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"purpose\"\r\n\r\n");
+    body.extend_from_slice(b"user_data");
+    body.extend_from_slice(b"\r\n");
+
+    // 结束边界
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    let base_url = config.base_url.trim_end_matches('/');
+    let url = format!("{}/v3/files", base_url);
+
+    let timeout = std::time::Duration::from_millis(config.timeout_ms);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
+
+    let response = agent
+        .post(&url)
+        .set("Authorization", &format!("Bearer {}", config.api_key))
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .send_bytes(&body)
+        .map_err(|e| format!("方舟文件上传失败：{}", e))?;
+
+    if response.status() >= 400 {
+        return Err(format!("方舟文件上传失败：HTTP {}", response.status()));
+    }
+
+    let response_body: Value = response.into_json()
+        .map_err(|e| format!("解析响应失败：{}", e))?;
+
+    let file_id = response_body.get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("响应中缺少 file id")?
+        .to_string();
+
+    Ok(file_id)
+}
+
+/// 同步从方舟平台删除文件（直接 HTTP DELETE，不经过 Worker）。
+///
+/// 从 settings.json 的 asset 节读取 apiKey / baseUrl / timeoutMs。
+/// 若配置缺失或 API 调用失败则返回错误。
+///
+/// @author yt @date 20260707
+pub(crate) fn delete_ark_file_sync(
+    app: &tauri::AppHandle,
+    file_id: &str,
+) -> Result<(), String> {
+    let config = load_ark_config(app)?;
+
+    let base_url = config.base_url.trim_end_matches('/');
+    let encoded_id = percent_encoding::utf8_percent_encode(
+        file_id,
+        percent_encoding::NON_ALPHANUMERIC,
+    );
+    let url = format!("{}/v3/files/{}", base_url, encoded_id);
+
+    let timeout = std::time::Duration::from_millis(config.timeout_ms);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
+
+    let resp = agent
+        .delete(&url)
+        .set("Authorization", &format!("Bearer {}", config.api_key))
+        .call()
+        .map_err(|e| format!("方舟文件删除失败：{}", e))?;
+
+    if resp.status() >= 400 {
+        return Err(format!("方舟文件删除失败：HTTP {}", resp.status()));
+    }
+
+    Ok(())
 }

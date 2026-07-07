@@ -18,12 +18,12 @@ export type StyleMode = (typeof STYLE_OPTIONS)[number];
 
 /** 风格名称 → 提示词值 映射 */
 export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
-  国漫: "Chinese-style anime style",
-  动漫: "anime style",
-  日漫: "Japanese anime style, Japanese animation aesthetic",
-  韩漫: "Korean anime style, Korean animation aesthetic",
-  二次元: "二次元风格",
-  真人: "photorealistic style",
+  国漫: "中国风动画美学风格",
+  动漫: "动画美学美学风格",
+  日漫: "日本动画美学风格",
+  韩漫: "韩国动画美学风格",
+  二次元: "二次元动画风格",
+  真人: "真人写真风格",
 };
 
 /**

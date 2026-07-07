@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, type AppSettings } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
 
 type SettingsSection = "basic" | "models";
-type ModelSection = "text" | "image" | "voice";
+type ModelSection = "text" | "image" | "voice" | "asset";
 
 type SettingsPageProps = {
   onClose: () => void;
@@ -27,6 +27,7 @@ const MODEL_NAV_ITEMS: Array<{
   { key: "text", label: "语言模型" },
   { key: "image", label: "生图模型" },
   { key: "voice", label: "语音模型" },
+  { key: "asset", label: "素材管理" },
 ];
 
 const API_FIELDS = [
@@ -126,6 +127,35 @@ const VOICE_GROUPS = [
   },
 ];
 
+const ASSET_FIELDS = [
+  {
+    key: "apiKey",
+    label: "API Key",
+    type: "password" as const,
+    placeholder: "输入方舟平台 API Key",
+  },
+  {
+    key: "baseUrl",
+    label: "Base URL",
+    type: "text" as const,
+    placeholder: "例如 https://ark.cn-beijing.volces.com/api",
+  },
+];
+
+const ASSET_GROUPS = [
+  {
+    title: "火山方舟素材管理",
+    description:
+      "用于将本地资产图片上传至方舟平台，获取素材 ID 供视频生成时引用。与语言/生图/语音模型共用同一方舟账号即可。",
+    fields: ASSET_FIELDS,
+  },
+  {
+    title: "其他参数设置",
+    description: "控制文件上传的请求超时时间。",
+    fields: [TIMEOUT_FIELD],
+  },
+];
+
 // --- 模型配置子组件 ---
 
 interface ModelSectionProps {
@@ -165,6 +195,18 @@ function VoiceModelSection({ settings, onChange }: ModelSectionProps) {
       groups={VOICE_GROUPS}
       values={settings.voice}
       onChange={(next) => onChange({ ...settings, voice: next })}
+    />
+  );
+}
+
+function AssetModelSection({ settings, onChange }: ModelSectionProps) {
+  return (
+    <ModelConfigSection<AppSettings["asset"]>
+      title="素材管理"
+      description="用于上传资产图片至方舟平台，获取素材 ID 供视频生成引用"
+      groups={ASSET_GROUPS}
+      values={settings.asset}
+      onChange={(next) => onChange({ ...settings, asset: next })}
     />
   );
 }
@@ -258,28 +300,17 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       );
     }
 
-    if (activeModelSection === "text") {
-      return (
-        <div className="settings-model-page">
-          {renderModelTabs()}
-          <TextModelSection settings={settings} onChange={setSettings} />
-        </div>
-      );
-    }
-
-    if (activeModelSection === "image") {
-      return (
-        <div className="settings-model-page">
-          {renderModelTabs()}
-          <ImageModelSection settings={settings} onChange={setSettings} />
-        </div>
-      );
-    }
+    const sectionComponents: Record<string, React.ReactNode> = {
+      text: <TextModelSection settings={settings} onChange={setSettings} />,
+      image: <ImageModelSection settings={settings} onChange={setSettings} />,
+      voice: <VoiceModelSection settings={settings} onChange={setSettings} />,
+      asset: <AssetModelSection settings={settings} onChange={setSettings} />,
+    };
 
     return (
       <div className="settings-model-page">
         {renderModelTabs()}
-        <VoiceModelSection settings={settings} onChange={setSettings} />
+        {sectionComponents[activeModelSection] ?? sectionComponents.asset}
       </div>
     );
   }

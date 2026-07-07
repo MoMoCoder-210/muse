@@ -136,3 +136,47 @@ export type ClipScriptInfo = {
 export type GenerateClipScriptInput = {
   clip_id: string;
 };
+
+/** 分镜状态 */
+export type StoryboardState = "pending" | "running" | "ready" | "failed" | "invalidated";
+
+/** 分镜数据（对应 storyboards 表） */
+export type Storyboard = {
+  id: string;
+  project_id: string;
+  clip_id: string;
+  sbid: string;
+  seq_num: number;
+  source_text: string;
+  summary: string;
+  dialogue: string;
+  visual_description: string;
+  video_prompt: string;
+  /** JSON 数组字符串 — 关联角色资产 ID */
+  character_ids_json: string;
+  /** JSON 数组字符串 — 关联场景资产 ID */
+  scene_ids_json: string;
+  /** JSON 数组字符串 — 关联物品资产 ID */
+  item_ids_json: string;
+  image_param_json: string | null;
+  video_param_json: string | null;
+  voice_param_json: string | null;
+  image_state: StoryboardState;
+  voice_state: StoryboardState;
+  video_state: StoryboardState;
+  voice_path: string | null;
+  voice_duration: number | null;
+  video_path: string | null;
+  video_duration: number | null;
+};
+
+/** 分镜关联的资产简要信息（含绑定图片路径） */
+export type StoryboardAssetInfo = {
+  asset_id: string;
+  type: AssetType;
+  name: string;
+  description: string;
+  prompt: string;
+  /** 资产选定的图片路径（可能为 null） */
+  selected_image_path: string | null;
+};

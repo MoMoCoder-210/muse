@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
-import { listAssetImageTasks, selectAssetImage, deleteAssetImage } from "../../services/tauri";
+import { listAssetImageTasks, selectAssetImage, deleteAssetImage, retryUploadAssetImage } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import type { AssetCardData } from "./AssetCard";
 import { AssetImageGallery, type GalleryImage } from "./AssetImageGallery";
+import { AssetPickerDrawer } from "./AssetPickerDrawer";
 
 /** 画幅比例 */
 type AspectRatio = "16:9" | "9:16" | "4:3" | "3:4" | "1:1";
@@ -72,6 +73,8 @@ export type GenerateParams = {
 type AssetDrawerProps = {
   /** 资产列表（单个或批量） */
   cards: AssetCardData[];
+  /** 当前项目 ID（用于资产选择器查询同项目资产） */
+  projectId: string;
   /** 关闭抽屉 */
   onClose: () => void;
   /** 确认生成单个资产 */
@@ -80,6 +83,8 @@ type AssetDrawerProps = {
   onBatchGenerate?: (cards: AssetCardData[], params: GenerateParams) => void;
   /** 选择本地图片 */
   onSelectLocal?: (data: AssetCardData) => Promise<void>;
+  /** 从项目内其他资产复制图片 */
+  onCopyFromProject?: (data: AssetCardData, sourceImageId: string) => Promise<void>;
   /** 绑定图片后通知外部刷新卡片列表 */
   onImageSelected?: () => void;
   /** 抽屉是否正在执行关闭动画 */
@@ -95,7 +100,7 @@ type AssetDrawerProps = {
  *
  * @author yt @date 20260705
  */
-export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSelectLocal, onImageSelected, closing, disabled }: AssetDrawerProps) {
+export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, closing, disabled }: AssetDrawerProps) {
   const { toast } = useToast();
   const [ratio, setRatio] = useState<AspectRatio>("16:9");
   const [tier, setTier] = useState<ResolutionTier>("2K");
@@ -106,6 +111,9 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [pollKey, setPollKey] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerClosing, setPickerClosing] = useState(false);
 
   const isBatch = cards.length > 1;
   const current = cards[currentIndex] ?? cards[0];
@@ -146,6 +154,8 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
           is_selected: t.is_selected,
           status: t.status as GalleryImage["status"],
           error_message: t.error_message ?? undefined,
+          ark_upload_status: t.ark_upload_status as GalleryImage["ark_upload_status"],
+          ark_upload_error: t.ark_upload_error ?? undefined,
         }));
 
         setGalleryImages(galleryItems);
@@ -221,6 +231,48 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
       toast("删除图片失败，请重试", "error");
     }
   }, [current, toast]);
+
+  // 重试上传
+  const handleRetryUpload = useCallback(async (imageId: string) => {
+    try {
+      await retryUploadAssetImage(imageId);
+      toast("上传成功", "success");
+      setPollKey((k) => k + 1);
+    } catch (err) {
+      toast(`上传失败：${String(err)}`, "error");
+      setPollKey((k) => k + 1);
+    }
+  }, [toast]);
+
+  // 打开项目内资产选择器
+  const handleOpenPicker = useCallback(() => {
+    setPickerOpen(true);
+    setPickerClosing(false);
+  }, []);
+
+  // 关闭项目内资产选择器（带动画）
+  const handleClosePicker = useCallback(() => {
+    setPickerClosing(true);
+    setTimeout(() => {
+      setPickerOpen(false);
+      setPickerClosing(false);
+    }, 260);
+  }, []);
+
+  // 从选择器中选中某个资产的图片 → 复制
+  const handlePickAsset = useCallback(async (sourceImageId: string, _sourceName: string) => {
+    if (!current || !onCopyFromProject) return;
+    setImporting(true);
+    handleClosePicker();
+    try {
+      await onCopyFromProject(current, sourceImageId);
+      setPollKey((k) => k + 1);
+    } catch (err) {
+      toast(`复制图片失败：${String(err)}`, "error");
+    } finally {
+      setImporting(false);
+    }
+  }, [current, onCopyFromProject, toast, handleClosePicker]);
 
   const { resource } = current;
   const typeLabel = TYPE_LABELS[current.type] ?? current.type;
@@ -302,7 +354,18 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
             onSelect={handleSelectImage}
             onDelete={handleDeleteImage}
             onRegenerate={() => handleGenerateClick(() => onGenerate(current, { size, style, n: imageCount }))}
-            onSelectLocal={onSelectLocal ? async () => { await onSelectLocal(current); setPollKey((k) => k + 1); } : undefined}
+            onSelectLocal={onSelectLocal ? async () => {
+              setImporting(true);
+              try {
+                await onSelectLocal(current);
+                setPollKey((k) => k + 1);
+              } finally {
+                setImporting(false);
+              }
+            } : undefined}
+            onSelectFromProject={onCopyFromProject ? handleOpenPicker : undefined}
+            onRetryUpload={handleRetryUpload}
+            importing={importing}
             disabled={disabled}
           />
 
@@ -407,6 +470,18 @@ export function AssetDrawer({ cards, onClose, onGenerate, onBatchGenerate, onSel
           )}
         </div>
       </aside>
+
+      {/* 项目内资产图片选择器（左侧抽屉） */}
+      {pickerOpen && current && (
+        <AssetPickerDrawer
+          projectId={projectId}
+          assetType={current.type}
+          excludeClipId={current.clipId}
+          onPick={handlePickAsset}
+          onClose={handleClosePicker}
+          closing={pickerClosing}
+        />
+      )}
     </>
   );
 }

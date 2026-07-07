@@ -152,8 +152,14 @@ pub fn run() {
             commands::list_asset_image_tasks,
             commands::batch_get_asset_selected_images,
             commands::import_local_asset_image,
+            commands::retry_upload_asset_image,
+            commands::list_project_asset_images,
+            commands::copy_asset_image_from,
             commands::cancel_clip_script,
             commands::get_clip_scripts,
+            commands::list_storyboards,
+            commands::list_clip_assets,
+            commands::update_storyboard_assets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

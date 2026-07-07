@@ -649,6 +649,9 @@ pub struct AssetImageTaskItem {
     /// ready（已生成）| pending | running | failed
     pub status: String,
     pub error_message: Option<String>,
+    /// 方舟上传状态：null（无需上传）| pending | uploaded | failed
+    pub ark_upload_status: Option<String>,
+    pub ark_upload_error: Option<String>,
     pub created_at: String,
 }
 
@@ -724,7 +727,7 @@ pub fn list_asset_image_tasks(
     if let Some(ref asset_id) = asset_row {
         let mut stmt = conn
             .prepare(
-                "SELECT id, image_path, size, style, is_selected, created_at
+                "SELECT id, image_path, size, style, is_selected, created_at, ark_upload_status, ark_upload_error
                  FROM asset_images WHERE asset_id = ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -739,6 +742,8 @@ pub fn list_asset_image_tasks(
                     is_selected: row.get::<_, i64>(4)? != 0,
                     status: "ready".to_string(),
                     error_message: None,
+                    ark_upload_status: row.get(6)?,
+                    ark_upload_error: row.get(7)?,
                     created_at: row.get(5)?,
                 })
             })
@@ -794,6 +799,8 @@ pub fn list_asset_image_tasks(
                     is_selected: false,
                     status,
                     error_message: row.get(2)?,
+                    ark_upload_status: None,
+                    ark_upload_error: None,
                     created_at: row.get(3)?,
                 })
             })
@@ -882,16 +889,13 @@ fn sanitize_file_name(name: &str) -> String {
 
 /// 将指定图片设为资产的选中图片
 ///
-/// 交换文件名：新选中的图片用干净名（{name}.png），原选中的图片改为带时间戳的归档名。
-/// 同时更新 asset_images.image_path、assets.selected_image_id 和 generated_image_path。
+/// 纯 DB 操作：只更新 is_selected 标记和 assets.selected_image_id，
+/// 不做任何文件重命名。文件路径创建后不可变。
 #[tauri::command]
 pub fn select_asset_image(
     input: SelectAssetImageInput,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    use std::path::{Path, PathBuf};
-    use std::fs;
-
     let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
@@ -899,7 +903,7 @@ pub fn select_asset_image(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     // 查 asset_id
-    let asset_row = tx
+    let asset_id = tx
         .query_row(
             "SELECT id FROM assets WHERE clip_id = ?1 AND type = ?2 AND name = ?3 LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
@@ -907,97 +911,45 @@ pub fn select_asset_image(
         )
         .map_err(|e| format!("未找到资产：{}", e))?;
 
-    // 查当前选中的旧图片（如果存在）
-    let old_selected: Option<(String, String)> = tx
-        .query_row(
-            "SELECT id, image_path FROM asset_images WHERE asset_id = ?1 AND is_selected = 1 AND id != ?2 LIMIT 1",
-            rusqlite::params![&asset_row, &input.image_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .ok();
-
-    // 查新选中的图片当前路径
-    let new_image_path: String = tx
+    // 查新选中图片的路径
+    let image_path: String = tx
         .query_row(
             "SELECT image_path FROM asset_images WHERE id = ?1",
             rusqlite::params![&input.image_id],
             |row| row.get(0),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("图片记录不存在：{}", e))?;
 
-    // 目标干净文件名：{name}.png
-    let safe_name = sanitize_file_name(&input.name);
-    let clean_filename = if safe_name.is_empty() { "asset".to_string() } else { safe_name.clone() };
-    let clean_filename = format!("{}.png", clean_filename);
-
-    let new_path = PathBuf::from(&new_image_path);
-    let dir = new_path.parent().ok_or("无效的图片路径")?;
-    let new_clean_path = dir.join(&clean_filename);
-    let timestamp = chrono::Local::now().timestamp_millis();
-
-    // 1. 先计算归档路径并更新 DB（纯事务保护）
-    let archive_path: Option<PathBuf> = if let Some((old_id, _old_path_str)) = &old_selected {
-        let old_stem = Path::new(&clean_filename)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("asset");
-        let archive_filename = format!("{}_{}_{}.png", old_stem, timestamp, old_id);
-        let archive_path = dir.join(&archive_filename);
-        tx.execute(
-            "UPDATE asset_images SET image_path = ?1 WHERE id = ?2",
-            rusqlite::params![archive_path.to_string_lossy().to_string(), old_id],
-        ).map_err(|e| e.to_string())?;
-        Some(archive_path)
-    } else {
-        None
-    };
-
-    let final_path = new_clean_path.to_string_lossy().to_string();
-
-    // 2. 更新新图片记录
+    // 1. 清除该资产所有图片的选中状态
     tx.execute(
-        "UPDATE asset_images SET is_selected = 1, image_path = ?1 WHERE id = ?2",
-        rusqlite::params![&final_path, &input.image_id],
-    ).map_err(|e| e.to_string())?;
+        "UPDATE asset_images SET is_selected = 0 WHERE asset_id = ?1",
+        rusqlite::params![&asset_id],
+    )
+    .map_err(|e| e.to_string())?;
 
-    // 清除其他图片的选中状态
+    // 2. 设置目标图片为选中
     tx.execute(
-        "UPDATE asset_images SET is_selected = 0 WHERE asset_id = ?1 AND id != ?2",
-        rusqlite::params![&asset_row, &input.image_id],
-    ).map_err(|e| e.to_string())?;
+        "UPDATE asset_images SET is_selected = 1 WHERE id = ?1",
+        rusqlite::params![&input.image_id],
+    )
+    .map_err(|e| e.to_string())?;
 
-    // 回写 assets 表
+    // 3. 回写 assets 表
     tx.execute(
         "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
-        rusqlite::params![&input.image_id, &final_path, &asset_row],
-    ).map_err(|e| e.to_string())?;
+        rusqlite::params![&input.image_id, &image_path, &asset_id],
+    )
+    .map_err(|e| e.to_string())?;
 
-    // 3. 提交事务（DB 一致性已保障）
     tx.commit().map_err(|e| e.to_string())?;
-
-    // 4. 最后执行文件重命名（非关键路径，失败仅影响文件名美观）
-    if let Some((_old_id, old_path_str)) = &old_selected {
-        let old_path = PathBuf::from(old_path_str);
-        if old_path.exists() {
-            if let Some(ref arch) = archive_path {
-                fs::rename(&old_path, arch).ok();
-            }
-        }
-    }
-    if new_path != new_clean_path {
-        if new_clean_path.exists() {
-            fs::remove_file(&new_clean_path).ok();
-        }
-        fs::rename(&new_path, &new_clean_path).ok();
-    }
 
     crate::project_log::append_log(
         &log_path,
         "资产",
         "INFO",
         &format!(
-            "已选中资产图片并重命名 clipId={} type={} name={} imageId={} path={}",
-            input.clip_id, input.asset_type, input.name, input.image_id, final_path
+            "已切换绑定图片 clipId={} type={} name={} imageId={} path={}",
+            input.clip_id, input.asset_type, input.name, input.image_id, image_path
         ),
     );
 
@@ -1016,7 +968,8 @@ pub struct DeleteAssetImageInput {
 
 /// 删除单张 asset_image 记录
 ///
-/// 若 delete_file 为 true，同时删除磁盘上的图片文件。
+/// 删除本地数据库记录和磁盘文件后，若有方舟平台 file_id，
+/// 异步通知 Worker 删除平台文件（best-effort，失败仅记录日志）。
 /// 如果删除的是当前选中的图片，自动选择下一张作为选中图（如果有）。
 #[tauri::command]
 pub fn delete_asset_image(
@@ -1039,15 +992,15 @@ pub fn delete_asset_image(
         )
         .map_err(|e| format!("未找到资产：{}", e))?;
 
-    let img: (String, bool) = tx
+    let img: (String, bool, Option<String>) = tx
         .query_row(
-            "SELECT image_path, is_selected FROM asset_images WHERE id = ?1 AND asset_id = ?2",
+            "SELECT image_path, is_selected, ark_file_id FROM asset_images WHERE id = ?1 AND asset_id = ?2",
             rusqlite::params![&input.image_id, &asset_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0, row.get::<_, Option<String>>(2)?)),
         )
         .map_err(|e| format!("图片记录不存在：{}", e))?;
 
-    let (image_path, was_selected) = img;
+    let (image_path, was_selected, ark_file_id) = img;
 
     // 删除数据库记录
     tx.execute(
@@ -1101,10 +1054,37 @@ pub fn delete_asset_image(
         "资产",
         "INFO",
         &format!(
-            "已删除资产图片 imageId={} deleteFile={}",
-            input.image_id, input.delete_file
+            "已删除资产图片 imageId={} deleteFile={} arkFileId={}",
+            input.image_id,
+            input.delete_file,
+            ark_file_id.as_deref().unwrap_or("none")
         ),
     );
+
+    // 事务提交后，若有方舟平台 file_id，同步删除（阻塞直到 API 返回）
+    if let Some(ref file_id) = ark_file_id {
+        match util::delete_ark_file_sync(&app, file_id) {
+            Ok(()) => {
+                crate::project_log::append_log(
+                    &log_path,
+                    "资产",
+                    "INFO",
+                    &format!("方舟文件删除成功 imageId={} arkFileId={}", input.image_id, file_id),
+                );
+            }
+            Err(e) => {
+                crate::project_log::append_log(
+                    &log_path,
+                    "资产",
+                    "WARN",
+                    &format!(
+                        "方舟文件删除失败（本地已删除） imageId={} arkFileId={}: {}",
+                        input.image_id, file_id, e
+                    ),
+                );
+            }
+        }
+    }
 
     Ok(())
 }
@@ -1175,7 +1155,9 @@ pub fn import_local_asset_image(
     fs::create_dir_all(&save_dir).map_err(|e| format!("创建目录失败：{}", e))?;
 
     let timestamp = chrono::Local::now().timestamp_millis();
-    let target_filename = format!("{}_{}.{}", safe_name, timestamp, ext);
+    let image_uuid = uuid::Uuid::new_v4();
+    let uuid_short = &image_uuid.to_string()[..8];
+    let target_filename = format!("{}_{}_{}.{}", safe_name, uuid_short, timestamp, ext);
     let target_path = save_dir.join(&target_filename);
     let target_path_str = target_path.to_string_lossy().to_string();
 
@@ -1213,11 +1195,11 @@ pub fn import_local_asset_image(
     let is_selected = !has_binding; // 无绑定时自动绑定
 
     // 6. 插入 asset_images 记录
-    let image_id = uuid::Uuid::new_v4().to_string();
+    let image_id = image_uuid.to_string();
     tx.execute(
-        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, is_selected, source, task_id, created_at)
-         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, 'local', NULL, datetime('now'))",
-        rusqlite::params![&image_id, &asset_id, &target_path_str, if is_selected { 1 } else { 0 }],
+        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
+         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, 'local', NULL, 'pending', datetime('now'))",
+        rusqlite::params![&image_id, &asset_id, &target_path_str, &target_filename, if is_selected { 1 } else { 0 }],
     )
     .map_err(|e| e.to_string())?;
 
@@ -1260,9 +1242,369 @@ pub fn import_local_asset_image(
         ),
     );
 
+    // 10. 同步上传到方舟平台（阻塞当前线程，但不阻塞 UI）
+    let upload_result = util::upload_ark_file_sync(&app, &target_path_str);
+    match upload_result {
+        Ok(file_id) => {
+            // 上传成功，更新数据库
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
+                rusqlite::params![&file_id, &image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "INFO",
+                &format!("方舟文件上传成功 imageId={} arkFileId={}", image_id, file_id),
+            );
+        }
+        Err(err) => {
+            // 上传失败，记录错误状态
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
+                rusqlite::params![&err, &image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "WARN",
+                &format!("方舟文件上传失败 imageId={}: {}", image_id, err),
+            );
+        }
+    }
+
     Ok(ImportLocalAssetImageResult {
         image_id,
         image_path: target_path_str,
         is_selected,
     })
+}
+
+/// 项目资产图片简要信息（资产选择器用）
+#[derive(Debug, Serialize)]
+pub struct ProjectAssetImageItem {
+    pub asset_id: String,
+    pub clip_id: String,
+    pub asset_type: String,
+    pub name: String,
+    pub description: String,
+    pub prompt: String,
+    pub selected_image_path: String,
+    pub selected_image_id: String,
+}
+
+/// 查询项目下指定类型的所有资产及其选中图片
+///
+/// 供资产选择器抽屉使用：展示同项目内同类型的所有资产图片，
+/// 排除当前分镜的所有资产（通过 exclude_clip_id）。
+#[tauri::command]
+pub fn list_project_asset_images(
+    app: tauri::AppHandle,
+    project_id: String,
+    asset_type: String,
+    exclude_clip_id: String,
+) -> Result<Vec<ProjectAssetImageItem>, String> {
+    let conn = util::open_app_conn(&app)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.id, a.clip_id, a.type, a.name, a.description, a.prompt,
+                    ai.image_path, ai.id as image_id
+             FROM assets a
+             JOIN asset_images ai ON ai.id = a.selected_image_id
+             WHERE a.project_id = ?1
+               AND a.type = ?2
+               AND a.clip_id != ?3
+             ORDER BY a.updated_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::params![&project_id, &asset_type, &exclude_clip_id],
+            |row| {
+                Ok(ProjectAssetImageItem {
+                    asset_id: row.get(0)?,
+                    clip_id: row.get(1)?,
+                    asset_type: row.get(2)?,
+                    name: row.get(3)?,
+                    description: row.get(4)?,
+                    prompt: row.get(5)?,
+                    selected_image_path: row.get(6)?,
+                    selected_image_id: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(items)
+}
+
+/// 从其他资产复制图片输入
+#[derive(Debug, Deserialize)]
+pub struct CopyAssetImageFromInput {
+    pub source_image_id: String,
+    pub target_clip_id: String,
+    pub target_asset_type: String,
+    pub target_name: String,
+}
+
+/// 从其他资产复制图片返回结果
+#[derive(Debug, Serialize)]
+pub struct CopyAssetImageFromResult {
+    pub image_id: String,
+    pub image_path: String,
+    pub is_selected: bool,
+}
+
+/// 从项目内另一个资产复制选中图片到当前资产
+///
+/// 复制磁盘文件 + 创建新的 asset_images 记录。
+/// 若目标资产尚无绑定图片，自动绑定。
+#[tauri::command]
+pub fn copy_asset_image_from(
+    input: CopyAssetImageFromInput,
+    app: tauri::AppHandle,
+) -> Result<CopyAssetImageFromResult, String> {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let mut conn = util::open_app_conn(&app)?;
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    // 1. 查源图片路径
+    let source_image_path: String = conn
+        .query_row(
+            "SELECT image_path FROM asset_images WHERE id = ?1",
+            rusqlite::params![&input.source_image_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("源图片不存在：{}", e))?;
+
+    let src = PathBuf::from(&source_image_path);
+    if !src.exists() {
+        return Err(format!("源图片文件不存在：{}", source_image_path));
+    }
+
+    // 2. 查目标片段所属项目 + 工作区路径
+    let (project_id, workspace_path): (String, String) = conn
+        .query_row(
+            "SELECT c.project_id, p.workspace_path FROM clips c
+             JOIN projects p ON p.id = c.project_id
+             WHERE c.id = ?1 AND c.deleted_at IS NULL",
+            rusqlite::params![&input.target_clip_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("目标片段不存在：{}", e))?;
+
+    // 3. 构造目标文件路径
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png");
+    let ext = if ext.is_empty() { "png" } else { ext };
+
+    let safe_name = sanitize_file_name(&input.target_name);
+    let type_dir = format!("{}s", input.target_asset_type);
+    let save_dir = PathBuf::from(&workspace_path)
+        .join("assets")
+        .join(&type_dir);
+    fs::create_dir_all(&save_dir).map_err(|e| format!("创建目录失败：{}", e))?;
+
+    let timestamp = chrono::Local::now().timestamp_millis();
+    let image_uuid = uuid::Uuid::new_v4();
+    let uuid_short = &image_uuid.to_string()[..8];
+    let target_filename = format!("{}_{}_{}.{}", safe_name, uuid_short, timestamp, ext);
+    let target_path = save_dir.join(&target_filename);
+    let target_path_str = target_path.to_string_lossy().to_string();
+
+    // 4. 事务：确保目标 assets 记录存在，插入 asset_images，复制文件
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let target_asset_id: String = match tx.query_row(
+        "SELECT id FROM assets WHERE project_id = ?1 AND clip_id = ?2 AND type = ?3 AND name = ?4 LIMIT 1",
+        rusqlite::params![&project_id, &input.target_clip_id, &input.target_asset_type, &input.target_name],
+        |row| row.get(0),
+    ) {
+        Ok(id) => id,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, status, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
+                rusqlite::params![&new_id, &project_id, &input.target_clip_id, &input.target_asset_type, &input.target_name],
+            )
+            .map_err(|e| e.to_string())?;
+            new_id
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+
+    // 5. 检查是否已有绑定图片
+    let existing_selected: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM asset_images WHERE asset_id = ?1 AND is_selected = 1",
+            rusqlite::params![&target_asset_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let has_binding = existing_selected > 0;
+    let is_selected = !has_binding;
+
+    // 6. 插入新的 asset_images 记录
+    let new_image_id = image_uuid.to_string();
+    tx.execute(
+        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
+         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, 'imported', NULL, 'pending', datetime('now'))",
+        rusqlite::params![&new_image_id, &target_asset_id, &target_path_str, &target_filename, if is_selected { 1 } else { 0 }],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 7. 若自动绑定，回写 assets 表
+    if is_selected {
+        tx.execute(
+            "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
+            rusqlite::params![&new_image_id, &target_path_str, &target_asset_id],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        tx.execute(
+            "UPDATE assets SET status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
+            rusqlite::params![&target_asset_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // 8. 复制文件
+    if let Err(e) = fs::copy(&src, &target_path) {
+        return Err(format!("复制文件失败：{}", e));
+    }
+
+    // 9. 提交事务
+    tx.commit().map_err(|e| {
+        if let Err(remove_err) = fs::remove_file(&target_path) {
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "WARN",
+                &format!(
+                    "事务回滚后清理残留文件失败 path={} error={}",
+                    target_path.display(), remove_err
+                ),
+            );
+        }
+        format!("保存记录失败：{}", e)
+    })?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "资产",
+        "INFO",
+        &format!(
+            "已从其他资产复制图片 sourceImageId={} targetClipId={} targetType={} targetName={} newImageId={} isSelected={}",
+            input.source_image_id, input.target_clip_id, input.target_asset_type, input.target_name, new_image_id, is_selected
+        ),
+    );
+
+    // 10. 同步上传到方舟平台
+    let upload_result = util::upload_ark_file_sync(&app, &target_path_str);
+    match upload_result {
+        Ok(file_id) => {
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
+                rusqlite::params![&file_id, &new_image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "INFO",
+                &format!("复制图片方舟上传成功 imageId={} arkFileId={}", new_image_id, file_id),
+            );
+        }
+        Err(err) => {
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
+                rusqlite::params![&err, &new_image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "WARN",
+                &format!("复制图片方舟上传失败 imageId={}: {}", new_image_id, err),
+            );
+        }
+    }
+
+    Ok(CopyAssetImageFromResult {
+        image_id: new_image_id,
+        image_path: target_path_str,
+        is_selected,
+    })
+}
+
+/// 重试上传失败的资产图片
+///
+/// 当 ark_upload_status = 'failed' 时，重新上传到方舟平台。
+#[tauri::command]
+pub fn retry_upload_asset_image(
+    image_id: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    let conn = util::open_app_conn(&app)?;
+
+    // 查询图片路径和当前状态
+    let (image_path, current_status): (String, Option<String>) = conn
+        .query_row(
+            "SELECT image_path, ark_upload_status FROM asset_images WHERE id = ?1",
+            rusqlite::params![&image_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .map_err(|e| format!("图片记录不存在：{}", e))?;
+
+    // 只有 failed 状态才允许重试
+    if current_status.as_deref() != Some("failed") {
+        return Err("该图片上传状态不是失败，无法重试".to_string());
+    }
+
+    // 先标记为 pending
+    let _ = conn.execute(
+        "UPDATE asset_images SET ark_upload_status = 'pending', ark_upload_error = NULL WHERE id = ?1",
+        rusqlite::params![&image_id],
+    );
+
+    // 同步上传
+    match util::upload_ark_file_sync(&app, &image_path) {
+        Ok(file_id) => {
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
+                rusqlite::params![&file_id, &image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "INFO",
+                &format!("方舟文件重传成功 imageId={} arkFileId={}", image_id, file_id),
+            );
+            Ok(())
+        }
+        Err(err) => {
+            let _ = conn.execute(
+                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
+                rusqlite::params![&err, &image_id],
+            );
+            crate::project_log::append_log(
+                &log_path,
+                "资产",
+                "WARN",
+                &format!("方舟文件重传失败 imageId={}: {}", image_id, err),
+            );
+            Err(format!("上传失败：{}", err))
+        }
+    }
 }
