@@ -49,9 +49,17 @@ pub fn run() {
                 .to_string();
             std::fs::create_dir_all(&default_workspace).ok();
 
+            // 解析 FFmpeg/FFprobe 路径
+            let ffmpeg_path = app_paths::ffmpeg_path(app.handle())
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let ffprobe_path = app_paths::ffprobe_path(app.handle())
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+
             let state = app.state::<sidecar::SharedSidecarManager>();
             let mut mgr = state.lock().map_err(|e| std::io::Error::other(e.to_string()))?;
-            match mgr.start(&db_path, &default_workspace, &config_path, &log_path.to_string_lossy()) {
+            match mgr.start(&db_path, &default_workspace, &config_path, &log_path.to_string_lossy(), &ffmpeg_path, &ffprobe_path) {
                 Ok(()) => {
                     project_log::append_log(&log_path, "应用", "INFO", "Worker 已随应用启动");
                 }
@@ -165,6 +173,8 @@ pub fn run() {
             commands::create_storyboard,
             commands::delete_storyboard,
             commands::insert_storyboard,
+            commands::update_storyboard_params,
+            commands::detect_ffmpeg,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

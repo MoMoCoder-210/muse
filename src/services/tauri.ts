@@ -530,3 +530,31 @@ export async function deleteStoryboard(input: {
 }): Promise<void> {
   return invoke<void>("delete_storyboard", { input });
 }
+
+/**
+ * 更新分镜的视频生成参数与提示词（失焦保存）
+ *
+ * @author yt @date 20260708
+ */
+export async function updateStoryboardParams(input: {
+  storyboard_id: string;
+  video_param_json: string | null;
+  video_prompt: string | null;
+}): Promise<void> {
+  return invoke<void>("update_storyboard_params", { input });
+}
+
+/**
+ * 检测 FFmpeg/FFprobe 是否可用
+ *
+ * @author yt @date 20260708
+ */
+export async function detectFFmpeg(): Promise<{
+  available: boolean;
+  ffmpeg_path: string;
+  ffprobe_path: string;
+  ffmpeg_exists: boolean;
+  ffprobe_exists: boolean;
+}> {
+  return invoke("detect_ffmpeg");
+}

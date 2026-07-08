@@ -404,3 +404,167 @@
     justify-content: flex-end;
   }
 }
+
+/* ── FFmpeg 状态卡片 ───────────────────────────────────── */
+
+.settings-ffmpeg-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.settings-section-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: var(--spacing-sm);
+}
+
+/* 卡片主体 */
+.settings-ffmpeg-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-subtle);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.018), transparent 60%),
+    var(--bg-surface-deep);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.settings-ffmpeg-card--ok {
+  border-color: rgba(var(--color-success-rgb), 0.25);
+  box-shadow: 0 0 20px rgba(var(--color-success-rgb), 0.05);
+}
+
+.settings-ffmpeg-card--error {
+  border-color: rgba(var(--color-warning-rgb), 0.25);
+  box-shadow: 0 0 20px rgba(var(--color-warning-rgb), 0.05);
+}
+
+/* 卡片头部：状态指示器 + 标签 */
+.settings-ffmpeg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-ffmpeg-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* 状态指示圆点 */
+.settings-ffmpeg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.settings-ffmpeg-dot--ok {
+  background: var(--color-success);
+  box-shadow: 0 0 8px rgba(var(--color-success-rgb), 0.6);
+  animation: ffmpeg-dot-pulse 2.4s ease-in-out infinite;
+}
+
+.settings-ffmpeg-dot--error {
+  background: var(--color-warning);
+  box-shadow: 0 0 8px rgba(var(--color-warning-rgb), 0.5);
+}
+
+@keyframes ffmpeg-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.settings-ffmpeg-status-text {
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+/* 状态药丸标签 */
+.settings-ffmpeg-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+}
+
+.settings-ffmpeg-badge--ok {
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
+}
+
+.settings-ffmpeg-badge--error {
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+}
+
+/* 路径详情区域 */
+.settings-ffmpeg-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.settings-ffmpeg-detail {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-ffmpeg-label {
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.settings-ffmpeg-path {
+  font-size: var(--font-size-xs);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--line-height-base);
+}
+
+.settings-ffmpeg-path--missing {
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-family);
+}
+
+/* 说明文字 */
+.settings-ffmpeg-desc {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-base);
+}
+
+/* 加载态 */
+.settings-ffmpeg-card--loading {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

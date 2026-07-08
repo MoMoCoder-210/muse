@@ -68,3 +68,46 @@ pub fn sanitize_project_dir_name(name: &str) -> String {
         trimmed.to_string()
     }
 }
+
+/// 解析 FFmpeg 目录路径。
+///
+/// 查找顺序：
+/// 1. Tauri resource_dir/ffmpeg（生产包）
+/// 2. cwd/ffmpeg（开发模式，cwd 可能是 src-tauri/）
+/// 3. cwd/../ffmpeg（开发模式回退）
+///
+/// @author yt @date 20260708
+pub fn resolve_ffmpeg_dir<R: Runtime, M: Manager<R>>(app: &M) -> Option<PathBuf> {
+    // 1. Tauri resource_dir/ffmpeg
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let ffmpeg_dir = res_dir.join("ffmpeg");
+        if ffmpeg_dir.exists() {
+            return Some(ffmpeg_dir);
+        }
+    }
+
+    // 2. cwd/ffmpeg
+    let cwd = std::env::current_dir().ok()?;
+    let ffmpeg_dir = cwd.join("ffmpeg");
+    if ffmpeg_dir.exists() {
+        return Some(ffmpeg_dir);
+    }
+
+    // 3. cwd/../ffmpeg (dev 模式下 cwd = src-tauri/)
+    let ffmpeg_dir = cwd.parent()?.join("ffmpeg");
+    if ffmpeg_dir.exists() {
+        return Some(ffmpeg_dir);
+    }
+
+    None
+}
+
+/// 获取 ffmpeg 可执行文件路径
+pub fn ffmpeg_path<R: Runtime, M: Manager<R>>(app: &M) -> Option<PathBuf> {
+    resolve_ffmpeg_dir(app).map(|d| d.join("ffmpeg.exe"))
+}
+
+/// 获取 ffprobe 可执行文件路径
+pub fn ffprobe_path<R: Runtime, M: Manager<R>>(app: &M) -> Option<PathBuf> {
+    resolve_ffmpeg_dir(app).map(|d| d.join("ffprobe.exe"))
+}

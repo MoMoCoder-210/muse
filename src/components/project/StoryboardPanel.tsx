@@ -4,8 +4,11 @@ import type { ProjectInfo, Clip, ClipScriptInfo, Storyboard, StoryboardAssetInfo
 import {
   listClips, getClipScripts, listStoryboards, listClipAssets,
   updateStoryboardAssets, createStoryboard, deleteStoryboard, insertStoryboard,
+  updateStoryboardParams,
 } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
+import { DeleteStoryboardConfirm } from "./DeleteStoryboardConfirm";
+import { StoryboardConfirm } from "./StoryboardConfirm";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -45,6 +48,9 @@ export function StoryboardPanel({ project }: Props) {
   const [clipId, setClipId] = useState<string | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Storyboard | null>(null);
+  // 新增分镜：undefined=不弹窗, "__end__"=末尾添加, null=最前插入, string=在某分镜后插入
+  const [insertAfterId, setInsertAfterId] = useState<string | null | undefined>(undefined);
 
   // ── 数据 ────────────────────────────────────────
 
@@ -98,25 +104,54 @@ export function StoryboardPanel({ project }: Props) {
     } catch { toast("更新失败", "error"); } finally { setSaving(null); }
   }, [toast]);
 
+  // 批量绑定资产（一次调用 API，避免逐个覆盖）
+  const batchToggleLink = useCallback(async (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => {
+    const cArr = [...ids.character], sArr = [...ids.scene], iArr = [...ids.item];
+    setSaving(sb.id);
+    try {
+      await updateStoryboardAssets({ storyboard_id: sb.id, character_ids: cArr, scene_ids: sArr, item_ids: iArr });
+      setDataMap((p) => { const d = p[sb.clip_id]; if (!d) return p; return { ...p, [sb.clip_id]: { ...d, storyboards: d.storyboards.map((s) => s.id === sb.id ? { ...s, character_ids_json: JSON.stringify(cArr), scene_ids_json: JSON.stringify(sArr), item_ids_json: JSON.stringify(iArr) } : s) } }; });
+    } catch { toast("批量关联失败", "error"); } finally { setSaving(null); }
+  }, [toast]);
+
   // ── 新增/插入/删除分镜 ────────────────────────
 
   const addSb = useCallback(async () => {
     if (!clip) return; setSaving("__new__");
-    try { await createStoryboard({ clip_id: clip.id, project_id: project.id }); setDataMap((p) => ({ ...p, [clip.id]: { ...p[clip.id], loaded: false } })); await loadSb(clip.id); }
+    try {
+      await createStoryboard({ clip_id: clip.id, project_id: project.id });
+      setDataMap((p) => ({ ...p, [clip.id]: { ...p[clip.id], loaded: false } }));
+      // 手动同步 ref，确保 loadSb 能进入加载逻辑
+      dataMapRef.current = { ...dataMapRef.current, [clip.id]: { ...dataMapRef.current[clip.id], loaded: false } };
+      await loadSb(clip.id);
+    }
     catch { toast("添加失败", "error"); } finally { setSaving(null); }
   }, [clip, project.id, toast, loadSb]);
 
   const insertSb = useCallback(async (afterId: string | null) => {
     if (!clip) return; setSaving("__new__");
-    try { await insertStoryboard({ clip_id: clip.id, project_id: project.id, after_storyboard_id: afterId }); setDataMap((p) => ({ ...p, [clip.id]: { ...p[clip.id], loaded: false } })); await loadSb(clip.id); }
+    try {
+      await insertStoryboard({ clip_id: clip.id, project_id: project.id, after_storyboard_id: afterId });
+      setDataMap((p) => ({ ...p, [clip.id]: { ...p[clip.id], loaded: false } }));
+      // 手动同步 ref，确保 loadSb 能进入加载逻辑
+      dataMapRef.current = { ...dataMapRef.current, [clip.id]: { ...dataMapRef.current[clip.id], loaded: false } };
+      await loadSb(clip.id);
+    }
     catch { toast("插入失败", "error"); } finally { setSaving(null); }
   }, [clip, project.id, toast, loadSb]);
 
-  const delSb = useCallback(async (sb: Storyboard) => {
-    if (!confirm(`删除 ${sb.sbid || `#${sb.seq_num}`}？`)) return; setSaving(sb.id);
-    try { await deleteStoryboard({ storyboard_id: sb.id }); setDataMap((p) => { const d = p[sb.clip_id]; if (!d) return p; return { ...p, [sb.clip_id]: { ...d, storyboards: d.storyboards.filter((s) => s.id !== sb.id) } }; }); }
+  const delSb = useCallback(async () => {
+    if (!deleteTarget) return;
+    setSaving(deleteTarget.id); setDeleteTarget(null);
+    try {
+      await deleteStoryboard({ storyboard_id: deleteTarget.id });
+      // 删除后重新加载，确保 seq_num 与数据库一致
+      setDataMap((p) => ({ ...p, [deleteTarget.clip_id]: { ...p[deleteTarget.clip_id], loaded: false } }));
+      dataMapRef.current = { ...dataMapRef.current, [deleteTarget.clip_id]: { ...dataMapRef.current[deleteTarget.clip_id], loaded: false } };
+      await loadSb(deleteTarget.clip_id);
+    }
     catch { toast("删除失败", "error"); } finally { setSaving(null); }
-  }, [toast]);
+  }, [deleteTarget, toast, loadSb]);
 
   const busy = saving !== null;
 
@@ -156,11 +191,13 @@ export function StoryboardPanel({ project }: Props) {
               {/* ========== 上方：选中分镜详情 ========== */}
               {activeSb && (
                 <DetailView
+                  key={activeSb.id}
                   sb={activeSb}
                   assets={assets}
                   busy={busy}
                   saving={saving === activeSb.id}
                   onToggle={(a) => toggleLink(activeSb, a)}
+                  onBatchToggle={batchToggleLink}
                 />
               )}
 
@@ -168,7 +205,7 @@ export function StoryboardPanel({ project }: Props) {
               <div className="sb-strip-wrap">
                 <div className="sb-strip">
                   {/* 最前插入 */}
-                  <button className="sb-strip-insert" onClick={() => insertSb(null)} disabled={busy} title="在最前插入">
+                  <button className="sb-strip-insert" onClick={() => setInsertAfterId("__first__")} disabled={busy} title="在最前插入">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   </button>
 
@@ -193,7 +230,7 @@ export function StoryboardPanel({ project }: Props) {
                             )}
                             <button
                               className="sb-strip-del"
-                              onClick={(ev) => { ev.stopPropagation(); delSb(sb); }}
+                              onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(sb); }}
                               disabled={busy}
                               title="删除"
                             >
@@ -204,7 +241,7 @@ export function StoryboardPanel({ project }: Props) {
                         </button>
 
                         {/* 卡片间插入 */}
-                        <button className="sb-strip-insert" onClick={() => insertSb(sb.id)} disabled={busy} title="在此后插入">
+                        <button className="sb-strip-insert" onClick={() => setInsertAfterId(sb.id)} disabled={busy} title="在此后插入">
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         </button>
                       </div>
@@ -212,7 +249,7 @@ export function StoryboardPanel({ project }: Props) {
                   })}
 
                   {/* 末尾添加 */}
-                  <button className="sb-strip-item sb-strip-item--add" onClick={addSb} disabled={busy} title="追加到末尾">
+                  <button className="sb-strip-item sb-strip-item--add" onClick={() => setInsertAfterId(null)} disabled={busy} title="追加到末尾">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   </button>
                 </div>
@@ -222,21 +259,90 @@ export function StoryboardPanel({ project }: Props) {
         </div>
       </div>
 
+      {/* 删除确认框 */}
+      {deleteTarget && (
+        <DeleteStoryboardConfirm
+          sb={deleteTarget}
+          onConfirm={delSb}
+          onCancel={() => setDeleteTarget(null)}
+          disabled={busy}
+        />
+      )}
+
+      {/* 新增分镜确认框（添加/插入统一） */}
+      {insertAfterId !== undefined && (
+        <StoryboardConfirm
+          title="新增分镜"
+          message="确认新增一个空分镜？"
+          confirmText="新增"
+          onConfirm={() => {
+            const id = insertAfterId;
+            setInsertAfterId(undefined);
+            if (id === null) addSb();
+            else if (id === "__first__") insertSb(null);
+            else insertSb(id);
+          }}
+          onCancel={() => setInsertAfterId(undefined)}
+          disabled={busy}
+        />
+      )}
+
     </div>
   );
 }
 
 /* ========================================================================
    DetailView — 上方选中分镜详情
+
+   批次区域拆分为：
+     左侧：批次缩略图列表（竖列）
+     右侧：视频生成参数（模型/时长/分辨率/宽高比 + 生成按钮）
+   所有参数失焦保存。
    ======================================================================== */
 
 type DetailProps = {
   sb: Storyboard; assets: StoryboardAssetInfo[];
   busy: boolean; saving: boolean;
   onToggle: (a: StoryboardAssetInfo) => void;
+  onBatchToggle: (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => Promise<void>;
 };
 
-function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
+/** 视频参数结构 */
+interface VideoParams {
+  model: string;
+  duration: number;
+  resolution: string;
+  aspect_ratio: string;
+}
+
+const DEFAULT_VIDEO_PARAMS: VideoParams = {
+  model: "kling-v1",
+  duration: 5,
+  resolution: "1080p",
+  aspect_ratio: "16:9",
+};
+
+const MODEL_OPTIONS = ["kling-v1", "kling-v1.5", "sora-v1", "veo-v1"];
+const DURATION_OPTIONS = [5, 10, 15, 30, 60];
+const RESOLUTION_OPTIONS = ["720p", "1080p", "2K", "4K"];
+const ASPECT_OPTIONS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+
+function parseVideoParams(json: string | null): VideoParams {
+  if (!json) return { ...DEFAULT_VIDEO_PARAMS };
+  try {
+    const obj = JSON.parse(json);
+    return {
+      model: obj.model || DEFAULT_VIDEO_PARAMS.model,
+      duration: obj.duration || DEFAULT_VIDEO_PARAMS.duration,
+      resolution: obj.resolution || DEFAULT_VIDEO_PARAMS.resolution,
+      aspect_ratio: obj.aspect_ratio || DEFAULT_VIDEO_PARAMS.aspect_ratio,
+    };
+  } catch {
+    return { ...DEFAULT_VIDEO_PARAMS };
+  }
+}
+
+function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: DetailProps) {
   const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
   const linked = (a: StoryboardAssetInfo) => a.type === "character" ? cIds.has(a.asset_id) : a.type === "scene" ? sIds.has(a.asset_id) : iIds.has(a.asset_id);
   const videoPaths = useMemo<string[]>(() => {
@@ -246,6 +352,36 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
   }, [sb.video_path]);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const currentVideoSrc = videoPaths[activeVideoIdx] ? convertFileSrc(videoPaths[activeVideoIdx]) : null;
+
+  // ── 视频参数状态（从 sb.video_param_json 初始化） ──
+  const [params, setParams] = useState<VideoParams>(() => parseVideoParams(sb.video_param_json));
+  const [prompt, setPrompt] = useState(sb.video_prompt || "");
+  const paramsRef = useRef(params); paramsRef.current = params;
+  const promptRef = useRef(prompt); promptRef.current = prompt;
+  const sbIdRef = useRef(sb.id); sbIdRef.current = sb.id;
+
+  // 切换分镜时重置参数
+  useEffect(() => {
+    setParams(parseVideoParams(sb.video_param_json));
+    setPrompt(sb.video_prompt || "");
+  }, [sb.id, sb.video_param_json, sb.video_prompt]);
+
+  // 失焦保存
+  const saveParams = useCallback(async () => {
+    try {
+      await updateStoryboardParams({
+        storyboard_id: sbIdRef.current,
+        video_param_json: JSON.stringify(paramsRef.current),
+        video_prompt: promptRef.current || null,
+      });
+    } catch {
+      // 静默失败，失焦保存不需要 toast
+    }
+  }, []);
+
+  const updateParam = useCallback(<K extends keyof VideoParams>(key: K, value: VideoParams[K]) => {
+    setParams((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   const [pickerCat, setPickerCat] = useState<AssetType | null>(null);
   const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set());
@@ -276,7 +412,6 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
                 </filter>
               </defs>
               <rect width="320" height="180" rx="10" fill={`url(#vph-grad-${sb.id})`} />
-              {/* 胶片孔装饰 */}
               <g opacity="0.12">
                 <rect x="28" y="44" width="6" height="10" rx="1" fill="rgba(var(--text-muted-rgb),0.8)" />
                 <rect x="28" y="66" width="6" height="10" rx="1" fill="rgba(var(--text-muted-rgb),0.8)" />
@@ -287,7 +422,6 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
                 <rect x="286" y="88" width="6" height="10" rx="1" fill="rgba(var(--text-muted-rgb),0.8)" />
                 <rect x="286" y="110" width="6" height="10" rx="1" fill="rgba(var(--text-muted-rgb),0.8)" />
               </g>
-              {/* 中心播放图标 */}
               <circle cx="160" cy="90" r="34" fill="rgba(0,0,0,0.22)" stroke={`url(#vph-ring-${sb.id})`} strokeWidth="1" />
               <circle cx="160" cy="90" r="26" fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
               <polygon points="152,78 152,102 176,90" fill="rgba(255,255,255,0.75)" filter={`url(#vph-glow-${sb.id})`} />
@@ -298,70 +432,107 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
         {/* 右侧：提示词 */}
         <div className="sd-detail-right">
           <div className="sd-detail-prompt">
-            <span className="sd-detail-prompt-label">视频提示词</span>
-            <pre className="sd-detail-prompt-text">{sb.video_prompt || "暂无提示词"}</pre>
+            <textarea
+              className="sd-detail-prompt-text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onBlur={saveParams}
+              placeholder="暂无提示词"
+              rows={4}
+            />
           </div>
         </div>
       </div>
 
-      {/* 视频批次缩略图：贯通全宽 */}
-      <div className="sd-video-list">
-        {videoPaths.map((path, i) => (
-          <button
-            key={i}
-            className={`sd-video-thumb${i === activeVideoIdx ? " on" : ""}`}
-            onClick={() => setActiveVideoIdx(i)}
-          >
-            <video src={convertFileSrc(path)} muted preload="metadata" />
-            <span className="sd-video-thumb-label">B{i + 1}</span>
-          </button>
-        ))}
-        {videoPaths.length === 0 && (
-          <button className="sd-video-thumb sd-video-thumb--empty" disabled>
-            <svg viewBox="0 0 80 60" fill="none" width="22" height="16">
-              <rect width="80" height="60" rx="4" fill="var(--bg-input)" />
-              <rect x="10" y="20" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
-              <rect x="10" y="34" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
-              <rect x="66" y="20" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
-              <rect x="66" y="34" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
-              <circle cx="40" cy="30" r="9" fill="rgba(0,0,0,0.22)" stroke="rgba(255,255,255,0.08)" strokeWidth="0.8" />
-              <polygon points="37,25 37,35 43,30" fill="rgba(255,255,255,0.35)" />
-            </svg>
-          </button>
-        )}
+      {/* 下方批次区：全宽 */}
+      <div className="sd-section">
+        <div className="sd-batch-thumbs">
+          {videoPaths.map((path, i) => (
+            <button
+              key={i}
+              className={`sd-video-thumb${i === activeVideoIdx ? " on" : ""}`}
+              onClick={() => setActiveVideoIdx(i)}
+            >
+              <video src={convertFileSrc(path)} muted preload="metadata" />
+              <span className="sd-video-thumb-label">B{i + 1}</span>
+            </button>
+          ))}
+          {videoPaths.length === 0 && (
+            <button className="sd-video-thumb sd-video-thumb--empty" disabled>
+              <svg viewBox="0 0 80 60" fill="none" width="22" height="16">
+                <rect width="80" height="60" rx="4" fill="var(--bg-input)" />
+                <rect x="10" y="20" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
+                <rect x="10" y="34" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
+                <rect x="66" y="20" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
+                <rect x="66" y="34" width="4" height="6" rx="1" fill="rgba(var(--text-muted-rgb),0.25)" />
+                <circle cx="40" cy="30" r="9" fill="rgba(0,0,0,0.22)" stroke="rgba(255,255,255,0.08)" strokeWidth="0.8" />
+                <polygon points="37,25 37,35 43,30" fill="rgba(255,255,255,0.35)" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* 对白 */}
-      {sb.dialogue && (
-        <blockquote className="sd-detail-dialogue">{sb.dialogue}</blockquote>
-      )}
+      {/* 底部两栏：左资产 | 右参数 */}
+      <div className="sd-bottom-row">
+        {/* 左侧：资产 */}
+        <div className="sd-section sd-section--assets">
+          <span className="sd-section-label">关联资产</span>
+          <div className="sd-detail-assets">
+            {CATS.map((cat) => {
+              const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
+              return (
+                <div key={cat.type} className="sd-detail-asset-row">
+                  <span className="sd-detail-asset-icon">{cat.icon}</span>
+                  <div className="sd-detail-asset-chips">
+                    {linkedList.map((a) => {
+                      const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
+                      return (
+                        <span key={a.asset_id} className="sd-detail-chip on" title={a.description || a.name}>
+                          {img && <span className="sd-detail-chip-img"><img src={img} alt="" /></span>}
+                          <span className="sd-detail-chip-name">{a.name}</span>
+                          <button className="sd-detail-chip-x" disabled={busy} onClick={() => onToggle(a)} title="取消关联">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <button className="sd-detail-chip sd-detail-chip--add" disabled={busy} onClick={() => setPickerCat(cat.type)} title={`关联${cat.label}`}>+</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
-      {/* 资产 */}
-      <div className="sd-detail-assets">
-        {CATS.map((cat) => {
-          const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
-          assets.filter((a) => a.type === cat.type && !linked(a));
-          return (
-              <div key={cat.type} className="sd-detail-asset-row">
-              <span className="sd-detail-asset-icon">{cat.icon}</span>
-              <div className="sd-detail-asset-chips">
-                {linkedList.map((a) => {
-                  const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
-                  return (
-                    <span key={a.asset_id} className="sd-detail-chip on" title={a.description || a.name}>
-                      {img && <span className="sd-detail-chip-img"><img src={img} alt="" /></span>}
-                      <span className="sd-detail-chip-name">{a.name}</span>
-                      <button className="sd-detail-chip-x" disabled={busy} onClick={() => onToggle(a)} title="取消关联">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    </span>
-                  );
-                })}
-                <button className="sd-detail-chip sd-detail-chip--add" disabled={busy} onClick={() => setPickerCat(cat.type)} title={`关联${cat.label}`}>+</button>
-              </div>
-            </div>
-          );
-        })}
+        {/* 右侧：视频生成参数 */}
+        <div className="sd-section sd-section--params">
+          <span className="sd-section-label">生成参数</span>
+          <div className="sd-params-labels">
+            <span className="sd-param-label">模型</span>
+            <span className="sd-param-label">时长</span>
+            <span className="sd-param-label">分辨率</span>
+            <span className="sd-param-label">宽高比</span>
+          </div>
+          <div className="sd-params-controls">
+            <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
+              {MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select className="sd-param-select" value={params.duration} onChange={(e) => updateParam("duration", Number(e.target.value))} onBlur={saveParams}>
+              {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}s</option>)}
+            </select>
+            <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
+              {RESOLUTION_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
+              {ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <button className="sd-generate-btn primary-button" disabled={busy}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
+            生成视频
+          </button>
+        </div>
       </div>
 
       {/* 资产选择弹窗 */}
@@ -377,9 +548,19 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
         const togglePick = (id: string) => {
           setPickerSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
         };
-        const confirmPick = () => {
-          freeList.filter((a) => pickerSelected.has(a.asset_id)).forEach((a) => onToggle(a));
+        const confirmPick = async () => {
+          // 一次性收集所有选中的资产 ID，合并到现有关联中
+          const cIds = new Set(parseIds(sb.character_ids_json));
+          const sIds = new Set(parseIds(sb.scene_ids_json));
+          const iIds = new Set(parseIds(sb.item_ids_json));
+          const newIds = freeList.filter((a) => pickerSelected.has(a.asset_id));
+          for (const a of newIds) {
+            if (a.type === "character") cIds.add(a.asset_id);
+            else if (a.type === "scene") sIds.add(a.asset_id);
+            else iIds.add(a.asset_id);
+          }
           closePicker();
+          await onBatchToggle(sb, { character: cIds, scene: sIds, item: iIds });
         };
 
         return (
@@ -391,7 +572,6 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
               </div>
 
               <div className="sd-picker-body">
-                {/* 已关联 */}
                 {linkedList.map((a) => {
                   const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
                   return (
@@ -407,7 +587,6 @@ function DetailView({ sb, assets, busy, saving, onToggle }: DetailProps) {
                   );
                 })}
 
-                {/* 可关联 */}
                 {freeList.length > 0 && (
                   <div className="sd-picker-section">
                     {freeList.map((a) => {

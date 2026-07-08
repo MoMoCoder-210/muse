@@ -206,6 +206,8 @@ pub struct SidecarManager {
     workspace_path: String,
     config_path: String,
     log_path: String,
+    ffmpeg_path: String,
+    ffprobe_path: String,
     // stderr 读取线程，shutdown 时 join
     log_handles: Vec<JoinHandle<()>>,
     /// Tauri 应用句柄，用于把 Worker 事件转发到前端
@@ -225,6 +227,8 @@ impl SidecarManager {
             workspace_path: String::new(),
             config_path: String::new(),
             log_path: String::new(),
+            ffmpeg_path: String::new(),
+            ffprobe_path: String::new(),
             log_handles: Vec::new(),
             app,
         }
@@ -239,7 +243,7 @@ impl SidecarManager {
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
     /// @author yt @date 20260702
-    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str) -> Result<(), SidecarError> {
+    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str, ffmpeg_path: &str, ffprobe_path: &str) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
         }
@@ -249,6 +253,8 @@ impl SidecarManager {
         self.workspace_path = workspace_path.to_string();
         self.config_path = config_path.to_string();
         self.log_path = log_path.to_string();
+        self.ffmpeg_path = ffmpeg_path.to_string();
+        self.ffprobe_path = ffprobe_path.to_string();
 
         // 解析 worker 脚本路径
         // Tauri dev 模式下 current_dir() 是 src-tauri/，需要回退到项目根目录
@@ -285,6 +291,8 @@ impl SidecarManager {
             .args(["--workspace", workspace_path])
             .args(["--config", config_path])
             .args(["--log", log_path])
+            .args(["--ffmpeg", ffmpeg_path])
+            .args(["--ffprobe", ffprobe_path])
             .env("LOG_LEVEL", "debug")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -458,7 +466,9 @@ impl SidecarManager {
         let workspace = self.workspace_path.clone();
         let config = self.config_path.clone();
         let log_path = self.log_path.clone();
-        self.start(&db, &workspace, &config, &log_path)
+        let ffmpeg = self.ffmpeg_path.clone();
+        let ffprobe = self.ffprobe_path.clone();
+        self.start(&db, &workspace, &config, &log_path, &ffmpeg, &ffprobe)
     }
     /// 返回：
     /// - Ok：心跳正常

@@ -464,3 +464,40 @@ pub fn insert_storyboard(
         video_duration: None,
     })
 }
+
+// ── 更新分镜视频参数 ──────────────────────────────
+
+/// 视频参数 JSON（前端自行序列化）
+#[derive(Debug, Deserialize)]
+pub struct UpdateStoryboardParamsInput {
+    pub storyboard_id: String,
+    /// JSON 字符串：{ model, duration, resolution, aspect_ratio }
+    pub video_param_json: Option<String>,
+    pub video_prompt: Option<String>,
+}
+
+/// 更新分镜的视频生成参数和提示词（失焦保存）
+#[tauri::command]
+pub fn update_storyboard_params(
+    input: UpdateStoryboardParamsInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let conn = util::open_app_conn(&app)?;
+
+    conn.execute(
+        "UPDATE storyboards SET video_param_json = ?1, video_prompt = ?2, updated_at = datetime('now') WHERE id = ?3",
+        rusqlite::params![&input.video_param_json, &input.video_prompt, &input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "分镜",
+        "INFO",
+        &format!("已更新分镜视频参数 storyboardId={}", input.storyboard_id),
+    );
+
+    Ok(())
+}

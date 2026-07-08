@@ -65,6 +65,7 @@ export class TaskRunner {
   private rateLimiter: RateLimiter;
   private emit: (event: TaskEvent) => void;
   private clients?: ApiClients;
+  private ffmpeg: import("./ffmpeg.js").FFmpegHelper;
   private running = false;
   private abortController: AbortController;
   private handlers: Map<TaskType, (ctx: TaskContext) => Promise<string>> = new Map();
@@ -81,6 +82,7 @@ export class TaskRunner {
     workerId: string,
     rateLimiter: RateLimiter,
     emit: (event: TaskEvent) => void,
+    ffmpeg: import("./ffmpeg.js").FFmpegHelper,
     onHeartbeat?: (activeCount: number) => void,
     clients?: ApiClients
   ) {
@@ -88,6 +90,7 @@ export class TaskRunner {
     this.workerId = workerId;
     this.rateLimiter = rateLimiter;
     this.emit = emit;
+    this.ffmpeg = ffmpeg;
     this.clients = clients;
     this.abortController = new AbortController();
     this.onHeartbeat = onHeartbeat ?? null;
@@ -274,6 +277,7 @@ export class TaskRunner {
       rateLimiter: this.rateLimiter,
       signal: taskAbort.signal,
       clients: this.clients,
+      ffmpeg: this.ffmpeg,
     };
 
     // 资产生图任务：向前端推送实时进度，避免前端仅依赖轮询

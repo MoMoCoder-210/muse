@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getSettings, saveSettings } from "../../services/tauri";
+import { getSettings, saveSettings, detectFFmpeg } from "../../services/tauri";
 import { ModelConfigSection } from "./ModelConfigSection";
 import { DEFAULT_SETTINGS, type AppSettings } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
@@ -223,6 +223,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [ffmpegStatus, setFFmpegStatus] = useState<{
+    available: boolean;
+    ffmpeg_path: string;
+    ffprobe_path: string;
+    ffmpeg_exists: boolean;
+    ffprobe_exists: boolean;
+  } | null>(null);
 
   useEffect(() => {
     getSettings()
@@ -231,6 +238,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         toast("读取设置失败，请检查后端的日志。", "error");
       })
       .finally(() => setLoading(false));
+
+    detectFFmpeg()
+      .then(setFFmpegStatus)
+      .catch(() => setFFmpegStatus(null));
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -274,8 +285,74 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         <div className="settings-basic-page">
           <div className="panel-header">
             <h3>基础设置</h3>
-            <p>这里放应用级默认项与通用偏好，不和具体模型接入混在一起。</p>
+            <p>应用级默认项与通用偏好。</p>
           </div>
+
+          {/* FFmpeg 状态 */}
+          <div className="settings-ffmpeg-section">
+            <h4 className="settings-section-title">视频处理引擎</h4>
+            {ffmpegStatus === null ? (
+              <div className="settings-ffmpeg-card settings-ffmpeg-card--loading">
+                <span className="spinner" aria-hidden />
+                <span>正在检测 FFmpeg…</span>
+              </div>
+            ) : ffmpegStatus.available ? (
+              <div className="settings-ffmpeg-card settings-ffmpeg-card--ok">
+                <div className="settings-ffmpeg-header">
+                  <div className="settings-ffmpeg-status">
+                    <span className="settings-ffmpeg-dot settings-ffmpeg-dot--ok" />
+                    <span className="settings-ffmpeg-status-text">FFmpeg 已就绪</span>
+                  </div>
+                  <span className="settings-ffmpeg-badge settings-ffmpeg-badge--ok">可用</span>
+                </div>
+                <div className="settings-ffmpeg-paths">
+                  <div className="settings-ffmpeg-detail">
+                    <span className="settings-ffmpeg-label">ffmpeg</span>
+                    <span className="settings-ffmpeg-path" title={ffmpegStatus.ffmpeg_path}>
+                      {ffmpegStatus.ffmpeg_path}
+                    </span>
+                  </div>
+                  <div className="settings-ffmpeg-detail">
+                    <span className="settings-ffmpeg-label">ffprobe</span>
+                    <span className="settings-ffmpeg-path" title={ffmpegStatus.ffprobe_path}>
+                      {ffmpegStatus.ffprobe_path}
+                    </span>
+                  </div>
+                </div>
+                <span className="settings-ffmpeg-desc">
+                  视频拼接、归一化、时长探测等功能均可使用。
+                </span>
+              </div>
+            ) : (
+              <div className="settings-ffmpeg-card settings-ffmpeg-card--error">
+                <div className="settings-ffmpeg-header">
+                  <div className="settings-ffmpeg-status">
+                    <span className="settings-ffmpeg-dot settings-ffmpeg-dot--error" />
+                    <span className="settings-ffmpeg-status-text">FFmpeg 未检测到</span>
+                  </div>
+                  <span className="settings-ffmpeg-badge settings-ffmpeg-badge--error">不可用</span>
+                </div>
+                <span className="settings-ffmpeg-desc">
+                  视频拼接等功能不可用。请将 ffmpeg.exe 和 ffprobe.exe 放入应用目录下的 ffmpeg/ 文件夹。
+                </span>
+                <div className="settings-ffmpeg-paths">
+                  <div className="settings-ffmpeg-detail">
+                    <span className="settings-ffmpeg-label">ffmpeg</span>
+                    <span className="settings-ffmpeg-path settings-ffmpeg-path--missing">
+                      {ffmpegStatus.ffmpeg_path || "未找到"}
+                    </span>
+                  </div>
+                  <div className="settings-ffmpeg-detail">
+                    <span className="settings-ffmpeg-label">ffprobe</span>
+                    <span className="settings-ffmpeg-path settings-ffmpeg-path--missing">
+                      {ffmpegStatus.ffprobe_path || "未找到"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="settings-basic-grid">
             <div className="summary-card">
               <span className="settings-summary-label">后续承载</span>
@@ -287,14 +364,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               <strong>运行与缓存</strong>
               <small>例如超时策略、缓存清理、临时文件与导出偏好。</small>
             </div>
-            <div className="summary-card">
-              <span className="settings-summary-label">当前状态</span>
-              <strong>结构已拆分</strong>
-              <small>基础设置与模型设置已经分层，后续可以直接扩展。</small>
-            </div>
-          </div>
-          <div className="empty-panel settings-basic-placeholder">
-            这里暂时预留给后续的基础设置项，等我们把真实配置字段补进来。
           </div>
         </div>
       );

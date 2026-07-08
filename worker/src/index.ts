@@ -21,16 +21,20 @@ import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
 import { splitScriptHandler } from "./handlers/split-script.js";
 import { generateClipScriptHandler } from "./handlers/generate-clip-script.js";
 import { generateAssetImageHandler } from "./handlers/generate-asset-image.js";
+import { concatVideoHandler } from "./handlers/video-concat.js";
 import { SettingsManager } from "./config/settings.js";
 import { createClients } from "./clients/index.js";
 import type { ApiClients } from "./clients/index.js";
 import { configureLogger, logLine } from "./logger.js";
+import { FFmpegHelper } from "./ffmpeg.js";
 
 const workerId = randomUUID();
 let dbPath = process.env.WORKER_DB_PATH || "";
 let workspacePath = process.env.WORKER_WORKSPACE_PATH || "";
 let configPath = process.env.WORKER_CONFIG_PATH || "";
 let logPath = process.env.WORKER_LOG_PATH || "";
+let ffmpegPath = process.env.WORKER_FFMPEG_PATH || "";
+let ffprobePath = process.env.WORKER_FFPROBE_PATH || "";
 let running = true;
 
 // 初始化数据库连接
@@ -39,6 +43,7 @@ let taskRunner: TaskRunner;
 let rateLimiter: RateLimiterImpl;
 let settings: SettingsManager;
 let clients: ApiClients;
+let ffmpegHelper: FFmpegHelper;
 
 interface UnknownWorkerCommand {
   cmd: string;
@@ -187,6 +192,10 @@ async function main(): Promise<void> {
       configPath = args[i + 1];
     } else if (args[i] === "--log" && args[i + 1]) {
       logPath = args[i + 1];
+    } else if (args[i] === "--ffmpeg" && args[i + 1]) {
+      ffmpegPath = args[i + 1];
+    } else if (args[i] === "--ffprobe" && args[i + 1]) {
+      ffprobePath = args[i + 1];
     }
   }
 
@@ -244,14 +253,32 @@ async function main(): Promise<void> {
     logLine("主进程", "DEBUG", `启动时待处理任务：${pendingCount.cnt}`);
 
     rateLimiter = new RateLimiterImpl();
+
+    // 检测 FFmpeg/FFprobe
+    if (ffmpegPath && ffprobePath) {
+      const detected = await FFmpegHelper.detect(ffmpegPath, ffprobePath);
+      if (detected) {
+        ffmpegHelper = detected;
+        const info = ffmpegHelper.getInfo();
+        sendLog("info", `FFmpeg 就绪：v${info.ffmpegVersion} @ ${info.ffmpegPath}`);
+      } else {
+        sendLog("warn", "FFmpeg/FFprobe 检测失败，视频拼接功能不可用");
+      }
+    } else {
+      sendLog("warn", "未提供 FFmpeg 路径（--ffmpeg / --ffprobe），视频拼接功能不可用");
+    }
+
     // TaskRunner 内置心跳定时器，通过 onHeartbeat 回调将心跳发送出去
-    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, sendHeartbeat, clients);
+    // 若 FFmpeg 不可用，传入占位实例（仅本地任务受影响，不影响其他 handler）
+    const ffmpegForRunner = ffmpegHelper ?? new FFmpegHelper(ffmpegPath || "ffmpeg", ffprobePath || "ffprobe");
+    taskRunner = new TaskRunner(db, workerId, rateLimiter, emitEvent, ffmpegForRunner, sendHeartbeat, clients);
 
     // 注册任务处理器
     taskRunner.registerHandler("split_script", splitScriptHandler);
     taskRunner.registerHandler("generate_clip_script", generateClipScriptHandler);
     taskRunner.registerHandler("generate_asset_image", generateAssetImageHandler);
-    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script, generate_asset_image");
+    taskRunner.registerHandler("concat_video", concatVideoHandler);
+    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script, generate_asset_image, concat_video");
 
     sendLog("info", `数据库初始化完成：${shortDb}`);
   } else {

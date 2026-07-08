@@ -67,25 +67,40 @@
   width: 100%; height: 100%; display: block;
 }
 
-/* 视频批次缩略图：贯通全宽，独立边框组件 */
-.sd-video-list {
+/* ============================================================
+   下方三区域：批次 / 资产+参数
+   ============================================================ */
+
+/* 通用区块卡片 */
+.sd-section {
   flex-shrink: 0;
-  display: flex; gap: var(--spacing-xs);
+  display: flex; flex-direction: column; gap: var(--spacing-xs);
   padding: var(--spacing-sm);
   background: var(--bg-surface-deep);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+}
+
+.sd-section-label {
+  font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold);
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+/* ── 1. 视频批次（全宽横排） ── */
+.sd-batch-thumbs {
+  display: flex; gap: var(--spacing-xs);
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  transition: scrollbar-color 200ms ease;
 }
-.sd-video-list:hover { scrollbar-color: var(--scrollbar-thumb) transparent; }
-.sd-video-list::-webkit-scrollbar { height: 4px; }
-.sd-video-list::-webkit-scrollbar-track { background: transparent; }
-.sd-video-list::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--radius-full); }
-.sd-video-list:hover::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+.sd-batch-thumbs:hover { scrollbar-color: var(--scrollbar-thumb) transparent; }
+.sd-batch-thumbs::-webkit-scrollbar { height: 4px; }
+.sd-batch-thumbs::-webkit-scrollbar-track { background: transparent; }
+.sd-batch-thumbs::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--radius-full); }
+.sd-batch-thumbs:hover::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
 
+/* 视频缩略图 */
 .sd-video-thumb {
   position: relative;
   flex-shrink: 0;
@@ -112,15 +127,80 @@
   opacity: 0.3; cursor: default;
 }
 
-/* 对白 */
-.sd-detail-dialogue {
+/* ── 2. 底部两栏：左资产 | 右参数（两区等高，整体贴合内容高度，不撑满） ── */
+.sd-bottom-row {
   flex-shrink: 0;
-  margin: 0; padding: var(--spacing-sm) var(--spacing-md);
-  background: linear-gradient(135deg, rgba(var(--color-warning-rgb), 0.06), rgba(var(--color-warning-rgb), 0.02));
-  border-left: 3px solid var(--color-warning);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  font-size: var(--font-size-sm); font-style: italic;
-  color: var(--color-warning); line-height: 1.6;
+  display: flex; gap: var(--spacing-md);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+/* 资产区块：由内容决定高度，超长则内部滚动 */
+.sd-section--assets {
+  flex: 1; min-width: 0;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+/* 参数区块：与资产区等高 */
+.sd-section--params {
+  flex: 1; min-width: 0;
+  justify-content: flex-start;
+}
+
+/* 参数标签行 */
+.sd-params-labels {
+  display: flex; gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+.sd-params-labels .sd-param-label {
+  flex: 1; min-width: 0;
+  font-size: var(--font-size-xxs); color: var(--text-muted);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 参数控件行 */
+.sd-params-controls {
+  display: flex; gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+.sd-params-controls .sd-param-select {
+  flex: 1; min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+.sd-params-controls .sd-param-select:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* 生成按钮（套用全局 btn-sm 尺寸，置于参数区右下角） */
+.sd-section--params .sd-generate-btn.primary-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-lg);
+  flex-shrink: 0; width: fit-content;
+  margin-top: auto; align-self: flex-end;
+}
+.sd-video-thumb-label {
+  position: absolute; bottom: 1px; left: 1px;
+  font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold); color: #fff;
+  background: rgba(0, 0, 0, 0.55); padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm); line-height: 1.3;
+}
+.sd-video-thumb--empty {
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.3; cursor: default;
 }
 
 /* 提示词 */
@@ -140,6 +220,12 @@
   font-family: "JetBrains Mono","Fira Code",monospace;
   font-size: var(--font-size-xxs); color: var(--text-muted);
   line-height: 1.6; white-space: pre-wrap; overflow-y: auto;
+  resize: none;
+  outline: none;
+}
+.sd-detail-prompt-text:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* 资产 */
@@ -233,15 +319,10 @@
 
 .sb-strip-wrap {
   flex-shrink: 0;
-  padding: var(--spacing-sm) 0;
+  padding: var(--spacing-sm) 0 calc(var(--spacing-sm) + 18px);
   background: var(--bg-surface-deep);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-}
-
-.sb-strip-dur {
-  font-size: var(--font-size-xxs); color: var(--text-muted); font-variant-numeric: tabular-nums;
-  text-align: center; line-height: 1.2;
 }
 
 .sb-strip {
@@ -256,7 +337,8 @@
 
 /* 缩略图卡片 */
 .sb-strip-item {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
   padding: 0; border: none; background: transparent;
   color: var(--text-muted); font-size: var(--font-size-xxs);
   cursor: pointer; flex-shrink: 0; width: 72px;
@@ -277,6 +359,13 @@
   overflow: hidden; background: var(--bg-input);
   display: flex; align-items: center; justify-content: center;
   transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* 底部文字脱离文档流，使 sb-strip-item 高度 = thumb 高度 */
+.sb-strip-dur {
+  position: absolute; bottom: -18px; left: 0; right: 0;
+  font-size: var(--font-size-xxs); color: var(--text-muted); font-variant-numeric: tabular-nums;
+  text-align: center; line-height: 1.2;
 }
 .sb-strip-del {
   position: absolute; top: 2px; right: 2px;
@@ -303,6 +392,7 @@
 /* 插入按钮 */
 .sb-strip-insert {
   display: flex; align-items: center; justify-content: center;
+  align-self: center;
   width: 20px; height: 20px; padding: 0;
   border: 1px dashed var(--border-faint); border-radius: var(--radius-full);
   background: transparent; color: var(--text-muted); cursor: pointer;

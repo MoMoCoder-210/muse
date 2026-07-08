@@ -42,7 +42,8 @@
     ],
     "resources": [
       "../migrations/*",
-      "../worker/dist/*"
+      "../worker/dist/*",
+      "../ffmpeg/*"
     ],
     "externalBin": []
   }

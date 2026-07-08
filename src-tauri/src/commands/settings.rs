@@ -4,6 +4,7 @@
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
+use serde::Serialize;
 use serde_json::Value;
 
 /// 获取应用版本号
@@ -55,4 +56,41 @@ pub fn save_settings(
     }
 
     Ok(())
+}
+
+/// FFmpeg 检测结果
+#[derive(Serialize)]
+pub struct FFmpegStatus {
+    pub available: bool,
+    pub ffmpeg_path: String,
+    pub ffprobe_path: String,
+    pub ffmpeg_exists: bool,
+    pub ffprobe_exists: bool,
+}
+
+/// 检测 FFmpeg/FFprobe 是否可用。
+///
+/// 检查内置 ffmpeg 目录下的可执行文件是否存在。
+/// 版本号由 Worker 启动时检测，此命令仅做路径存在性检查。
+///
+/// @author yt @date 20260708
+#[tauri::command]
+pub fn detect_ffmpeg(app: tauri::AppHandle) -> FFmpegStatus {
+    let ffmpeg_path = crate::app_paths::ffmpeg_path(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ffprobe_path = crate::app_paths::ffprobe_path(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let ffmpeg_exists = !ffmpeg_path.is_empty() && std::path::Path::new(&ffmpeg_path).exists();
+    let ffprobe_exists = !ffprobe_path.is_empty() && std::path::Path::new(&ffprobe_path).exists();
+
+    FFmpegStatus {
+        available: ffmpeg_exists && ffprobe_exists,
+        ffmpeg_path,
+        ffprobe_path,
+        ffmpeg_exists,
+        ffprobe_exists,
+    }
 }

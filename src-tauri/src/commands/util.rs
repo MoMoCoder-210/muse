@@ -233,8 +233,15 @@ pub(crate) fn ensure_worker_running(
         .to_string();
     std::fs::create_dir_all(&default_workspace).map_err(|e| e.to_string())?;
 
+    let ffmpeg_path = crate::app_paths::ffmpeg_path(app)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ffprobe_path = crate::app_paths::ffprobe_path(app)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
     manager
-        .start(&db_path, &default_workspace, &config_path, &log_path_str)
+        .start(&db_path, &default_workspace, &config_path, &log_path_str, &ffmpeg_path, &ffprobe_path)
         .map_err(|e| e.to_string())?;
 
     Ok(())

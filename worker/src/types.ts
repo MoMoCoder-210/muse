@@ -17,7 +17,8 @@ export type TaskType =
   | "generate_voice"        // 语音生成
   | "generate_video"        // 视频生成
   | "import_storyboard_voice" // 导入分镜语音
-  | "export_video";         // 导出成片
+  | "export_video"          // 导出成片
+  | "concat_video";        // 视频拼接
 
 // ===== 任务状态 =====
 export type TaskStatus =
@@ -88,6 +89,7 @@ export interface TaskContext {
   rateLimiter: RateLimiter;
   signal: AbortSignal;
   clients?: import("./clients/index.js").ApiClients;
+  ffmpeg: import("./ffmpeg.js").FFmpegHelper;
 }
 
 // ===== RateLimiter 接口 =====
@@ -111,4 +113,5 @@ export const TASK_TYPE_TO_API: Record<TaskType, ApiType> = {
   generate_video: "video",
   import_storyboard_voice: "local",
   export_video: "local",
+  concat_video: "local",
 };
