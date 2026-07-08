@@ -1,17 +1,193 @@
 /* ── 资产管理 ──────────────────────────────────── */
 
-/* 左侧片段列表面板 */
-.asset-clip-panel {
+/* ============================================================
+   悬停展开式左侧片段栏 (rail-layout)
+   共用样式：AssetPanel & StoryboardPanel
+   ============================================================ */
+
+:root {
+  --rail-width: 240px;
+}
+
+.rail-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 左侧轨道 — flex 布局，收起时完全隐形，JS 控制展开（无 :hover 抖动） */
+.rail-clips {
+  flex-shrink: 0;
+  width: 0;
+  min-width: 0;
+  z-index: var(--z-drawer);
+  background: transparent;
+  overflow: visible;
+  transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1),
+              min-width 320ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 收起态：内部内容全隐藏 */
+.rail-clips .rail-clips-inner {
+  opacity: 0;
+  transition: opacity 240ms 40ms ease;
+  pointer-events: none;
+}
+
+/* 展开态（is-expanded 或 is-locked-open 类控制） */
+.rail-clips.is-expanded,
+.rail-clips.is-locked-open {
+  width: var(--rail-width);
+  min-width: var(--rail-width);
+  overflow: hidden;
+  background: var(--bg-surface-deep);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.2);
+}
+
+.rail-clips.is-expanded .rail-clips-inner,
+.rail-clips.is-locked-open .rail-clips-inner {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 锁定态：强制收起 */
+.rail-clips.is-locked {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+  box-shadow: none !important;
+}
+
+/* 内部容器 */
+.rail-clips-inner {
+  width: var(--rail-width);
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  height: 100%;
-  min-height: 0;
   padding: var(--spacing-md);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-deep);
 }
+
+/* 主内容区 */
+.rail-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+/* 标题行 */
+.rail-clips-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+}
+
+.rail-clips-head-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.rail-clips-head-text {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* 空态 */
+.rail-clips-empty {
+  padding: var(--spacing-md) 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* 片段列表 */
+.rail-clips-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+/* 单个片段项 */
+.rail-clips-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  transition: all 140ms ease;
+  white-space: nowrap;
+}
+
+.rail-clips-item:hover {
+  background: var(--bg-hover-subtle);
+  border-color: var(--border-faint);
+}
+
+.rail-clips-item.on {
+  background: var(--bg-selected);
+  border-color: var(--border-accent-subtle);
+  color: var(--text-primary);
+}
+
+/* 片段序号（收起态也可见） */
+.rail-clips-item-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-primary);
+  background: var(--badge-bg);
+  border-radius: var(--radius-sm);
+}
+
+/* 文字区（展开后才可见完整内容） */
+.rail-clips-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rail-clips-item-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-clips-item-cnt {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+
 
 .asset-clip-list {
   flex: 1;
@@ -97,7 +273,8 @@
   gap: var(--spacing-sm);
   height: 100%;
   min-height: 0;
-  padding: var(--spacing-md);
+  overflow-y: auto;
+  padding: var(--spacing-xl);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--bg-surface-deep);
@@ -106,7 +283,6 @@
 .asset-display-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
@@ -1043,7 +1219,7 @@
   align-items: center;
   gap: 6px; /* 设计系统无 6px 档位，暂保留 */
   padding: 3px var(--spacing-sm) 3px 7px; /* 3px/7px 无对应 token，保留 */
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1;

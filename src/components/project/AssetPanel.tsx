@@ -33,6 +33,9 @@ const ASSET_CATEGORIES: { type: AssetType; label: string; icon: string }[] = [
   { type: "item", label: "物品", icon: "📦" },
 ];
 
+const RAIL_HOTZONE = 30;
+const RAIL_WIDTH = 240;
+
 type AssetPanelProps = {
   project: ProjectInfo;
 };
@@ -52,6 +55,21 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetCardId>>(new Set());
   const [operating, setOperating] = useState(false);
+  const [railLocked, setRailLocked] = useState(false);
+  const [railExpanded, setRailExpanded] = useState(false);
+  const layoutRef = useRef<HTMLDivElement>(null);
+
+  // ── 鼠标追踪：30px 进入 → 展开，260px 离开 → 收起（滞后防抖） ──
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!layoutRef.current) return;
+    const rect = layoutRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    setRailExpanded((prev) => {
+      if (prev && x > RAIL_WIDTH) return false;
+      if (!prev && x < RAIL_HOTZONE) return true;
+      return prev;
+    });
+  }, []);
 
   // 弹窗/抽屉状态
   const [deleteTarget, setDeleteTarget] = useState<AssetCardData[] | null>(null);
@@ -496,44 +514,58 @@ export function AssetPanel({ project }: AssetPanelProps) {
   }, [selectedClipId, load, toast]);
 
   return (
-    <div className="workspace-split-layout">
-      {/* ── 左侧：已拆解片段列表 ── */}
-      <div className="asset-clip-panel">
-        <div className="panel-header">
-          <h3>片段列表</h3>
-        </div>
-        {loading ? (
-          <p className="empty-clip-list">加载中…</p>
-        ) : disassembledClips.length === 0 ? (
-          <p className="empty-clip-list">暂无已拆解片段</p>
-        ) : (
-          <div className="asset-clip-list">
-            {disassembledClips.map((clip) => {
-              const cs = clipScripts.find((s) => s.clip_id === clip.id);
-              const isSelected = clip.id === selectedClipId;
-              return (
-                <button
-                  key={clip.id}
-                  type="button"
-                  className={`asset-clip-item${isSelected ? " asset-clip-item--selected" : ""}`}
-                  onClick={() => setSelectedClipId(clip.id)}
-                >
-                  <span className="asset-clip-index">第 {clip.sort_index} 集</span>
-                  <span className="asset-clip-title">{clip.title}</span>
-                  {cs && (
-                    <span className="asset-clip-count">
-                      {countResources(cs.extracted_resources_json)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+    <div className="rail-layout" ref={layoutRef} onMouseMove={handleMouseMove}>
+      {/* ── 左侧：悬停展开式片段栏 ── */}
+      <div
+        className={`rail-clips${
+          railLocked ? " is-locked" : selectedClipId ? (railExpanded ? " is-expanded" : "") : " is-locked-open"
+        }`}
+        onMouseLeave={() => setRailLocked(false)}
+      >
+        <div className="rail-clips-inner">
+          <div className="rail-clips-head">
+            <span className="rail-clips-head-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            </span>
+            <span className="rail-clips-head-text">片段列表</span>
           </div>
-        )}
+          {loading ? (
+            <p className="rail-clips-empty">加载中…</p>
+          ) : disassembledClips.length === 0 ? (
+            <p className="rail-clips-empty">暂无片段</p>
+          ) : (
+            <div className="rail-clips-list">
+              {disassembledClips.map((clip) => {
+                const cs = clipScripts.find((s) => s.clip_id === clip.id);
+                const isSelected = clip.id === selectedClipId;
+                return (
+                  <button
+                    key={clip.id}
+                    type="button"
+                    className={`rail-clips-item${isSelected ? " on" : ""}`}
+                    onClick={() => {
+                      setSelectedClipId(clip.id);
+                      setRailLocked(true);
+                    }}
+                    title={clip.title}
+                  >
+                    <span className="rail-clips-item-num">{clip.sort_index}</span>
+                    <span className="rail-clips-item-text">
+                      <span className="rail-clips-item-title">{clip.title}</span>
+                      {cs && (
+                        <span className="rail-clips-item-cnt">{countResources(cs.extracted_resources_json)} 资产</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── 右侧：资产展示 ── */}
-      <div className="workspace-right-panel">
+      <div className="rail-main">
         <div className="asset-display-panel">
           {!selectedClipId ? (
             <p className="empty-clip-list">请从左侧选择已拆解的片段</p>

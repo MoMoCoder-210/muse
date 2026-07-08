@@ -223,3 +223,128 @@ pub fn update_storyboard_assets(
 
     Ok(())
 }
+
+// ── 分镜增删 ────────────────────────────────────────────
+
+/// 新增分镜输入
+#[derive(Debug, Deserialize)]
+pub struct CreateStoryboardInput {
+    pub clip_id: String,
+    pub project_id: String,
+}
+
+/// 在当前片段的最大 seq_num 之后新增一个空分镜
+#[tauri::command]
+pub fn create_storyboard(
+    input: CreateStoryboardInput,
+    app: tauri::AppHandle,
+) -> Result<StoryboardInfo, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let conn = util::open_app_conn(&app)?;
+
+    // 获取当前片段的最大 seq_num
+    let max_seq: Option<i32> = conn
+        .query_row(
+            "SELECT MAX(seq_num) FROM storyboards WHERE clip_id = ?1",
+            rusqlite::params![&input.clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let next_seq = max_seq.unwrap_or(0) + 1;
+    let sbid = if next_seq == 1 {
+        "1-1".to_string()
+    } else {
+        format!("1-{}", next_seq)
+    };
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO storyboards (id, project_id, clip_id, sbid, seq_num, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![&id, &input.project_id, &input.clip_id, &sbid, next_seq, &now, &now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "分镜",
+        "INFO",
+        &format!(
+            "已新增分镜 id={} clipId={} sbid={} seq={}",
+            id, input.clip_id, sbid, next_seq
+        ),
+    );
+
+    Ok(StoryboardInfo {
+        id: id.clone(),
+        project_id: input.project_id,
+        clip_id: input.clip_id,
+        sbid,
+        seq_num: next_seq,
+        source_text: String::new(),
+        summary: String::new(),
+        dialogue: String::new(),
+        visual_description: String::new(),
+        video_prompt: String::new(),
+        character_ids_json: "[]".to_string(),
+        scene_ids_json: "[]".to_string(),
+        item_ids_json: "[]".to_string(),
+        image_param_json: None,
+        video_param_json: None,
+        voice_param_json: None,
+        image_state: "pending".to_string(),
+        voice_state: "pending".to_string(),
+        video_state: "pending".to_string(),
+        voice_path: None,
+        voice_duration: None,
+        video_path: None,
+        video_duration: None,
+    })
+}
+
+/// 删除分镜输入
+#[derive(Debug, Deserialize)]
+pub struct DeleteStoryboardInput {
+    pub storyboard_id: String,
+}
+
+/// 删除一个分镜，同时清理关联的 storyboard_assets 记录
+#[tauri::command]
+pub fn delete_storyboard(
+    input: DeleteStoryboardInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 先删除关联表记录
+    tx.execute(
+        "DELETE FROM storyboard_assets WHERE storyboard_id = ?1",
+        rusqlite::params![&input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 删除分镜本身
+    tx.execute(
+        "DELETE FROM storyboards WHERE id = ?1",
+        rusqlite::params![&input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "分镜",
+        "INFO",
+        &format!("已删除分镜 storyboardId={}", input.storyboard_id),
+    );
+
+    Ok(())
+}

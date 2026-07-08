@@ -492,3 +492,26 @@ export async function updateStoryboardAssets(input: {
 }): Promise<void> {
   return invoke<void>("update_storyboard_assets", { input });
 }
+
+/**
+ * 在当前片段末尾新增一个空白分镜
+ *
+ * @author yt @date 20260708
+ */
+export async function createStoryboard(input: {
+  clip_id: string;
+  project_id: string;
+}): Promise<Storyboard> {
+  return invoke<Storyboard>("create_storyboard", { input });
+}
+
+/**
+ * 删除一个分镜，同时清理关联记录
+ *
+ * @author yt @date 20260708
+ */
+export async function deleteStoryboard(input: {
+  storyboard_id: string;
+}): Promise<void> {
+  return invoke<void>("delete_storyboard", { input });
+}
