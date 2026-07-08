@@ -172,8 +172,8 @@ function saveResults(
   // 写入故事板
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
-      visual_description, video_prompt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      visual_description, video_prompt, video_duration)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (let i = 0; i < storyboards.length; i++) {
     const sb = storyboards[i];
@@ -181,6 +181,7 @@ function saveResults(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
       sb.description, sb.animationPrompt,
+      sb.duration ?? 15,
     );
   }
 }
@@ -278,6 +279,7 @@ interface ParsedSceneItem extends ParsedResourceItem {
 
 interface StoryboardItem {
   sbid: string;
+  duration?: number;
   description: string;
   originalText?: string;
   characters: ParsedResourceItem[];
@@ -302,7 +304,8 @@ function parseModelOutput(raw: string): StoryboardItem[] {
     const safeStr = (v: unknown) => (typeof v === "string" ? v : "");
 
     return {
-      sbid: safeStr(obj.sbid) || `${i + 1}-1`,
+      sbid: safeStr(obj.sbid) || `${i + 1}`,
+      duration: typeof obj.duration === "number" ? obj.duration : undefined,
       description: safeStr(obj.description),
       originalText: safeStr(obj.originalText),
       characters: Array.isArray(obj.characters) ? obj.characters.map((c: ParsedResourceItem) => ({

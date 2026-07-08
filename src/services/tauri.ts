@@ -506,6 +506,21 @@ export async function createStoryboard(input: {
 }
 
 /**
+ * 在指定分镜后插入新分镜，自动重排序号
+ *
+ * after_storyboard_id 为 null 则插入到最前面。
+ *
+ * @author yt @date 20260708
+ */
+export async function insertStoryboard(input: {
+  clip_id: string;
+  project_id: string;
+  after_storyboard_id: string | null;
+}): Promise<Storyboard> {
+  return invoke<Storyboard>("insert_storyboard", { input });
+}
+
+/**
  * 删除一个分镜，同时清理关联记录
  *
  * @author yt @date 20260708

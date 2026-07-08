@@ -6,7 +6,7 @@
    ============================================================ */
 
 :root {
-  --rail-width: 240px;
+  --rail-width: 206px;
 }
 
 .rail-layout {
@@ -20,9 +20,10 @@
   flex-shrink: 0;
   width: 0;
   min-width: 0;
-  z-index: var(--z-drawer);
+  z-index: var(--z-behind);
   background: transparent;
-  overflow: visible;
+  overflow: hidden;
+  pointer-events: none;
   transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1),
               min-width 320ms cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 320ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -40,9 +41,12 @@
 .rail-clips.is-locked-open {
   width: var(--rail-width);
   min-width: var(--rail-width);
+  z-index: var(--z-drawer);
   overflow: hidden;
+  pointer-events: auto;
   background: var(--bg-surface-deep);
   border-right: 1px solid var(--border-subtle);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
   box-shadow: 4px 0 32px rgba(0, 0, 0, 0.2);
 }
 

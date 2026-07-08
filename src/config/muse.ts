@@ -18,10 +18,10 @@ export type StyleMode = (typeof STYLE_OPTIONS)[number];
 
 /** 风格名称 → 提示词值 映射 */
 export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
-  国漫: "中国风动画美学风格",
-  动漫: "动画美学美学风格",
-  日漫: "日本动画美学风格",
-  韩漫: "韩国动画美学风格",
+  国漫: "国漫风格",
+  动漫: "动漫风格",
+  日漫: "日本动漫风格",
+  韩漫: "韩国动漫风格",
   二次元: "二次元动画风格",
   真人: "真人写真风格",
 };
@@ -34,9 +34,8 @@ export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
 export const WORKFLOW_STEPS = [
   { id: "script", label: "片段管理" },
   { id: "asset", label: "资产管理" },
-  { id: "storyboard", label: "分镜编辑" },
+  { id: "storyboard", label: "分镜管理" },
   { id: "video", label: "视频编辑" },
-  { id: "export", label: "视频合成" },
 ] as const;
 
 export type WorkflowStepId = (typeof WORKFLOW_STEPS)[number]["id"];

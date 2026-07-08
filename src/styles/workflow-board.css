@@ -2,13 +2,13 @@
 /* @author yt @date 20260702 收敛为低饱和风格，与整体暗色玻璃质感协调 */
 .workflow-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-md);
 }
 
 .workflow-step {
-  min-height: 64px;
-  padding: 10px 12px;
+  min-height: 68px;
+  padding: var(--spacing-md) var(--spacing-lg);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-faint);
   background: var(--bg-surface-deep);

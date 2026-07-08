@@ -164,6 +164,7 @@ pub fn run() {
             commands::update_storyboard_assets,
             commands::create_storyboard,
             commands::delete_storyboard,
+            commands::insert_storyboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

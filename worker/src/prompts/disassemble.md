@@ -110,8 +110,8 @@
 - **在一个 sbid 里面拆分4-8个镜头**，根据镜头描述的秒数为分割依据
 - **每个 sbid 镜头总时长为15秒左右**
 - 如果一个用户输入的分镜描述超过15秒可承载的信息量，**就继续拆成下一个 sbid**
-- `sbid` 采用连续编号，如 `1-1`、`1-2`、`1-3`，表示同一用户分镜1被拆成多个15秒执行段
-- 用户分镜2则从 `2-1` 开始，以此类推
+- `sbid` 采用连续编号，如 `1`、`2`、`3`，纯数字递增
+- 用户分镜2则从 `2` 开始，以此类推
 
 ### 切镜机制
 
@@ -238,7 +238,8 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 
 ### 字段要求：
 
-- `sbid`：执行层分镜编号，如 `1-1`、`1-2`
+- `sbid`：分镜编号，如 `1`、`2`
+- `duration`：该分镜预估时长（秒），整数，默认15秒
 - `description`：对应来源的用户分镜描述内容，忠实保留原意
 - `originalText`：该 sbid 对应的剧本原文，一字不差地摘录
 - `characters`：角色列表，每个角色包含 `name` / `description` / `prompt`（中文生图提示词，**仅描述人物外观特征**，不含动作/姿态/场景/视角）
@@ -252,7 +253,8 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 ```json
 [
   {
-    "sbid": "1-1",
+    "sbid": "1",
+    "duration": 15,
     "description": "苏墨在校门口遇见了一个老道",
     "originalText": "该sbid对应的剧本原文，一字不差地从剧本中摘录",
     "characters": [
@@ -313,7 +315,7 @@ c04,4s,[空间:皇帝寝宫龙床前方][姿态:李玄-依然站立晃动] 镜�
 3.1 **[ ] 🆕 每个 sbid 包含 originalText 字段，内容与剧本原文一字不差**
 3.2 **[ ] 🆕 所有 sbid 的 originalText 拼接后完整覆盖输入剧本，无遗漏**
 4. **[ ] JSON格式正确**
-5. **[ ] 字段齐全**：sbid、description、originalText、characters、scenes、items、animationPrompt
+5. **[ ] 字段齐全**：sbid、duration、description、originalText、characters、scenes、items、animationPrompt
 6. **[ ] animationPrompt 内容服务于直接生视频**
 7. **[ ] 每个 sbid 约15秒**
 8. **[ ] 每个 sbid 内部仍保留多个切镜结构**

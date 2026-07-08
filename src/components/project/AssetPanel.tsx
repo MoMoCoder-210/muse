@@ -34,7 +34,7 @@ const ASSET_CATEGORIES: { type: AssetType; label: string; icon: string }[] = [
 ];
 
 const RAIL_HOTZONE = 30;
-const RAIL_WIDTH = 240;
+const RAIL_WIDTH = 206;
 
 type AssetPanelProps = {
   project: ProjectInfo;

@@ -241,10 +241,11 @@ pub fn create_storyboard(
 ) -> Result<StoryboardInfo, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 获取当前片段的最大 seq_num
-    let max_seq: Option<i32> = conn
+    // 获取当前片段的最大 seq_num（事务内查询，防止并发竞争）
+    let max_seq: Option<i32> = tx
         .query_row(
             "SELECT MAX(seq_num) FROM storyboards WHERE clip_id = ?1",
             rusqlite::params![&input.clip_id],
@@ -253,21 +254,18 @@ pub fn create_storyboard(
         .map_err(|e| e.to_string())?;
 
     let next_seq = max_seq.unwrap_or(0) + 1;
-    let sbid = if next_seq == 1 {
-        "1-1".to_string()
-    } else {
-        format!("1-{}", next_seq)
-    };
-
+    let sbid = next_seq.to_string();
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
 
-    conn.execute(
+    tx.execute(
         "INSERT INTO storyboards (id, project_id, clip_id, sbid, seq_num, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![&id, &input.project_id, &input.clip_id, &sbid, next_seq, &now, &now],
     )
     .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     crate::project_log::append_log(
         &log_path,
@@ -330,10 +328,31 @@ pub fn delete_storyboard(
     )
     .map_err(|e| e.to_string())?;
 
+    // 获取被删除分镜的 clip_id 和 seq_num
+    let (clip_id, deleted_seq): (String, i32) = tx
+        .query_row(
+            "SELECT clip_id, seq_num FROM storyboards WHERE id = ?1",
+            rusqlite::params![&input.storyboard_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("分镜不存在：{}", e))?;
+
     // 删除分镜本身
+    let affected = tx
+        .execute(
+            "DELETE FROM storyboards WHERE id = ?1",
+            rusqlite::params![&input.storyboard_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if affected == 0 {
+        return Err("分镜已被删除或不存在".to_string());
+    }
+
+    // 将后续分镜前移，消除序号空洞
     tx.execute(
-        "DELETE FROM storyboards WHERE id = ?1",
-        rusqlite::params![&input.storyboard_id],
+        "UPDATE storyboards SET seq_num = seq_num - 1, updated_at = datetime('now') WHERE clip_id = ?1 AND seq_num > ?2",
+        rusqlite::params![&clip_id, deleted_seq],
     )
     .map_err(|e| e.to_string())?;
 
@@ -343,8 +362,105 @@ pub fn delete_storyboard(
         &log_path,
         "分镜",
         "INFO",
-        &format!("已删除分镜 storyboardId={}", input.storyboard_id),
+        &format!("已删除分镜 storyboardId={} clipId={} seq={}", input.storyboard_id, clip_id, deleted_seq),
     );
 
     Ok(())
+}
+
+// ── 插入分镜（指定位置 + 自动重排） ──────────────
+
+/// 插入分镜输入
+#[derive(Debug, Deserialize)]
+pub struct InsertStoryboardInput {
+    pub clip_id: String,
+    pub project_id: String,
+    /// 插入到此分镜 ID 之后；为 None 则插入到最前面
+    pub after_storyboard_id: Option<String>,
+}
+
+/// 在指定位置插入分镜，自动重排后续 seq_num
+#[tauri::command]
+pub fn insert_storyboard(
+    input: InsertStoryboardInput,
+    app: tauri::AppHandle,
+) -> Result<StoryboardInfo, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 确定插入位置
+    let insert_seq: i32 = match &input.after_storyboard_id {
+        Some(target_id) => {
+            let target_seq: i32 = tx
+                .query_row(
+                    "SELECT seq_num FROM storyboards WHERE id = ?1",
+                    rusqlite::params![target_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("目标分镜不存在：{}", e))?;
+            target_seq
+        }
+        None => 0, // 插入到最前面
+    };
+
+    let new_seq = insert_seq + 1;
+
+    // 将 >= new_seq 的分镜后移一位
+    tx.execute(
+        "UPDATE storyboards SET seq_num = seq_num + 1, updated_at = datetime('now') WHERE clip_id = ?1 AND seq_num >= ?2",
+        rusqlite::params![&input.clip_id, new_seq],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 生成 sbid
+    let sbid = new_seq.to_string();
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    tx.execute(
+        "INSERT INTO storyboards (id, project_id, clip_id, sbid, seq_num, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![&id, &input.project_id, &input.clip_id, &sbid, new_seq, &now, &now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "分镜",
+        "INFO",
+        &format!(
+            "已插入分镜 id={} clipId={} sbid={} seq={} after={:?}",
+            id, input.clip_id, sbid, new_seq, input.after_storyboard_id
+        ),
+    );
+
+    Ok(StoryboardInfo {
+        id: id.clone(),
+        project_id: input.project_id,
+        clip_id: input.clip_id,
+        sbid,
+        seq_num: new_seq,
+        source_text: String::new(),
+        summary: String::new(),
+        dialogue: String::new(),
+        visual_description: String::new(),
+        video_prompt: String::new(),
+        character_ids_json: "[]".to_string(),
+        scene_ids_json: "[]".to_string(),
+        item_ids_json: "[]".to_string(),
+        image_param_json: None,
+        video_param_json: None,
+        voice_param_json: None,
+        image_state: "pending".to_string(),
+        voice_state: "pending".to_string(),
+        video_state: "pending".to_string(),
+        voice_path: None,
+        voice_duration: None,
+        video_path: None,
+        video_duration: None,
+    })
 }
