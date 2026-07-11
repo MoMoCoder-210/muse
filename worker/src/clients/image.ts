@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 生图模型客户端
  *
  * 兼容 OpenAI Images API
@@ -12,12 +12,17 @@ import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { ImageModelConfig } from "../config/defaults.js";
 import { FALLBACK_API_KEY } from "./constants.js";
+import { logRequest, logResponse, logFailure } from "../utils/client-logger.js";
 
 export interface ImageGenerateOptions {
   /** 生图尺寸 */
   size?: string;
   /** 是否添加水印 */
   watermark?: boolean;
+  /** 画质：standard / hd */
+  quality?: "standard" | "hd";
+  /** 风格：vivid / natural */
+  style?: "vivid" | "natural";
   /** AbortSignal */
   signal?: AbortSignal;
 }
@@ -68,43 +73,54 @@ export class ImageClient {
       | "256x256" | "512x512" | "1024x1024" | "1792x1024" | "1024x1792"
       | (string & {});
 
-    const requestParams = {
-      model: this.config.model,
-      prompt: prompt.slice(0, 60) + (prompt.length > 60 ? "…" : ""),
-      n: 1,
-      size,
-      response_format: "url",
-    };
-    console.log("[ImageClient]", JSON.stringify(requestParams));
+    const quality = options.quality ?? "hd";
+    const style = options.style ?? "natural";
 
-    const response = await this.client.images.generate(
-      {
-        model: this.config.model,
-        prompt,
-        n: 1,
-        size,
-        response_format: "url",
-        // OpenAI 兼容端点扩展参数：水印
-        ...(options.watermark !== undefined
-          ? { extra_body: { watermark: options.watermark } }
-          : {}),
-      } as Parameters<OpenAI["images"]["generate"]>[0],
-      { signal: options.signal }
-    );
+    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/images/generations`;
+    const reqBody = { model: this.config.model, prompt, n: 1, size, quality, style, response_format: "url" };
+    logRequest("ImageClient", "POST", apiUrl, this.config.apiKey, reqBody);
+    const startedAt = Date.now();
 
-    if (!("data" in response) || !response.data) {
-      throw new Error("ImageClient: unexpected streaming response");
+    try {
+      const response = await this.client.images.generate(
+        {
+          model: this.config.model,
+          prompt,
+          n: 1,
+          size,
+          quality,
+          style,
+          response_format: "url",
+          // OpenAI 兼容端点扩展参数：水印
+          ...(options.watermark !== undefined
+            ? { extra_body: { watermark: options.watermark } }
+            : {}),
+        } as Parameters<OpenAI["images"]["generate"]>[0],
+        { signal: options.signal }
+      );
+
+      if (!("data" in response) || !response.data) {
+        throw new Error("ImageClient: unexpected streaming response");
+      }
+
+      const resultData = response.data[0];
+
+      const url = resultData?.url;
+      if (!url) {
+        throw new Error("ImageClient: no URL in response");
+      }
+
+      const elapsed = Date.now() - startedAt;
+      logResponse("ImageClient", apiUrl, elapsed, {
+        url: url.slice(0, 120) + "…",
+        revised_prompt: (resultData as any)?.revised_prompt?.slice(0, 200),
+      });
+
+      return { url, model: this.config.model };
+    } catch (err) {
+      logFailure("ImageClient", apiUrl, Date.now() - startedAt, err);
+      throw err;
     }
-
-    const resultData = response.data[0];
-    console.log("[ImageClient] 响应:", JSON.stringify({ url: resultData?.url?.slice(0, 80) + "…", revised_prompt: (resultData as any)?.revised_prompt?.slice(0, 80) }));
-
-    const url = resultData?.url;
-    if (!url) {
-      throw new Error("ImageClient: no URL in response");
-    }
-
-    return { url, model: this.config.model };
   }
 
   /**
@@ -119,9 +135,7 @@ export class ImageClient {
     options: ImageGenerateOptions = {}
   ): Promise<string> {
     const { url } = await this.generate(prompt, options);
-    console.log("[ImageClient] 保存路径:", savePath);
     await downloadFile(url, savePath, options.signal);
-    console.log("[ImageClient] 下载完成:", savePath);
     return savePath;
   }
 }

@@ -1,18 +1,17 @@
 /**
  * 配置文件读写
  *
- * 配置以 JSON 文件形式存储在应用数据目录中（settings.json）
- * 路径由 Rust 层启动 worker 时通过 --config <path> 参数传入
- *
- * 读取策略：启动时加载一次，调用方可按需重新加载（热更新）
- * 写入策略：由设置页面通过 Tauri command 写文件，worker 重载配置
- *
  * @author yt @date 20260702
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
-import { DEFAULT_SETTINGS, type AppSettings } from "./defaults.js";
+import {
+  DEFAULT_SETTINGS, getActiveChannel,
+  resolveTextConfig, resolveImageConfig, resolveVoiceConfig,
+  type AppSettings, type TextModelConfig, type ImageModelConfig,
+  type VoiceModelConfig, type AssetModelConfig,
+} from "./defaults.js";
 import { logLine } from "../logger.js";
 
 export class SettingsManager {
@@ -24,91 +23,67 @@ export class SettingsManager {
     this.cache = this.load();
   }
 
-  /**
-   * 从磁盘加载配置，缺失字段用默认值填充（深合并）
-   *
-   * @author yt @date 20260702
-   */
   private load(): AppSettings {
-    if (!existsSync(this.configPath)) {
-      return structuredClone(DEFAULT_SETTINGS);
-    }
-
+    if (!existsSync(this.configPath)) return structuredClone(DEFAULT_SETTINGS);
     try {
       const raw = readFileSync(this.configPath, "utf-8");
-      const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      return deepMerge(DEFAULT_SETTINGS, parsed);
+      return deepMerge(DEFAULT_SETTINGS, JSON.parse(raw));
     } catch (err) {
-      logLine("配置", "WARN", `配置加载失败 ${this.configPath}：${err instanceof Error ? err.message : String(err)}，使用默认值`);
+      logLine("配置", "WARN", `加载失败: ${err instanceof Error ? err.message : String(err)}`);
       return structuredClone(DEFAULT_SETTINGS);
     }
   }
 
-  /** 获取当前完整配置（内存缓存） */
-  get(): AppSettings {
-    return this.cache;
-  }
+  get(): AppSettings { return this.cache; }
+  reload(): AppSettings { this.cache = this.load(); return this.cache; }
 
-  /** 重新从磁盘加载（设置页保存后调用） */
-  reload(): AppSettings {
-    this.cache = this.load();
-    return this.cache;
-  }
-
-  /**
-   * 将配置写入磁盘
-   * worker 侧暴露此方法仅作为兜底
-   *
-   * @author yt @date 20260702
-   */
   save(settings: AppSettings): void {
     mkdirSync(dirname(this.configPath), { recursive: true });
     writeFileSync(this.configPath, JSON.stringify(settings, null, 2), "utf-8");
     this.cache = settings;
   }
 
-  /** 检查文本模型是否已配置 apiKey */
-  isTextConfigured(): boolean {
-    return this.cache.text.apiKey.trim().length > 0;
+  getTextConfig(): TextModelConfig {
+    const ch = getActiveChannel(this.cache.text);
+    if (!ch) throw new Error("文本渠道缺失");
+    return resolveTextConfig(ch, this.cache.textParams);
   }
 
-  /** 检查生图模型是否已配置 apiKey */
-  isImageConfigured(): boolean {
-    return this.cache.image.apiKey.trim().length > 0;
+  getImageConfig(): ImageModelConfig {
+    const ch = getActiveChannel(this.cache.image);
+    if (!ch) throw new Error("生图渠道缺失");
+    return resolveImageConfig(ch, this.cache.imageParams);
   }
 
-  /** 检查语音模型是否已配置 apiKey */
-  isVoiceConfigured(): boolean {
-    return this.cache.voice.apiKey.trim().length > 0;
+  getVoiceConfig(): VoiceModelConfig {
+    const ch = getActiveChannel(this.cache.voice);
+    if (!ch) throw new Error("语音渠道缺失");
+    return resolveVoiceConfig(ch, this.cache.voiceParams);
   }
 
-  /** 检查素材管理是否已配置 apiKey */
-  isAssetConfigured(): boolean {
-    return this.cache.asset.apiKey.trim().length > 0;
+  getAssetConfig(): AssetModelConfig {
+    const ch = getActiveChannel(this.cache.asset);
+    if (!ch) throw new Error("素材渠道缺失");
+    return {
+      apiKey: ch.apiKey, baseUrl: ch.baseUrl,
+      timeoutMs: this.cache.assetParams.timeoutMs,
+    };
   }
+
+  isTextConfigured(): boolean  { return this.getTextConfig().apiKey.trim().length > 0; }
+  isImageConfigured(): boolean { return this.getImageConfig().apiKey.trim().length > 0; }
+  isVoiceConfigured(): boolean { return this.getVoiceConfig().apiKey.trim().length > 0; }
+  isAssetConfigured(): boolean { return this.getAssetConfig().apiKey.trim().length > 0; }
 }
 
-// ── 工具：深合并（target 为默认值，source 为用户配置） ──────────────
-// @author yt @date 20260702 深合并配置对象
 function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = structuredClone(target) as any;
   for (const key of Object.keys(source) as (keyof T)[]) {
-    const srcVal = source[key];
-    const tgtVal = result[key];
-    if (
-      srcVal !== null &&
-      srcVal !== undefined &&
-      typeof srcVal === "object" &&
-      !Array.isArray(srcVal) &&
-      typeof tgtVal === "object" &&
-      tgtVal !== null
-    ) {
-      result[key] = deepMerge(
-        tgtVal as Record<string, unknown>,
-        srcVal as Record<string, unknown>
-      ) as any;
-    } else if (srcVal !== undefined) {
-      result[key] = srcVal;
+    const sv = source[key], tv = result[key];
+    if (sv !== null && sv !== undefined && typeof sv === "object" && !Array.isArray(sv) && typeof tv === "object" && tv !== null) {
+      result[key] = deepMerge(tv, sv as any);
+    } else if (sv !== undefined) {
+      result[key] = sv;
     }
   }
   return result;

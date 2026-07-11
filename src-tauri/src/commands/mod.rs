@@ -4,7 +4,8 @@
 //!
 //! @author yt @date 20260703
 
-pub(crate) mod util;
+pub mod util;
+pub mod connection;
 
 pub mod project;
 pub mod clip;
@@ -18,3 +19,4 @@ pub use clip::*;
 pub use script::*;
 pub use storyboard::*;
 pub use settings::*;
+pub use connection::*;

@@ -558,3 +558,27 @@ export async function detectFFmpeg(): Promise<{
 }> {
   return invoke("detect_ffmpeg");
 }
+
+/**
+ * 测试渠道连通性（OpenAI 兼容端点）
+ *
+ * 对 `${baseUrl}/models` 发起带 Bearer 鉴权的 GET，校验 key+url 是否可用。
+ *
+ * @author yt @date 20260710
+ */
+export interface TestConnectionResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function testConnection(input: {
+  apiKey: string;
+  baseUrl: string;
+  timeoutMs?: number;
+}): Promise<TestConnectionResult> {
+  return invoke<TestConnectionResult>("test_connection", {
+    apiKey: input.apiKey,
+    baseUrl: input.baseUrl,
+    timeoutMs: input.timeoutMs,
+  });
+}

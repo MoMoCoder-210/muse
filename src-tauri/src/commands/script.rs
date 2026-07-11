@@ -1151,15 +1151,41 @@ pub fn delete_asset_image(
         )
         .map_err(|e| format!("未找到资产：{}", e))?;
 
-    let img: (String, bool, Option<String>) = tx
-        .query_row(
-            "SELECT image_path, is_selected, ark_file_id FROM asset_images WHERE id = ?1 AND asset_id = ?2",
-            rusqlite::params![&input.image_id, &asset_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0, row.get::<_, Option<String>>(2)?)),
-        )
-        .map_err(|e| format!("图片记录不存在：{}", e))?;
+    // 先尝试 asset_images 表（已完成图片）
+    let img_result = tx.query_row(
+        "SELECT image_path, is_selected, ark_file_id FROM asset_images WHERE id = ?1 AND asset_id = ?2",
+        rusqlite::params![&input.image_id, &asset_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0, row.get::<_, Option<String>>(2)?)),
+    );
 
-    let (image_path, was_selected, ark_file_id) = img;
+    // 若 asset_images 中找不到，则尝试 tasks 表（pending / running / failed 任务）
+    if img_result.is_err() {
+        let task_exists = tx
+            .query_row(
+                "SELECT id FROM tasks WHERE id = ?1 AND type = 'generate_asset_image' AND status IN ('pending', 'running', 'failed')",
+                rusqlite::params![&input.image_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| format!("图片/任务记录不存在：{}", e))?;
+
+        tx.execute(
+            "DELETE FROM tasks WHERE id = ?1",
+            rusqlite::params![&task_exists],
+        )
+        .map_err(|e| e.to_string())?;
+
+        tx.commit().map_err(|e| e.to_string())?;
+
+        crate::project_log::append_log(
+            &log_path,
+            "资产",
+            "INFO",
+            &format!("已删除失败任务 taskId={}", input.image_id),
+        );
+        return Ok(());
+    }
+
+    let (image_path, was_selected, ark_file_id) = img_result.unwrap();
 
     // 删除数据库记录
     tx.execute(

@@ -13,6 +13,7 @@ import { importScriptByTab } from "../../services/import-script";
 import { pickTxtFile } from "../../services/dialog";
 import { SelectField } from "../common/SelectField";
 import type { ProjectInfo } from "../../types/project";
+import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
 
 type ScriptImportSectionProps = {
@@ -123,7 +124,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
   const handleScriptModePostCreate = useCallback(
     async (project: ProjectInfo) => {
       const settings = await getSettings();
-      if (!settings.text?.apiKey?.trim()) {
+      if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
         onCreated(project);
         toast("项目已创建，但文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
         return;

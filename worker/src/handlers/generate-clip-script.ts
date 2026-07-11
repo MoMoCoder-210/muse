@@ -53,42 +53,21 @@ async function callModelAndParse(
     { role: "user", content: input.sourceText },
   ];
 
-  l("拆解", `发送请求 model=${textClient.config.model} 输入=${input.sourceText.length}字符 系统提示词=${systemContent.length}字符`);
-
-  // ── 流式进度日志 ──
-  let firstChunk = true;
-  let streamTotal = 0;
-  let lastMilestone = 0;
-  const onChunk = (delta: string) => {
-    if (firstChunk) {
-      l("拆解", `收到首个流式响应 首块=${delta.length}字符`);
-      firstChunk = false;
-    }
-    streamTotal += delta.length;
-    const milestone = Math.floor(streamTotal / 100) * 100;
-    if (milestone >= 100 && milestone > lastMilestone) {
-      l("拆解", `流式进度：已接收 ${milestone} 字符`);
-      lastMilestone = milestone;
-    }
-  };
-
   // ── 模型调用 ──
-  let result: Awaited<ReturnType<typeof textClient.chatStream>>;
+  let result: Awaited<ReturnType<typeof textClient.chat>>;
   const startedAt = Date.now();
   try {
-    result = await textClient.chatStream(messages, onChunk, { signal: ctx.signal });
+    result = await textClient.chat(messages, () => {}, { signal: ctx.signal });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const elapsed = Date.now() - startedAt;
     if (msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("abort")) {
-      le("拆解", `模型调用超时 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+      le("拆解", `模型调用超时 耗时=${elapsed}ms 错误=${msg}`);
     } else {
-      le("拆解", `模型调用失败 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}（将由任务调度器决定重试）`);
+      le("拆解", `模型调用失败 耗时=${elapsed}ms 错误=${msg}（将由任务调度器决定重试）`);
     }
     throw err;
   }
-
-  l("拆解", `模型返回完成 耗时=${Date.now() - startedAt}ms 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`);
 
   // ── 首次解析 ──
   try {
@@ -108,7 +87,7 @@ async function callModelAndParse(
       { role: "user", content: "请将以上内容转为标准的 JSON 数组，不要包含任何 Markdown 符号或解释性文字，直接输出 JSON 数组本身。" },
     ];
 
-    const repairResult = await textClient.chatStream(repairMessages, () => {}, { signal: ctx.signal });
+    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal });
 
     l("拆解", `修复返回完成 输出=${repairResult.content.length}字符`);
 

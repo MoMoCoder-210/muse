@@ -3,6 +3,7 @@ import { getSettings } from "../../services/tauri";
 import { importScriptByTab } from "../../services/import-script";
 import { pickTxtFile } from "../../services/dialog";
 import type { ProjectInfo } from "../../types/project";
+import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
 
 type ScriptImportPanelProps = {
@@ -45,7 +46,7 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
     setLoading(true);
     try {
       const settings = await getSettings();
-      if (!settings.text?.apiKey?.trim()) {
+      if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
         toast("文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
         return;
       }

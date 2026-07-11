@@ -309,16 +309,32 @@ export function AssetImageGallery({
         <div className="asset-gallery-status asset-gallery-status--failed">
           <span className="asset-gallery-status-icon">✕</span>
           <span>{currentImage.error_message ?? "生成失败"}</span>
-          {onRegenerate && (
-            <button
-              type="button"
-              className="asset-gallery-retry"
-              onClick={onRegenerate}
-              disabled={disabled}
-            >
-              重试
-            </button>
-          )}
+          <div className="asset-gallery-failed-actions">
+            {onRegenerate && (
+              <button
+                type="button"
+                className="asset-gallery-retry"
+                onClick={onRegenerate}
+                disabled={disabled}
+              >
+                重试
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                className="asset-gallery-delete"
+                onClick={() => { setDeleteTarget(currentImage.id); setDeleteFile(false); }}
+                disabled={disabled}
+                aria-label="删除此图片"
+                title="删除此图片"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 4H14M5 4V2.5C5 2.22 5.22 2 5.5 2H10.5C10.78 2 11 2.22 11 2.5V4M6.5 7V12M9.5 7V12M3.5 4L4.2 13.5C4.22 13.78 4.45 14 4.74 14H11.26C11.55 14 11.78 13.78 11.8 13.5L12.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       );
     }

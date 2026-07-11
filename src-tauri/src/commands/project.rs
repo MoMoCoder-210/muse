@@ -245,7 +245,7 @@ pub fn delete_project(
     // 依赖关系图（箭头表示 "被引用"）：
     //   task_locks ──► tasks ──► projects
     //   storyboard_assets ──► storyboards ──► projects
-    //   assets ──► projects
+    //   asset_images ──► assets ──► projects
     //   clip_scripts ──► clips ──► projects
     //   script_sources ──► projects
     //   exports ──► projects
@@ -320,42 +320,49 @@ pub fn delete_project(
         )
         .map_err(|e| e.to_string())?;
 
-        // 5. assets
+        // 5. asset_images（依赖 assets.id，必须在 assets 之前删除）
+        tx.execute(
+            "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?1)",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 6. assets
         tx.execute(
             "DELETE FROM assets WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 6. clip_scripts（依赖 clips.id）
+        // 7. clip_scripts（依赖 clips.id）
         tx.execute(
             "DELETE FROM clip_scripts WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 7. clips
+        // 8. clips
         tx.execute(
             "DELETE FROM clips WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 8. script_sources
+        // 9. script_sources
         tx.execute(
             "DELETE FROM script_sources WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 9. exports
+        // 10. exports
         tx.execute(
             "DELETE FROM exports WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 10. projects（根表，最后删除）
+        // 11. projects（根表，最后删除）
         tx.execute(
             "DELETE FROM projects WHERE id = ?1",
             rusqlite::params![&project_id],

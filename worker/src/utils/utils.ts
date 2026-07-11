@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION } from "../types.js";
 
 // ─── 日志：双写 — 磁盘文件（logLine）+ stdout 转发到 Rust ────
 
+/** 信息级日志：双写（写盘 + 经 stdout 转发到 Rust 实时日志）。handler 内请优先用 l/lw/le，避免裸 logLine 导致 UI 收不到实时日志。 */
 export function l(source: string, message: string): void {
   logLine(source, "INFO", message);
   process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: "info", message: `[${source}] ${message}` }) + "\n");

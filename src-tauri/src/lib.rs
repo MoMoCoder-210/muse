@@ -175,6 +175,7 @@ pub fn run() {
             commands::insert_storyboard,
             commands::update_storyboard_params,
             commands::detect_ffmpeg,
+            commands::test_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

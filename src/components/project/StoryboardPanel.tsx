@@ -202,7 +202,13 @@ export function StoryboardPanel({ project }: Props) {
               )}
 
               {/* ========== 下方：缩略图条 ========== */}
-              <div className="sb-strip-wrap">
+              <div
+                className="sb-strip-wrap"
+                onWheel={(e) => {
+                  const el = e.currentTarget;
+                  el.scrollLeft += e.deltaY;
+                }}
+              >
                 <div className="sb-strip">
                   {/* 最前插入 */}
                   <button className="sb-strip-insert" onClick={() => setInsertAfterId("__first__")} disabled={busy} title="在最前插入">
@@ -214,9 +220,12 @@ export function StoryboardPanel({ project }: Props) {
                     const sec = Math.round(sb.video_duration ?? sb.voice_duration ?? 0);
                     return (
                       <div key={sb.id} className="sb-strip-group">
-                        <button
+                        <div
                           className={`sb-strip-item${i === safeIdx ? " on" : ""}`}
                           onClick={() => setActiveIdx(i)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveIdx(i); } }}
                         >
                           <div className="sb-strip-thumb">
                             {videoSrc ? (
@@ -238,7 +247,7 @@ export function StoryboardPanel({ project }: Props) {
                             </button>
                           </div>
                           <span className="sb-strip-dur">#{String(sb.seq_num).padStart(2, "0")} · {sec > 0 ? `${sec}S` : "--S"}</span>
-                        </button>
+                        </div>
 
                         {/* 卡片间插入 */}
                         <button className="sb-strip-insert" onClick={() => setInsertAfterId(sb.id)} disabled={busy} title="在此后插入">
@@ -360,19 +369,24 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
   const promptRef = useRef(prompt); promptRef.current = prompt;
   const sbIdRef = useRef(sb.id); sbIdRef.current = sb.id;
 
+  // 格式化显示：c01/c02... 前换行（兼容前面有空格或无空格）
+  const formatPrompt = (raw: string) => raw.replace(/\s*(c\d{2,},\d+s,)/g, "\n\n$1").trim();
+  const displayPrompt = useMemo(() => formatPrompt(prompt), [prompt]);
+
   // 切换分镜时重置参数
   useEffect(() => {
     setParams(parseVideoParams(sb.video_param_json));
     setPrompt(sb.video_prompt || "");
   }, [sb.id, sb.video_param_json, sb.video_prompt]);
 
-  // 失焦保存
+  // 失焦保存（保存原始文本，去掉显示用的换行）
   const saveParams = useCallback(async () => {
     try {
+      const raw = promptRef.current.replace(/\n\n(c\d{2,},\d+s,)/g, " $1");
       await updateStoryboardParams({
         storyboard_id: sbIdRef.current,
         video_param_json: JSON.stringify(paramsRef.current),
-        video_prompt: promptRef.current || null,
+        video_prompt: raw || null,
       });
     } catch {
       // 静默失败，失焦保存不需要 toast
@@ -434,7 +448,7 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
           <div className="sd-detail-prompt">
             <textarea
               className="sd-detail-prompt-text"
-              value={prompt}
+              value={displayPrompt}
               onChange={(e) => setPrompt(e.target.value)}
               onBlur={saveParams}
               placeholder="暂无提示词"

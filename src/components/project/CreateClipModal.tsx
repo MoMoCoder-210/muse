@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { createClip, getSettings } from "../../services/tauri";
 import { importScriptByTab } from "../../services/import-script";
 import { pickTxtFile } from "../../services/dialog";
+import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
 
 type CreateClipModalProps = {
@@ -58,7 +59,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
     setLoading(true);
     try {
       const settings = await getSettings();
-      if (!settings.text?.apiKey?.trim()) {
+      if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
         toast("文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
         return;
       }

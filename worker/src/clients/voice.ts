@@ -13,6 +13,7 @@ import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { VoiceModelConfig } from "../config/defaults.js";
 import { FALLBACK_API_KEY } from "./constants.js";
+import { logRequest, logBinaryDone, logFailure } from "../utils/client-logger.js";
 
 const DEFAULT_VOICE = "zh_female_shuangkuaisisi_moon_bigtts";
 
@@ -75,27 +76,41 @@ export class VoiceClient {
     }
 
     const format = options.format ?? "mp3";
+    const voice = options.voice ?? DEFAULT_VOICE;
+    const speed = options.speed ?? this.config.speed;
 
-    const response = await this.client.audio.speech.create(
-      {
-        model: this.config.model,
-        input: text,
-        voice: (options.voice ?? DEFAULT_VOICE) as Parameters<
-          OpenAI["audio"]["speech"]["create"]
-        >[0]["voice"],
-        speed: options.speed ?? this.config.speed,
-        response_format: format,
-      },
-      { signal: options.signal }
-    );
+    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/audio/speech`;
+    const reqBody = { model: this.config.model, input: text, voice, speed, response_format: format };
+    logRequest("VoiceClient", "POST", apiUrl, this.config.apiKey, reqBody);
+    const startedAt = Date.now();
 
-    await mkdir(dirname(savePath), { recursive: true });
+    try {
+      const response = await this.client.audio.speech.create(
+        {
+          model: this.config.model,
+          input: text,
+          voice: voice as Parameters<
+            OpenAI["audio"]["speech"]["create"]
+          >[0]["voice"],
+          speed,
+          response_format: format,
+        },
+        { signal: options.signal }
+      );
 
-    // response 是 Response 对象，直接写入文件
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await writeBuffer(buffer, savePath);
+      await mkdir(dirname(savePath), { recursive: true });
 
-    return { filePath: savePath, sizeBytes: buffer.byteLength };
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await writeBuffer(buffer, savePath);
+
+      const elapsed = Date.now() - startedAt;
+      logBinaryDone("VoiceClient", apiUrl, elapsed, buffer.byteLength);
+
+      return { filePath: savePath, sizeBytes: buffer.byteLength };
+    } catch (err) {
+      logFailure("VoiceClient", apiUrl, Date.now() - startedAt, err);
+      throw err;
+    }
   }
 }
 

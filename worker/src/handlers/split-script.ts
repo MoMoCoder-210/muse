@@ -115,6 +115,26 @@ function hasEpisodeMarkers(text: string): boolean {
 }
 
 /**
+ * 从集数标志行提取标题。
+ *
+ * 输入示例："第一集 初入职场"、"第3章 转机"、"Chapter 1: The Beginning"
+ * 去除集数编号前缀后取剩余文本，若纯编号则回退为原文本身。
+ *
+ * @author yt @date 20260710
+ */
+function extractTitle(markerLine: string): string {
+  if (!markerLine) return "";
+  // 去掉前导的 第X集/第X章/Chapter N 等标记
+  const cleaned = markerLine
+    .replace(/^第[0-9零一二三四五六七八九十百千]+[集章节回卷篇]?\s*[:：\s]?/, "")
+    .replace(/^Chapter\s*\d+\s*[:：\s]?/i, "")
+    .replace(/^Part\s*\d+\s*[:：\s]?/i, "")
+    .trim();
+  // 若清空后无内容，回退用原标记行
+  return cleaned || markerLine.trim();
+}
+
+/**
  * 统计语义字数（中文字、英文单词、标点各算1）。
  *
  * @author yt @date 20260702
@@ -158,11 +178,23 @@ export function ruleSplit(text: string): ClipDraft[] | null {
     const start = markers[i];
     const end = i + 1 < markers.length ? markers[i + 1] : workText.length;
     let segment = workText.slice(start, end);
+    let title = "";
 
-    // 移除集数标志行本身（第一行）
-    const firstNewline = segment.indexOf("\n");
+    // 提取标题：从集数标志行截取标题文本
+    // 先去掉前导空白（\r\n/\n/空格），再取第一行
+    const trimmedSegment = segment.trimStart();
+    const firstNewline = trimmedSegment.indexOf("\n");
     if (firstNewline !== -1) {
-      segment = segment.slice(firstNewline + 1);
+      const markerLine = trimmedSegment.slice(0, firstNewline).trim();
+      title = extractTitle(markerLine);
+      // segment 恢复为非前导空白的原始版本，仅跳过第一行
+      segment = trimmedSegment.slice(firstNewline + 1);
+    }
+
+    // 兜底：标题仍为空时，取正文首句（前 20 字）
+    if (!title) {
+      const firstSentence = segment.trim().replace(/[\n\r].*$/s, "").slice(0, 20);
+      title = firstSentence || `第${i + 1}集`;
     }
 
     // 清理首尾
@@ -174,7 +206,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
     const wc = countWords(segment);
     clips.push({
       sortIndex: i + 1,
-      title: "",
+      title,
       summary: "",
       sourceText: segment,
       wordCount: wc,
@@ -242,8 +274,6 @@ function insertClips(
     updateProject.run(projectId);
   })();
 }
-
-// ─── 提示词加载 ────────────────────────────────────────────────────
 
 // ─── 提示词加载 ────────────────────────────────────────────────────
 
@@ -389,41 +419,21 @@ async function callModelOnce(
     { role: "user", content: text },
   ];
 
-  // ── 模型调用（带生命周期日志） ──
-  l("剧本拆分", `发送请求 model=${textClient.config.model} 输入=${text.length}字符`);
-
-  let firstChunk = true;
-  let streamTotal = 0;
-  let lastMilestone = 0;
-  const onChunk = (delta: string) => {
-    if (firstChunk) {
-      l("剧本拆分", `收到首个流式响应 首块=${delta.length}字符`);
-      firstChunk = false;
-    }
-    streamTotal += delta.length;
-    const milestone = Math.floor(streamTotal / 100) * 100;
-    if (milestone >= 100 && milestone > lastMilestone) {
-      l("剧本拆分", `流式进度：已接收 ${milestone} 字符`);
-      lastMilestone = milestone;
-    }
-  };
-
+  // ── 模型调用 ──
   const startedAt = Date.now();
-  let result: Awaited<ReturnType<typeof textClient.chatStream>>;
+  let result: Awaited<ReturnType<typeof textClient.chat>>;
   try {
-    result = await textClient.chatStream(messages, onChunk, { signal: ctx.signal });
+    result = await textClient.chat(messages, () => {}, { signal: ctx.signal });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const elapsed = Date.now() - startedAt;
     if (msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("abort")) {
-      le("剧本拆分", `模型调用超时 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+      le("剧本拆分", `模型调用超时 耗时=${elapsed}ms 错误=${msg}`);
     } else {
-      le("剧本拆分", `模型调用失败 耗时=${elapsed}ms 已接收=${streamTotal}字符 错误=${msg}`);
+      le("剧本拆分", `模型调用失败 耗时=${elapsed}ms 错误=${msg}`);
     }
     throw err;
   }
-
-  l("剧本拆分", `模型返回完成 耗时=${Date.now() - startedAt}ms 输出=${result.content.length}字符 inputTokens=${result.inputTokens} outputTokens=${result.outputTokens} model=${result.model}`);
 
   try {
     return parseModelClips(result.content);
@@ -439,27 +449,11 @@ async function callModelOnce(
     ];
 
     l("剧本拆分", `发送修复请求`);
-    const repairResult = await textClient.chatStream(repairMessages, buildStreamProgressLogger("模型拆分修复"), { signal: ctx.signal });
+    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal });
     l("剧本拆分", `修复返回完成 输出=${repairResult.content.length}字符`);
 
     return parseModelClips(repairResult.content);
   }
-}
-
-/**
- * 构造流式进度日志回调：每累计 100 字符打一次日志
- * @author yt @date 20260702
- */
-function buildStreamProgressLogger(label: string): (delta: string) => void {
-  let received = 0;
-  let lastLogged = 0;
-  return (delta: string) => {
-    received += delta.length;
-    if (received - lastLogged >= 100) {
-      logLine("剧本拆分", "DEBUG", `${label}流式进度：已接收 ${received} 字符`);
-      lastLogged = received;
-    }
-  };
 }
 
 /**

@@ -1,16 +1,17 @@
-import { getSettings } from "./tauri";
-import { ensureWorkerAndImportScript } from "./tauri";
+import { getSettings, ensureWorkerAndImportScript } from "./tauri";
+import { getActiveChannel } from "../types/settings";
 import type { ImportScriptResult } from "../types/project";
 
 /**
- * 检查文本模型是否已配置 API Key。
+ * 检查文本模型(活跃渠道)是否已配置 API Key。
  *
  * @returns true 表示已配置，false 表示未配置
  * @author yt @date 20260703
  */
 export async function hasTextModelApiKey(): Promise<boolean> {
   const settings = await getSettings();
-  return !!settings.text?.apiKey?.trim();
+  const active = getActiveChannel(settings.text);
+  return !!active?.apiKey?.trim();
 }
 
 /**

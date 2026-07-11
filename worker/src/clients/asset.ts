@@ -10,6 +10,7 @@
 import { readFile } from "fs/promises";
 import { basename, extname } from "path";
 import type { AssetModelConfig } from "../config/defaults.js";
+import { logRequest, logResponse, logFailure } from "../utils/client-logger.js";
 
 /** 上传后方舟返回的文件对象 */
 export interface ArkFileObject {
@@ -94,28 +95,43 @@ export class AssetClient {
     const baseUrl = this.config.baseUrl.replace(/\/+$/, "");
     const url = `${baseUrl}/v3/files`;
 
-    console.log("[AssetClient] 上传文件:", fileName, "→", url);
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey}`,
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      },
-      body,
-      signal: AbortSignal.timeout(this.config.timeoutMs),
+    logRequest("AssetClient", "POST", url, this.config.apiKey, {
+      purpose,
+      fileName,
+      mimeType,
+      size: fileBuffer.byteLength,
     });
+    const startedAt = Date.now();
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `AssetClient: upload failed ${response.status} ${response.statusText} — ${text}`,
-      );
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(
+          `AssetClient: upload failed ${response.status} ${response.statusText} — ${text}`,
+        );
+      }
+
+      const result = (await response.json()) as ArkFileObject;
+      logResponse("AssetClient", url, Date.now() - startedAt, {
+        id: result.id,
+        filename: result.filename,
+        bytes: result.bytes,
+      });
+      return result;
+    } catch (err) {
+      logFailure("AssetClient", url, Date.now() - startedAt, err);
+      throw err;
     }
-
-    const result = (await response.json()) as ArkFileObject;
-    console.log("[AssetClient] 上传成功:", result.id, result.filename);
-    return result;
   }
 
   /**
@@ -149,23 +165,29 @@ export class AssetClient {
     const baseUrl = this.config.baseUrl.replace(/\/+$/, "");
     const url = `${baseUrl}/v3/files/${encodeURIComponent(fileId)}`;
 
-    console.log("[AssetClient] 删除文件:", fileId, "→", url);
+    logRequest("AssetClient", "DELETE", url, this.config.apiKey, { fileId });
+    const startedAt = Date.now();
 
-    const response = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey}`,
-      },
-      signal: AbortSignal.timeout(this.config.timeoutMs),
-    });
+    try {
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+      });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `AssetClient: delete failed ${response.status} ${response.statusText} — ${text}`,
-      );
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(
+          `AssetClient: delete failed ${response.status} ${response.statusText} — ${text}`,
+        );
+      }
+
+      logResponse("AssetClient", url, Date.now() - startedAt, { deleted: fileId });
+    } catch (err) {
+      logFailure("AssetClient", url, Date.now() - startedAt, err);
+      throw err;
     }
-
-    console.log("[AssetClient] 删除成功:", fileId);
   }
 }
