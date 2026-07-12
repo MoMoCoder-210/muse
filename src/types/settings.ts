@@ -7,12 +7,16 @@
  * @author yt @date 20260702
  */
 
+import defaultSettingsJson from "../config/default-settings.json";
+
 // ── 模型条目（极简） ──────────────────────────────────────
 
 export interface ModelEntry {
   id: string;
   /** API 模型 ID，如 gpt-4o */
   modelId: string;
+  /** 视频模型支持的分辨率（如 420/720/1080/2k/4k）；非视频模型可省略 */
+  resolutions?: string[];
 }
 
 // ── 渠道配置 ─────────────────────────────────────────────
@@ -43,6 +47,11 @@ export interface AssetChannel extends ChannelBase {
   /** 素材渠道无模型概念 */
 }
 
+export interface VideoChannel extends ChannelBase {
+  models: ModelEntry[];
+  activeModelId: string;
+}
+
 // ── 类型级全局参数 ──────────────────────────────────────
 
 export interface TextParams {
@@ -64,6 +73,10 @@ export interface AssetParams {
   timeoutMs: number;
 }
 
+export interface VideoParams {
+  timeoutMs: number;
+}
+
 // ── 容器 ────────────────────────────────────────────────
 
 export interface ChannelList<T> {
@@ -82,59 +95,29 @@ export interface AppSettings {
   voiceParams: VoiceParams;
   asset: ChannelList<AssetChannel>;
   assetParams: AssetParams;
+  video: ChannelList<VideoChannel>;
+  videoParams: VideoParams;
 }
 
-// ── 默认值 ──────────────────────────────────────────────
-// 同步点：本文件 DEFAULT_* 须与 worker/src/config/defaults.ts
-// 及 src-tauri/src/commands/util.rs::default_settings_json 三处保持一致。
+// ── 默认值（单一真相源：src/config/default-settings.json） ──
+// 前端 / Worker / Rust 三端均从该 JSON 派生，避免三处手写重复与漂移。
+
+const DEFAULTS = defaultSettingsJson as unknown as AppSettings;
 
 export const DEFAULT_MODEL_ENTRY: ModelEntry = { id: "m1", modelId: "" };
+export const DEFAULT_TEXT_CHANNEL: TextChannel = DEFAULTS.text.channels[0];
+export const DEFAULT_IMAGE_CHANNEL: ImageChannel = DEFAULTS.image.channels[0];
+export const DEFAULT_VOICE_CHANNEL: VoiceChannel = DEFAULTS.voice.channels[0];
+export const DEFAULT_ASSET_CHANNEL: AssetChannel = DEFAULTS.asset.channels[0];
+export const DEFAULT_VIDEO_CHANNEL: VideoChannel = DEFAULTS.video.channels[0];
 
-export const DEFAULT_TEXT_CHANNEL: TextChannel = {
-  id: "default", name: "默认", apiKey: "", baseUrl: "",
-  models: [{ ...DEFAULT_MODEL_ENTRY }], activeModelId: "m1",
-};
+export const DEFAULT_TEXT_PARAMS: TextParams = DEFAULTS.textParams;
+export const DEFAULT_IMAGE_PARAMS: ImageParams = DEFAULTS.imageParams;
+export const DEFAULT_VOICE_PARAMS: VoiceParams = DEFAULTS.voiceParams;
+export const DEFAULT_ASSET_PARAMS: AssetParams = DEFAULTS.assetParams;
+export const DEFAULT_VIDEO_PARAMS: VideoParams = DEFAULTS.videoParams;
 
-export const DEFAULT_IMAGE_CHANNEL: ImageChannel = {
-  id: "default", name: "默认", apiKey: "", baseUrl: "",
-  models: [{ ...DEFAULT_MODEL_ENTRY }], activeModelId: "m1",
-};
-
-export const DEFAULT_VOICE_CHANNEL: VoiceChannel = {
-  id: "default", name: "默认", apiKey: "", baseUrl: "",
-  models: [{ ...DEFAULT_MODEL_ENTRY }], activeModelId: "m1",
-};
-
-export const DEFAULT_ASSET_CHANNEL: AssetChannel = {
-  id: "default", name: "默认", apiKey: "", baseUrl: "",
-};
-
-export const DEFAULT_TEXT_PARAMS: TextParams = {
-  timeoutMs: 300000, maxTokens: 131072, temperature: 0.7,
-};
-
-export const DEFAULT_IMAGE_PARAMS: ImageParams = {
-  timeoutMs: 300000,
-};
-
-export const DEFAULT_VOICE_PARAMS: VoiceParams = {
-  timeoutMs: 300000, speed: 1.0,
-};
-
-export const DEFAULT_ASSET_PARAMS: AssetParams = {
-  timeoutMs: 300000,
-};
-
-export const DEFAULT_SETTINGS: AppSettings = {
-  text:   { channels: [{ ...DEFAULT_TEXT_CHANNEL }],   activeId: "default" },
-  textParams:   { ...DEFAULT_TEXT_PARAMS },
-  image:  { channels: [{ ...DEFAULT_IMAGE_CHANNEL }],  activeId: "default" },
-  imageParams:  { ...DEFAULT_IMAGE_PARAMS },
-  voice:  { channels: [{ ...DEFAULT_VOICE_CHANNEL }],  activeId: "default" },
-  voiceParams:  { ...DEFAULT_VOICE_PARAMS },
-  asset:  { channels: [{ ...DEFAULT_ASSET_CHANNEL }],  activeId: "default" },
-  assetParams:  { ...DEFAULT_ASSET_PARAMS },
-};
+export const DEFAULT_SETTINGS: AppSettings = DEFAULTS;
 
 // ── 工具 ────────────────────────────────────────────────
 

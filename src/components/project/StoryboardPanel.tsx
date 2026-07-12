@@ -4,11 +4,17 @@ import type { ProjectInfo, Clip, ClipScriptInfo, Storyboard, StoryboardAssetInfo
 import {
   listClips, getClipScripts, listStoryboards, listClipAssets,
   updateStoryboardAssets, createStoryboard, deleteStoryboard, insertStoryboard,
-  updateStoryboardParams,
+  updateStoryboardParams, updateStoryboardDuration, getSettings,
 } from "../../services/tauri";
+import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
 import { DeleteStoryboardConfirm } from "./DeleteStoryboardConfirm";
 import { StoryboardConfirm } from "./StoryboardConfirm";
+import {
+  VIDEO_DURATION_MIN, VIDEO_DURATION_MAX, VIDEO_ASPECT_OPTIONS,
+  VIDEO_DEFAULT_MODEL, VIDEO_DEFAULT_DURATION, VIDEO_DEFAULT_RESOLUTION, VIDEO_DEFAULT_ASPECT,
+  VIDEO_RESOLUTION_OPTIONS,
+} from "../../config/muse";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -38,6 +44,8 @@ export function StoryboardPanel({ project }: Props) {
   const [clips, setClips] = useState<Clip[]>([]);
   const [csList, setCsList] = useState<ClipScriptInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  // 用户在设置里为「视频」激活渠道配置的模型 → 其支持的分辨率；未配置则为空对象
+  const [videoModels, setVideoModels] = useState<Record<string, string[]>>({});
 
   const [dataMap, setDataMap] = useState<Record<string, ClipData>>({});
   const dataMapRef = useRef(dataMap); dataMapRef.current = dataMap;
@@ -60,6 +68,22 @@ export function StoryboardPanel({ project }: Props) {
     catch { toast("加载失败", "error"); } finally { setLoading(false); }
   }, [project?.id]);
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // 读取设置里「视频」激活渠道配置的模型 → 支持分辨率映射，供模型 / 分辨率下拉使用
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        const map: Record<string, string[]> = {};
+        for (const m of getActiveChannel(s.video)?.models ?? []) {
+          const id = m.modelId.trim();
+          if (!id) continue;
+          // 用户未勾选任何分辨率时，回退为全部分辨率
+          map[id] = m.resolutions && m.resolutions.length ? m.resolutions : [...VIDEO_RESOLUTION_OPTIONS];
+        }
+        setVideoModels(map);
+      })
+      .catch(() => setVideoModels({}));
+  }, []);
 
   const filtered = useMemo(() => clips.filter((c) => csList.find((s) => s.clip_id === c.id)?.status === "success"), [clips, csList]);
   useEffect(() => { if (clipId && !filtered.find((c) => c.id === clipId)) setClipId(null); }, [filtered, clipId]);
@@ -112,6 +136,17 @@ export function StoryboardPanel({ project }: Props) {
       await updateStoryboardAssets({ storyboard_id: sb.id, character_ids: cArr, scene_ids: sArr, item_ids: iArr });
       setDataMap((p) => { const d = p[sb.clip_id]; if (!d) return p; return { ...p, [sb.clip_id]: { ...d, storyboards: d.storyboards.map((s) => s.id === sb.id ? { ...s, character_ids_json: JSON.stringify(cArr), scene_ids_json: JSON.stringify(sArr), item_ids_json: JSON.stringify(iArr) } : s) } }; });
     } catch { toast("批量关联失败", "error"); } finally { setSaving(null); }
+  }, [toast]);
+
+  // 实时更新分镜时长（秒），写回分镜记录本身；同步更新本地数据使缩略图条即时刷新
+  const updateSbDuration = useCallback(async (sb: Storyboard, duration: number | null) => {
+    try {
+      await updateStoryboardDuration({ storyboard_id: sb.id, duration });
+      setDataMap((p) => {
+        const d = p[sb.clip_id]; if (!d) return p;
+        return { ...p, [sb.clip_id]: { ...d, storyboards: d.storyboards.map((s) => s.id === sb.id ? { ...s, video_duration: duration } : s) } };
+      });
+    } catch { toast("更新时长失败", "error"); }
   }, [toast]);
 
   // ── 新增/插入/删除分镜 ────────────────────────
@@ -196,8 +231,10 @@ export function StoryboardPanel({ project }: Props) {
                   assets={assets}
                   busy={busy}
                   saving={saving === activeSb.id}
+                  videoModels={videoModels}
                   onToggle={(a) => toggleLink(activeSb, a)}
                   onBatchToggle={batchToggleLink}
+                  onDurationWrite={updateSbDuration}
                 />
               )}
 
@@ -304,7 +341,7 @@ export function StoryboardPanel({ project }: Props) {
    DetailView — 上方选中分镜详情
 
    批次区域拆分为：
-     左侧：批次缩略图列表（竖列）
+     左侧：视频批次缩略图（横排）
      右侧：视频生成参数（模型/时长/分辨率/宽高比 + 生成按钮）
    所有参数失焦保存。
    ======================================================================== */
@@ -312,8 +349,12 @@ export function StoryboardPanel({ project }: Props) {
 type DetailProps = {
   sb: Storyboard; assets: StoryboardAssetInfo[];
   busy: boolean; saving: boolean;
+  /** 设置里配置的视频模型 → 支持分辨率映射；为空表示未配置 */
+  videoModels: Record<string, string[]>;
   onToggle: (a: StoryboardAssetInfo) => void;
   onBatchToggle: (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => Promise<void>;
+  /** 实时写回分镜时长的回调（分镜记录上的秒数，可编辑） */
+  onDurationWrite: (sb: Storyboard, duration: number | null) => void;
 };
 
 /** 视频参数结构 */
@@ -325,33 +366,57 @@ interface VideoParams {
 }
 
 const DEFAULT_VIDEO_PARAMS: VideoParams = {
-  model: "kling-v1",
-  duration: 5,
-  resolution: "1080p",
-  aspect_ratio: "16:9",
+  model: VIDEO_DEFAULT_MODEL,
+  duration: VIDEO_DEFAULT_DURATION,
+  resolution: VIDEO_DEFAULT_RESOLUTION,
+  aspect_ratio: VIDEO_DEFAULT_ASPECT,
 };
 
-const MODEL_OPTIONS = ["kling-v1", "kling-v1.5", "sora-v1", "veo-v1"];
-const DURATION_OPTIONS = [5, 10, 15, 30, 60];
-const RESOLUTION_OPTIONS = ["720p", "1080p", "2K", "4K"];
-const ASPECT_OPTIONS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+/** 根据模型 ID 获取支持的分辨率列表（取设置里配置的支持分辨率；未配置则回退到全部分辨率选项） */
+function getResolutions(modelId: string, modelResMap: Record<string, string[]>): string[] {
+  return (modelResMap[modelId] && modelResMap[modelId].length)
+    ? modelResMap[modelId]
+    : [...VIDEO_RESOLUTION_OPTIONS];
+}
 
-function parseVideoParams(json: string | null): VideoParams {
-  if (!json) return { ...DEFAULT_VIDEO_PARAMS };
+/** 将任意时长值夹取到合法范围内的整数 */
+function clampDuration(v: number | null | undefined): number | null {
+  if (v == null || !Number.isFinite(v) || v <= 0) return null;
+  return Math.min(VIDEO_DURATION_MAX, Math.max(VIDEO_DURATION_MIN, Math.round(v)));
+}
+
+/**
+ * 解析视频参数。
+ * @param json         已保存的 video_param_json
+ * @param dbDuration   分镜数据库中存储的时长（video_duration ?? voice_duration），用作时长回退
+ * @param videoModels  设置里配置的视频模型 → 分辨率映射，用于校验/回退模型与分辨率；为空表示未配置
+ */
+function parseVideoParams(json: string | null, dbDuration: number | null, videoModels: Record<string, string[]>): VideoParams {
+  const fallbackDuration = clampDuration(dbDuration) ?? DEFAULT_VIDEO_PARAMS.duration;
+  // 默认模型取用户配置的第一个；未配置则为空字符串（下拉展示空）
+  const defaultModel = Object.keys(videoModels)[0] ?? "";
+  const base: VideoParams = { ...DEFAULT_VIDEO_PARAMS, model: defaultModel, duration: fallbackDuration };
+  if (!json) return base;
   try {
     const obj = JSON.parse(json);
+    // 模型：不在用户配置的模型映射中则回退到第一个（无配置则为空）
+    const model = Object.prototype.hasOwnProperty.call(videoModels, obj.model) ? obj.model : defaultModel;
+    // 分辨率：不在该模型支持列表中则取第一个
+    const allowed = getResolutions(model, videoModels);
+    const resolution = allowed.includes(obj.resolution) ? obj.resolution : allowed[0];
     return {
-      model: obj.model || DEFAULT_VIDEO_PARAMS.model,
-      duration: obj.duration || DEFAULT_VIDEO_PARAMS.duration,
-      resolution: obj.resolution || DEFAULT_VIDEO_PARAMS.resolution,
-      aspect_ratio: obj.aspect_ratio || DEFAULT_VIDEO_PARAMS.aspect_ratio,
+      model,
+      // 时长以分镜记录本身（模型拆解出来的秒数）为准，忽略参数 JSON 中的值
+      duration: base.duration,
+      resolution,
+      aspect_ratio: VIDEO_ASPECT_OPTIONS.includes(obj.aspect_ratio) ? obj.aspect_ratio : base.aspect_ratio,
     };
   } catch {
-    return { ...DEFAULT_VIDEO_PARAMS };
+    return base;
   }
 }
 
-function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: DetailProps) {
+function DetailView({ sb, assets, busy, saving, videoModels, onToggle, onBatchToggle, onDurationWrite }: DetailProps) {
   const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
   const linked = (a: StoryboardAssetInfo) => a.type === "character" ? cIds.has(a.asset_id) : a.type === "scene" ? sIds.has(a.asset_id) : iIds.has(a.asset_id);
   const videoPaths = useMemo<string[]>(() => {
@@ -362,8 +427,8 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const currentVideoSrc = videoPaths[activeVideoIdx] ? convertFileSrc(videoPaths[activeVideoIdx]) : null;
 
-  // ── 视频参数状态（从 sb.video_param_json 初始化） ──
-  const [params, setParams] = useState<VideoParams>(() => parseVideoParams(sb.video_param_json));
+  // ── 视频参数状态（从 sb.video_param_json 初始化，时长回退到数据库存储时长） ──
+  const [params, setParams] = useState<VideoParams>(() => parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
   const [prompt, setPrompt] = useState(sb.video_prompt || "");
   const paramsRef = useRef(params); paramsRef.current = params;
   const promptRef = useRef(prompt); promptRef.current = prompt;
@@ -373,11 +438,11 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
   const formatPrompt = (raw: string) => raw.replace(/\s*(c\d{2,},\d+s,)/g, "\n\n$1").trim();
   const displayPrompt = useMemo(() => formatPrompt(prompt), [prompt]);
 
-  // 切换分镜时重置参数
+  // 切换分镜、或设置里模型列表就绪时重置参数
   useEffect(() => {
-    setParams(parseVideoParams(sb.video_param_json));
+    setParams(parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
     setPrompt(sb.video_prompt || "");
-  }, [sb.id, sb.video_param_json, sb.video_prompt]);
+  }, [sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
 
   // 失焦保存（保存原始文本，去掉显示用的换行）
   const saveParams = useCallback(async () => {
@@ -394,7 +459,17 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
   }, []);
 
   const updateParam = useCallback(<K extends keyof VideoParams>(key: K, value: VideoParams[K]) => {
-    setParams((prev) => ({ ...prev, [key]: value }));
+    setParams((prev) => {
+      const next = { ...prev, [key]: value };
+      // 切换模型时，若当前分辨率不在新模型支持列表中，自动选第一个
+      if (key === "model") {
+        const allowed = getResolutions(value as string, videoModels);
+        if (!allowed.includes(next.resolution)) {
+          next.resolution = allowed[0];
+        }
+      }
+      return next;
+    });
   }, []);
 
   const [pickerCat, setPickerCat] = useState<AssetType | null>(null);
@@ -521,28 +596,57 @@ function DetailView({ sb, assets, busy, saving, onToggle, onBatchToggle }: Detai
 
         {/* 右侧：视频生成参数 */}
         <div className="sd-section sd-section--params">
-          <span className="sd-section-label">生成参数</span>
-          <div className="sd-params-labels">
-            <span className="sd-param-label">模型</span>
-            <span className="sd-param-label">时长</span>
-            <span className="sd-param-label">分辨率</span>
-            <span className="sd-param-label">宽高比</span>
+          <div className="sd-params-grid">
+            <label className="sd-param-field">
+              <span className="sd-param-label">模型</span>
+              <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
+                {Object.keys(videoModels).length === 0
+                  ? <option value="">未配置模型</option>
+                  : Object.keys(videoModels).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+            <label className="sd-param-field">
+              <span className="sd-param-label">时长</span>
+              <div className="sd-param-duration">
+                <input
+                  type="number"
+                  className="sd-param-input"
+                  min={VIDEO_DURATION_MIN}
+                  max={VIDEO_DURATION_MAX}
+                  value={params.duration}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const raw = Number(e.target.value);
+                    if (!Number.isFinite(raw)) return;
+                    const dv = clampDuration(raw);
+                    setParams((prev) => ({ ...prev, duration: Math.max(VIDEO_DURATION_MIN, Math.min(VIDEO_DURATION_MAX, Math.round(raw))) }));
+                    // 实时写回分镜记录（模型拆解的分镜秒数）
+                    onDurationWrite(sb, dv);
+                  }}
+                  onBlur={saveParams}
+                />
+                <span className="sd-param-unit">s</span>
+              </div>
+            </label>
+            <label className="sd-param-field">
+              <span className="sd-param-label">分辨率</span>
+              <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
+                {getResolutions(params.model, videoModels).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+            <label className="sd-param-field">
+              <span className="sd-param-label">宽高比</span>
+              <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
+                {VIDEO_ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </label>
           </div>
-          <div className="sd-params-controls">
-            <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
-              {MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <select className="sd-param-select" value={params.duration} onChange={(e) => updateParam("duration", Number(e.target.value))} onBlur={saveParams}>
-              {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}s</option>)}
-            </select>
-            <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
-              {RESOLUTION_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
-              {ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <button className="sd-generate-btn primary-button" disabled={busy}>
+          {/* 视频生成后端 handler（generate_video）尚未实现，先禁用并明确提示，避免「死按钮」 */}
+          <button
+            className="sd-generate-btn primary-button"
+            disabled
+            title={Object.keys(videoModels).length === 0 ? "请先在设置中配置视频模型" : "视频生成功能即将开放"}
+          >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
             生成视频
           </button>

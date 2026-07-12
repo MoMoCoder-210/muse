@@ -283,7 +283,7 @@ impl SidecarManager {
             return Err(SidecarError::StartFailed(msg));
         }
 
-        log::info!("Worker 脚本路径：{}", worker_path.display());
+        self.log("子进程", "INFO", &format!("Worker 脚本路径：{}", worker_path.display()));
 
         let mut child = Command::new("node")
             .arg(&worker_path)
@@ -340,7 +340,7 @@ impl SidecarManager {
                 &format!("Worker 已启动，workerId={}", self.worker_id),
             );
         }
-        log::info!("子进程已启动，workerId: {}", self.worker_id);
+
         Ok(())
     }
 
@@ -353,6 +353,7 @@ impl SidecarManager {
     /// 4. 超时后强制 kill
     /// @author yt @date 20260702
     pub fn shutdown(&mut self, timeout_ms: u64) -> Result<(), SidecarError> {
+        let log_path = self.log_path.clone();
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
 
         // 发送 shutdown 命令
@@ -373,14 +374,14 @@ impl SidecarManager {
                 Ok(Some(_)) => break,
                 Ok(None) => {
                     if start.elapsed() > timeout {
-                        log::warn!("Worker 未按时关闭，强制终止");
+                        crate::project_log::append_log(Path::new(&log_path), "子进程", "WARN", "Worker 未按时关闭，强制终止");
                         let _ = child.kill();
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => {
-                    log::error!("Error waiting for worker: {}", e);
+                    crate::project_log::append_log(Path::new(&log_path), "子进程", "ERROR", &format!("Error waiting for worker: {}", e));
                     let _ = child.kill();
                     break;
                 }
@@ -406,7 +407,7 @@ impl SidecarManager {
                 "Worker 已关闭",
             );
         }
-        log::info!("子进程已关闭");
+
         Ok(())
     }
 
@@ -428,7 +429,7 @@ impl SidecarManager {
         }
 
         if self.restart_count >= MAX_RESTART_COUNT {
-            log::error!("超过最大重启次数（{}）", MAX_RESTART_COUNT);
+            self.log("子进程", "ERROR", &format!("超过最大重启次数（{}）", MAX_RESTART_COUNT));
             return Err(SidecarError::MaxRestartsExceeded);
         }
 
@@ -456,11 +457,7 @@ impl SidecarManager {
         self.worker_id = uuid::Uuid::new_v4().to_string();
         self.last_heartbeat = Arc::new(Mutex::new(None));
 
-        log::info!(
-            "重启 Worker（第 {}/{} 次）",
-            self.restart_count,
-            MAX_RESTART_COUNT
-        );
+        self.log("子进程", "INFO", &format!("重启 Worker（第 {}/{} 次）", self.restart_count, MAX_RESTART_COUNT));
 
         let db = self.db_path.clone();
         let workspace = self.workspace_path.clone();
@@ -470,6 +467,45 @@ impl SidecarManager {
         let ffprobe = self.ffprobe_path.clone();
         self.start(&db, &workspace, &config, &log_path, &ffmpeg, &ffprobe)
     }
+
+    /// 用户主动保存配置时调用：强制用已保存的启动参数重新拉起 Worker。
+    ///
+    /// 与普通 `restart` 不同，此方法**不受 `MAX_RESTART_COUNT` 限制**——
+    /// 崩溃自愈的重启次数限制不应影响用户主动配置生效（配置保存后必须可用）。
+    ///
+    /// - 若 Worker 当前在运行 → 直接成功（由调用方负责发送 reload_config 热重载）。
+    /// - 若从未成功启动过（`db_path` 为空）→ 返回 `NotRunning`，由调用方提示需重启应用。
+    /// - 否则清理残留进程后以最新配置重新拉起。
+    ///
+    /// @author yt @date 20260712
+    pub fn force_restart(&mut self) -> Result<(), SidecarError> {
+        if self.is_running() {
+            return Ok(());
+        }
+        if self.db_path.is_empty() {
+            return Err(SidecarError::NotRunning);
+        }
+        // 清理可能残留的进程与日志读取线程
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+        }
+        self.child = None;
+        for handle in self.log_handles.drain(..) {
+            let _ = handle.join();
+        }
+        // 用户主动保存配置触发的重启无需崩溃节流 sleep，避免阻塞 Tauri 主线程
+        // 生成新 workerId 与心跳时间戳
+        self.worker_id = uuid::Uuid::new_v4().to_string();
+        self.last_heartbeat = Arc::new(Mutex::new(None));
+        let db = self.db_path.clone();
+        let workspace = self.workspace_path.clone();
+        let config = self.config_path.clone();
+        let log_path = self.log_path.clone();
+        let ffmpeg = self.ffmpeg_path.clone();
+        let ffprobe = self.ffprobe_path.clone();
+        self.start(&db, &workspace, &config, &log_path, &ffmpeg, &ffprobe)
+    }
+
     /// 返回：
     /// - Ok：心跳正常
     /// - Err(Crashed)：心跳超时，需要重启
@@ -509,7 +545,7 @@ impl SidecarManager {
         )
         .map_err(|e| SidecarError::Crashed(format!("failed to cleanup locks: {}", e)))?;
 
-        log::info!("已清理 Worker {} 的锁", self.worker_id);
+        self.log("子进程", "INFO", &format!("已清理 Worker {} 的锁", self.worker_id));
         Ok(())
     }
 
@@ -577,9 +613,20 @@ impl SidecarManager {
         Ok(())
     }
 
-    /// 获取当前 workerId
-    /// @author yt @date 20260702
-    pub fn worker_id(&self) -> &str {
+  /// 统一写日志到项目日志文件（与 commands 一致，避免双日志门面）。
+  /// log_path 为空（尚未保存启动参数）时跳过，避免无谓写入。
+  fn log(&self, source: &str, level: &str, message: &str) {
+    if !self.log_path.is_empty() {
+      crate::project_log::append_log(
+        std::path::Path::new(&self.log_path),
+        source, level, message,
+      );
+    }
+  }
+
+/// 获取当前 workerId
+/// @author yt @date 20260702
+  pub fn worker_id(&self) -> &str {
         &self.worker_id
     }
 

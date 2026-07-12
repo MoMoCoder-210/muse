@@ -108,7 +108,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
     const selected = await open({
       directory: true,
       multiple: false,
-      defaultPath: DEFAULT_PROJECT_ROOT,
+      defaultPath: DEFAULT_PROJECT_ROOT || undefined,
       title: "选择项目目录",
     });
     if (typeof selected === "string" && selected.trim()) {
@@ -234,7 +234,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
               <input
                 value={projectDirectory}
                 onChange={(e) => setProjectDirectory(e.target.value)}
-                placeholder={DEFAULT_PROJECT_ROOT}
+                placeholder="留空则使用默认项目目录"
               />
               <button type="button" className="ghost-button" onClick={handlePickWorkspace}>
                 选择目录

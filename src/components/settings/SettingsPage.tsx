@@ -6,15 +6,16 @@ import {
   DEFAULT_TEXT_CHANNEL,
   DEFAULT_IMAGE_CHANNEL,
   DEFAULT_VOICE_CHANNEL,
-  DEFAULT_ASSET_CHANNEL,
+  DEFAULT_VIDEO_CHANNEL,
   type AppSettings,
 } from "../../types/settings";
+import { VIDEO_RESOLUTION_OPTIONS } from "../../config/muse";
 import { useToast } from "../../hooks/useToast";
 
 // ── 导航 ────────────────────────────────────────────────
 
 type Section = "basic" | "models";
-type ModelTab = "text" | "image" | "voice" | "asset";
+type ModelTab = "text" | "image" | "voice" | "video";
 
 const SECTIONS = [
   { key: "basic" as const,  label: "基础设置", hint: "FFmpeg 引擎与通用偏好" },
@@ -25,7 +26,7 @@ const MODEL_TABS: Array<{ key: ModelTab; label: string }> = [
   { key: "text",  label: "语言模型" },
   { key: "image", label: "生图模型" },
   { key: "voice", label: "语音模型" },
-  { key: "asset", label: "素材渠道" },
+  { key: "video", label: "视频模型" },
 ];
 
 // ── 渠道级字段（仅 key+url+名称，调优参数走全局） ──────
@@ -53,8 +54,8 @@ const VOICE_PARAMS_FIELDS = [
   { key: "speed",     label: "语速",     type: "number" as const, min: 0.5, max: 2.0, step: 0.1 },
 ];
 
-const ASSET_PARAMS_FIELDS = [
-  { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 600000, step: 1000 },
+const VIDEO_PARAMS_FIELDS = [
+  { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 1200000, step: 1000 },
 ];
 
 // ── 组件 ────────────────────────────────────────────────
@@ -84,8 +85,13 @@ export function SettingsPage({ onClose }: Props) {
   const persist = useCallback(async (next: AppSettings) => {
     settingsRef.current = next;
     setSettings(next);
-    try { await saveSettings(next); } catch { /* 静默 */ }
-  }, []);
+    try {
+      await saveSettings(next);
+      toast("设置已保存并生效，无需重启", "success");
+    } catch (e) {
+      toast("设置保存失败：" + (e instanceof Error ? e.message : String(e)), "error");
+    }
+  }, [toast]);
 
   // ── 基础设置 ────────────────────────────────────────
 
@@ -147,7 +153,7 @@ export function SettingsPage({ onClose }: Props) {
           <ChannelManager
             list={settings.text} blank={DEFAULT_TEXT_CHANNEL}
             fields={CHANNEL_FIELDS} hasModels
-            params={settings.textParams} paramsFields={TEXT_PARAMS_FIELDS}
+            params={settings.textParams as unknown as Record<string, number>} paramsFields={TEXT_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, textParams: p as any })}
             onChange={(next) => persist({ ...settingsRef.current, text: next })}
             onPersist={(u) => persist({ ...settingsRef.current, text: u })}
@@ -157,7 +163,7 @@ export function SettingsPage({ onClose }: Props) {
           <ChannelManager
             list={settings.image} blank={DEFAULT_IMAGE_CHANNEL}
             fields={CHANNEL_FIELDS} hasModels
-            params={settings.imageParams} paramsFields={IMAGE_PARAMS_FIELDS}
+            params={settings.imageParams as unknown as Record<string, number>} paramsFields={IMAGE_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as any })}
             onChange={(next) => persist({ ...settingsRef.current, image: next })}
             onPersist={(u) => persist({ ...settingsRef.current, image: u })}
@@ -167,25 +173,21 @@ export function SettingsPage({ onClose }: Props) {
           <ChannelManager
             list={settings.voice} blank={DEFAULT_VOICE_CHANNEL}
             fields={CHANNEL_FIELDS} hasModels
-            params={settings.voiceParams} paramsFields={VOICE_PARAMS_FIELDS}
+            params={settings.voiceParams as unknown as Record<string, number>} paramsFields={VOICE_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, voiceParams: p as any })}
             onChange={(next) => persist({ ...settingsRef.current, voice: next })}
             onPersist={(u) => persist({ ...settingsRef.current, voice: u })}
           />
         )}
-        {tab === "asset" && (
+        {tab === "video" && (
           <ChannelManager
-            list={settings.asset} blank={DEFAULT_ASSET_CHANNEL as any}
-            fields={[
-              { key: "name", label: "渠道名称", type: "text" as const, placeholder: "如 火山方舟" },
-              { key: "apiKey", label: "API Key", type: "password" as const, placeholder: "方舟 API Key" },
-              { key: "baseUrl", label: "Base URL", type: "text" as const, placeholder: "https://ark.cn-beijing.volces.com/api" },
-            ]}
-            hasModels={false}
-            params={settings.assetParams} paramsFields={ASSET_PARAMS_FIELDS}
-            onParamsChange={(p) => persist({ ...settingsRef.current, assetParams: p as any })}
-            onChange={(next) => persist({ ...settingsRef.current, asset: next })}
-            onPersist={(u) => persist({ ...settingsRef.current, asset: u })}
+            list={settings.video} blank={DEFAULT_VIDEO_CHANNEL}
+            fields={CHANNEL_FIELDS} hasModels
+            resolutionOptions={VIDEO_RESOLUTION_OPTIONS}
+            params={settings.videoParams as unknown as Record<string, number>} paramsFields={VIDEO_PARAMS_FIELDS}
+            onParamsChange={(p) => persist({ ...settingsRef.current, videoParams: p as any })}
+            onChange={(next) => persist({ ...settingsRef.current, video: next })}
+            onPersist={(u) => persist({ ...settingsRef.current, video: u })}
           />
         )}
       </div>

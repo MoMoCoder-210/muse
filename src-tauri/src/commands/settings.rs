@@ -52,7 +52,35 @@ pub fn save_settings(
 
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     if manager.is_running() {
-        manager.send_reload_config().map_err(|e| e.to_string())?;
+        // Worker 在运行：热重载配置，立即生效，无需重启应用
+        if let Err(e) = manager.send_reload_config() {
+            crate::project_log::append_log(
+                &log_path,
+                "设置",
+                "WARN",
+                &format!("配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}", e),
+            );
+        }
+    } else {
+        // Worker 未运行（可能因故停止）：用已保存的启动参数重新拉起，让新配置生效
+        match manager.force_restart() {
+            Ok(_) => {
+                crate::project_log::append_log(
+                    &log_path,
+                    "设置",
+                    "INFO",
+                    "配置已保存，Worker 已重新拉起以加载新配置（无需重启应用）",
+                );
+            }
+            Err(e) => {
+                crate::project_log::append_log(
+                    &log_path,
+                    "设置",
+                    "WARN",
+                    &format!("Worker 未运行且无法自动拉起（配置已保存，请重启应用生效）：{}", e),
+                );
+            }
+        }
     }
 
     Ok(())

@@ -68,7 +68,7 @@
 }
 
 /* ============================================================
-   下方三区域：批次 / 资产+参数
+   下方三区域：视频批次 / 资产+参数
    ============================================================ */
 
 /* 通用区块卡片 */
@@ -142,44 +142,91 @@
   overflow-y: auto;
 }
 
-/* 参数区块：与资产区等高 */
+/* 参数区块：与资产区严格等高 */
 .sd-section--params {
   flex: 1; min-width: 0;
+  max-height: 168px;
+  overflow-y: auto;
   justify-content: flex-start;
 }
 
-/* 参数标签行 */
-.sd-params-labels {
-  display: flex; gap: var(--spacing-sm);
+/* 参数：2×2 网格，每个字段自带标签 */
+.sd-params-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm) var(--spacing-md);
   flex-shrink: 0;
 }
-.sd-params-labels .sd-param-label {
-  flex: 1; min-width: 0;
+.sd-param-field {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+}
+.sd-param-field .sd-param-label {
   font-size: var(--font-size-xxs); color: var(--text-muted);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
 }
 
-/* 参数控件行 */
-.sd-params-controls {
-  display: flex; gap: var(--spacing-sm);
-  flex-shrink: 0;
-}
-.sd-params-controls .sd-param-select {
-  flex: 1; min-width: 0;
+.sd-param-select {
+  width: 100%;
   padding: var(--spacing-xs) var(--spacing-sm);
   border: 1px solid var(--border-faint);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-xs);
+  line-height: 1.2;
   font-family: inherit;
   cursor: pointer;
   outline: none;
   transition: border-color 140ms ease;
 }
-.sd-params-controls .sd-param-select:focus {
+.sd-param-select:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* 时长：可编辑数字输入 + 单位 */
+.sd-param-duration {
+  display: inline-flex;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.sd-param-duration:focus-within {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.sd-param-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  font-family: inherit;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.sd-param-input::-webkit-outer-spin-button,
+.sd-param-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sd-param-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.sd-param-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--spacing-sm);
+  border-left: 1px solid var(--border-faint);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  background: rgba(255,255,255,0.02);
 }
 
 /* 生成按钮（套用全局 btn-sm 尺寸，置于参数区右下角） */
@@ -191,16 +238,6 @@
   border-radius: var(--radius-lg);
   flex-shrink: 0; width: fit-content;
   margin-top: auto; align-self: flex-end;
-}
-.sd-video-thumb-label {
-  position: absolute; bottom: 1px; left: 1px;
-  font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold); color: var(--color-white);
-  background: rgba(0, 0, 0, 0.55); padding: 0 var(--spacing-xs);
-  border-radius: var(--radius-sm); line-height: 1.3;
-}
-.sd-video-thumb--empty {
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0.3; cursor: default;
 }
 
 /* 提示词 */

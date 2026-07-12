@@ -8,9 +8,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import {
   DEFAULT_SETTINGS, getActiveChannel,
-  resolveTextConfig, resolveImageConfig, resolveVoiceConfig,
+  resolveTextConfig, resolveImageConfig, resolveVoiceConfig, resolveVideoConfig,
   type AppSettings, type TextModelConfig, type ImageModelConfig,
-  type VoiceModelConfig, type AssetModelConfig,
+  type VoiceModelConfig, type AssetModelConfig, type VideoModelConfig,
 } from "./defaults.js";
 import { logLine } from "../logger.js";
 
@@ -63,17 +63,38 @@ export class SettingsManager {
 
   getAssetConfig(): AssetModelConfig {
     const ch = getActiveChannel(this.cache.asset);
-    if (!ch) throw new Error("素材渠道缺失");
+    // 素材复用视频模型密钥与地址（直接解析 video 渠道，避免与 getVideoConfig 互相递归）
+    const videoCh = getActiveChannel(this.cache.video);
+    const video = videoCh ? resolveVideoConfig(videoCh, this.cache.videoParams) : null;
     return {
-      apiKey: ch.apiKey, baseUrl: ch.baseUrl,
+      apiKey: (video?.apiKey && video.apiKey.trim() ? video.apiKey : (ch?.apiKey ?? "")),
+      baseUrl: (video?.baseUrl || ch?.baseUrl || "").replace(/\/+$/, ""),
       timeoutMs: this.cache.assetParams.timeoutMs,
     };
+  }
+
+  getVideoConfig(): VideoModelConfig {
+    const ch = getActiveChannel(this.cache.video);
+    if (!ch) throw new Error("视频渠道缺失");
+    const cfg = resolveVideoConfig(ch, this.cache.videoParams);
+    // 视频与素材共用火山方舟密钥，未配置时复用 asset 渠道（直接读 asset 渠道，避免与 getAssetConfig 互相递归）
+    if (!cfg.apiKey.trim()) {
+      const assetCh = getActiveChannel(this.cache.asset);
+      cfg.apiKey = assetCh?.apiKey ?? "";
+      cfg.baseUrl = ((assetCh?.baseUrl || cfg.baseUrl).replace(/\/+$/, "") + "/v3");
+    } else {
+      // 确保视频 baseUrl 以 /v3 结尾
+      cfg.baseUrl = cfg.baseUrl.replace(/\/+$/, "");
+      if (!cfg.baseUrl.endsWith("/v3")) cfg.baseUrl += "/v3";
+    }
+    return cfg;
   }
 
   isTextConfigured(): boolean  { return this.getTextConfig().apiKey.trim().length > 0; }
   isImageConfigured(): boolean { return this.getImageConfig().apiKey.trim().length > 0; }
   isVoiceConfigured(): boolean { return this.getVoiceConfig().apiKey.trim().length > 0; }
   isAssetConfigured(): boolean { return this.getAssetConfig().apiKey.trim().length > 0; }
+  isVideoConfigured(): boolean { return this.getVideoConfig().apiKey.trim().length > 0; }
 }
 
 function deepMerge<T extends object>(target: T, source: Partial<T>): T {

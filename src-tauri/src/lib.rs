@@ -174,6 +174,7 @@ pub fn run() {
             commands::delete_storyboard,
             commands::insert_storyboard,
             commands::update_storyboard_params,
+            commands::update_storyboard_duration,
             commands::detect_ffmpeg,
             commands::test_connection,
         ])

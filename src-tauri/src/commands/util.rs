@@ -7,118 +7,107 @@ use serde_json::{Map, Value};
 
 /// 返回默认设置 JSON
 ///
-/// 每种类型使用 ChannelList + Params 双层结构。
-/// 渠道仅含 key+url+models，调优参数统一在 xxxParams 中管理。
-///
-/// 同步点：须与 src/types/settings.ts 及 worker/src/config/defaults.ts 的
-/// DEFAULT_* 三处保持一致（改一处需同步另外两处）。
+/// 数据来源为 `src/config/default-settings.json`，该文件是前端 / Worker / Rust
+/// 三端默认值的**单一真相源**（前端与 Worker 同样 import 此 JSON），
+/// 修改默认值只需改这一份文件，三端自动一致，不再需要「同步点」维护。
 ///
 /// @author yt @date 20260703
 pub(crate) fn default_settings_json() -> Value {
-    serde_json::json!({
-        "text": {
-            "channels": [{
-                "id": "default", "name": "默认", "apiKey": "", "baseUrl": "",
-                "models": [{ "id": "m1", "modelId": "" }],
-                "activeModelId": "m1"
-            }],
-            "activeId": "default"
-        },
-        "textParams": { "timeoutMs": 300000, "maxTokens": 131072, "temperature": 0.7 },
-        "image": {
-            "channels": [{
-                "id": "default", "name": "默认", "apiKey": "", "baseUrl": "",
-                "models": [{ "id": "m1", "modelId": "" }],
-                "activeModelId": "m1"
-            }],
-            "activeId": "default"
-        },
-        "imageParams": { "timeoutMs": 300000 },
-        "voice": {
-            "channels": [{
-                "id": "default", "name": "默认", "apiKey": "", "baseUrl": "",
-                "models": [{ "id": "m1", "modelId": "" }],
-                "activeModelId": "m1"
-            }],
-            "activeId": "default"
-        },
-        "voiceParams": { "timeoutMs": 300000, "speed": 1.0 },
-        "asset": {
-            "channels": [{
-                "id": "default", "name": "默认", "apiKey": "", "baseUrl": ""
-            }],
-            "activeId": "default"
-        },
-        "assetParams": { "timeoutMs": 300000 }
-    })
+    serde_json::from_str(include_str!("../../../src/config/default-settings.json"))
+        .expect("默认设置 JSON 解析失败（src/config/default-settings.json）")
 }
 
-/// 清洗并补全设置 JSON，兼容旧版扁平格式自动迁移
+/// 清洗并补全设置 JSON，兼容旧版扁平格式自动迁移。
+///
+/// 所有默认值均取自 `default_settings_json()`（即 src/config/default-settings.json），
+/// 与前端 / Worker 共享同一份真相源，避免多处手写默认值漂移。
+///
+/// @author yt @date 20260703
 pub(crate) fn sanitize_settings(input: Value) -> Value {
+    let default = default_settings_json();
     let mut root = Map::new();
     let source = input.as_object();
 
     // text 渠道（含 apiFormat）
     root.insert("text".to_string(), sanitize_channel_list(
         source.and_then(|obj| obj.get("text")),
+        &default["text"],
         &[("apiKey", ""), ("baseUrl", "")],
         &[("id", "m1"), ("modelId", "")],
     ));
     // text 全局参数
     root.insert("textParams".to_string(), sanitize_section(
         source.and_then(|obj| obj.get("textParams")),
-        &[("timeoutMs", "300000"), ("maxTokens", "131072"), ("temperature", "0.7")],
+        &default["textParams"],
+        &["timeoutMs", "maxTokens", "temperature"],
     ));
 
     // image 渠道
     root.insert("image".to_string(), sanitize_channel_list(
         source.and_then(|obj| obj.get("image")),
+        &default["image"],
         &[("apiKey", ""), ("baseUrl", "")],
         &[("id", "m1"), ("modelId", "")],
     ));
     // image 参数
     root.insert("imageParams".to_string(), sanitize_section(
         source.and_then(|obj| obj.get("imageParams")),
-        &[("timeoutMs", "300000")],
+        &default["imageParams"],
+        &["timeoutMs"],
     ));
 
     // voice 渠道
     root.insert("voice".to_string(), sanitize_channel_list(
         source.and_then(|obj| obj.get("voice")),
+        &default["voice"],
         &[("apiKey", ""), ("baseUrl", "")],
         &[("id", "m1"), ("modelId", "")],
     ));
     // voice 参数
     root.insert("voiceParams".to_string(), sanitize_section(
         source.and_then(|obj| obj.get("voiceParams")),
-        &[("timeoutMs", "300000"), ("speed", "1.0")],
+        &default["voiceParams"],
+        &["timeoutMs", "speed"],
     ));
 
     // asset 渠道（无 models）
     root.insert("asset".to_string(), sanitize_channel_list(
         source.and_then(|obj| obj.get("asset")),
+        &default["asset"],
         &[("apiKey", ""), ("baseUrl", "")],
         &[],
     ));
     // asset 参数
     root.insert("assetParams".to_string(), sanitize_section(
         source.and_then(|obj| obj.get("assetParams")),
-        &[("timeoutMs", "300000")],
+        &default["assetParams"],
+        &["timeoutMs"],
+    ));
+
+    // video 渠道
+    root.insert("video".to_string(), sanitize_channel_list(
+        source.and_then(|obj| obj.get("video")),
+        &default["video"],
+        &[("apiKey", ""), ("baseUrl", "")],
+        &[("id", "m1"), ("modelId", "")],
+    ));
+    // video 参数
+    root.insert("videoParams".to_string(), sanitize_section(
+        source.and_then(|obj| obj.get("videoParams")),
+        &default["videoParams"],
+        &["timeoutMs"],
     ));
 
     Value::Object(root)
 }
 
-/// 按默认值补全单个配置节字段
-fn sanitize_section(source: Option<&Value>, fields: &[(&str, &str)]) -> Value {
+/// 按默认值补全单个配置节字段（默认值取自 default_section）
+fn sanitize_section(source: Option<&Value>, default_section: &Value, keys: &[&str]) -> Value {
     let source_obj = source.and_then(Value::as_object);
     let mut section = Map::new();
-    for (key, default) in fields {
+    for key in keys {
         let value = source_obj.and_then(|obj| obj.get(*key)).cloned()
-            .unwrap_or_else(|| {
-                if let Ok(n) = default.parse::<f64>() { serde_json::json!(n) }
-                else { Value::String(default.to_string()) }
-            });
+            .unwrap_or_else(|| default_section.get(*key).cloned().unwrap_or(Value::Null));
         section.insert((*key).to_string(), value);
     }
     Value::Object(section)
@@ -127,19 +116,20 @@ fn sanitize_section(source: Option<&Value>, fields: &[(&str, &str)]) -> Value {
 /// 清洗 ChannelList 节：支持旧版扁平对象迁移
 fn sanitize_channel_list(
     source: Option<&Value>,
+    default_section: &Value,
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
     let src = match source {
         Some(v) => v,
-        None => return default_channel_list(channel_fields, model_fields),
+        None => return default_channel_list(default_section, channel_fields, model_fields),
     };
 
     // 新格式：{ channels: [...], activeId: "..." }
     if let Some(obj) = src.as_object() {
         if let Some(arr) = obj.get("channels").and_then(|v| v.as_array()) {
             let sanitized: Vec<Value> = arr.iter()
-                .map(|ch| sanitize_channel(Some(ch), channel_fields, model_fields))
+                .map(|ch| sanitize_channel(Some(ch), default_section, channel_fields, model_fields))
                 .collect();
             let active_id = obj.get("activeId")
                 .and_then(|v| v.as_str())
@@ -148,7 +138,7 @@ fn sanitize_channel_list(
 
             let mut result = Map::new();
             result.insert("channels".to_string(),
-                if sanitized.is_empty() { Value::Array(vec![default_channel(channel_fields, model_fields)]) }
+                if sanitized.is_empty() { Value::Array(vec![default_channel(default_section, channel_fields, model_fields)]) }
                 else { Value::Array(sanitized) });
             result.insert("activeId".to_string(), Value::String(active_id));
             return Value::Object(result);
@@ -156,50 +146,56 @@ fn sanitize_channel_list(
     }
 
     // 旧格式：扁平对象 → 迁移为单渠道列表
-    let channel = sanitize_channel(source, channel_fields, model_fields);
+    let channel = sanitize_channel(source, default_section, channel_fields, model_fields);
     let mut result = Map::new();
     result.insert("channels".to_string(), Value::Array(vec![channel]));
     result.insert("activeId".to_string(), Value::String("default".to_string()));
     Value::Object(result)
 }
 
-/// 默认 ChannelList（单渠道）
+/// 默认 ChannelList（单渠道），字段默认值取自 default_section
 fn default_channel_list(
+    default_section: &Value,
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
-    let channel = default_channel(channel_fields, model_fields);
+    let channel = default_channel(default_section, channel_fields, model_fields);
     let mut result = Map::new();
     result.insert("channels".to_string(), Value::Array(vec![channel]));
     result.insert("activeId".to_string(), Value::String("default".to_string()));
     Value::Object(result)
 }
 
-/// 清洗单个渠道对象
+/// 清洗单个渠道对象，字段默认值取自 default_section["channels"][0]
 fn sanitize_channel(
     source: Option<&Value>,
+    default_section: &Value,
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
+    let default_ch = default_section.get("channels")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
     let src = source.and_then(Value::as_object);
     let mut ch = Map::new();
 
     // 渠道 ID 和名称
-    let id = src.and_then(|o| o.get("id")).and_then(|v| v.as_str()).unwrap_or("default").to_string();
-    let name = src.and_then(|o| o.get("name")).and_then(|v| v.as_str()).unwrap_or("默认").to_string();
+    let id = src.and_then(|o| o.get("id")).and_then(|v| v.as_str())
+        .or_else(|| default_ch.get("id").and_then(|v| v.as_str()))
+        .unwrap_or("default").to_string();
+    let name = src.and_then(|o| o.get("name")).and_then(|v| v.as_str())
+        .or_else(|| default_ch.get("name").and_then(|v| v.as_str()))
+        .unwrap_or("默认").to_string();
     ch.insert("id".to_string(), Value::String(id));
     ch.insert("name".to_string(), Value::String(name));
 
     // 渠道字段
-    for (key, default) in channel_fields {
+    for (key, _default) in channel_fields {
         let val = src.and_then(|o| o.get(*key)).cloned()
-            .unwrap_or_else(|| {
-                if let Ok(n) = default.parse::<f64>() {
-                    serde_json::json!(n)
-                } else {
-                    Value::String(default.to_string())
-                }
-            });
+            .or_else(|| default_ch.get(*key).cloned())
+            .unwrap_or(Value::String(String::new()));
         ch.insert((*key).to_string(), val);
     }
 
@@ -210,26 +206,26 @@ fn sanitize_channel(
                 arr.iter().map(|m| {
                     let m_src = m.as_object();
                     let mut mm = Map::new();
-                    for (mk, md) in model_fields {
+                    for (mk, _md) in model_fields {
                         let mv = m_src.and_then(|o| o.get(*mk)).cloned()
-                            .unwrap_or_else(|| {
-                                if let Ok(n) = md.parse::<f64>() {
-                                    serde_json::json!(n)
-                                } else {
-                                    Value::String(md.to_string())
-                                }
-                            });
+                            .or_else(|| default_ch.get("models").and_then(Value::as_array).and_then(|a| a.first()).and_then(|o| o.get(*mk)).cloned())
+                            .unwrap_or(Value::String(String::new()));
                         mm.insert((*mk).to_string(), mv);
+                    }
+                    // 保留用户在视频渠道配置的模型分辨率（数组），无则省略
+                    if let Some(res) = m_src.and_then(|o| o.get("resolutions")).and_then(|v| v.as_array()) {
+                        mm.insert("resolutions".to_string(), Value::Array(res.clone()));
                     }
                     Value::Object(mm)
                 }).collect::<Vec<_>>()
             }).unwrap_or_else(|| {
-                vec![default_model_entry(model_fields)]
+                vec![default_model_entry(default_section, model_fields)]
             });
         ch.insert("models".to_string(), Value::Array(models));
 
         let active_model = src.and_then(|o| o.get("activeModelId"))
             .and_then(|v| v.as_str())
+            .or_else(|| default_ch.get("activeModelId").and_then(|v| v.as_str()))
             .unwrap_or("m1")
             .to_string();
         ch.insert("activeModelId".to_string(), Value::String(active_model));
@@ -238,40 +234,50 @@ fn sanitize_channel(
     Value::Object(ch)
 }
 
-/// 生成默认渠道（单条）
+/// 默认渠道（单条），字段默认值取自 default_section["channels"][0]
 fn default_channel(
+    default_section: &Value,
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
+    let default_ch = default_section.get("channels")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
     let mut ch = Map::new();
-    ch.insert("id".to_string(), Value::String("default".to_string()));
-    ch.insert("name".to_string(), Value::String("默认".to_string()));
+    ch.insert("id".to_string(), json_str(&default_ch, "id", "default"));
+    ch.insert("name".to_string(), json_str(&default_ch, "name", "默认"));
 
-    for (key, default) in channel_fields {
-        let val = if let Ok(n) = default.parse::<f64>() {
-            serde_json::json!(n)
-        } else {
-            Value::String(default.to_string())
-        };
+    for (key, _default) in channel_fields {
+        let val = default_ch.get(*key).cloned().unwrap_or(Value::String(String::new()));
         ch.insert((*key).to_string(), val);
     }
 
     if !model_fields.is_empty() {
-        ch.insert("models".to_string(), Value::Array(vec![default_model_entry(model_fields)]));
-        ch.insert("activeModelId".to_string(), Value::String("m1".to_string()));
+        ch.insert("models".to_string(), Value::Array(vec![default_model_entry(default_section, model_fields)]));
+        ch.insert("activeModelId".to_string(), json_str(&default_ch, "activeModelId", "m1"));
     }
 
     Value::Object(ch)
 }
 
-fn default_model_entry(fields: &[(&str, &str)]) -> Value {
+fn json_str(v: &Value, key: &str, fallback: &str) -> Value {
+    Value::String(v.get(key).and_then(|x| x.as_str()).unwrap_or(fallback).to_string())
+}
+
+fn default_model_entry(default_section: &Value, fields: &[(&str, &str)]) -> Value {
+    let default_model = default_section.get("channels")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(|c| c.get("models"))
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
     let mut m = Map::new();
-    for (key, default) in fields {
-        let val = if let Ok(n) = default.parse::<f64>() {
-            serde_json::json!(n)
-        } else {
-            Value::String(default.to_string())
-        };
+    for (key, _default) in fields {
+        let val = default_model.get(*key).cloned().unwrap_or(Value::String(String::new()));
         m.insert((*key).to_string(), val);
     }
     Value::Object(m)

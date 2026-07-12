@@ -501,3 +501,36 @@ pub fn update_storyboard_params(
 
     Ok(())
 }
+
+/// 实时更新分镜时长（秒），写回分镜记录本身（模型拆解的分镜秒数）
+#[tauri::command]
+pub fn update_storyboard_duration(
+    input: UpdateStoryboardDurationInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let conn = util::open_app_conn(&app)?;
+
+    conn.execute(
+        "UPDATE storyboards SET video_duration = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![&input.duration, &input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "分镜",
+        "INFO",
+        &format!("已更新分镜时长 storyboardId={}", input.storyboard_id),
+    );
+
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct UpdateStoryboardDurationInput {
+    pub storyboard_id: String,
+    /// 时长（秒）；null 表示清空
+    pub duration: Option<f64>,
+}

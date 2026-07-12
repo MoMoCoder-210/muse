@@ -545,6 +545,17 @@ export async function updateStoryboardParams(input: {
 }
 
 /**
+ * 实时更新分镜时长（秒），写回分镜记录本身。
+ * 该时长即「模型拆解出来的分镜秒数」，可编辑并实时回写。
+ */
+export async function updateStoryboardDuration(input: {
+  storyboard_id: string;
+  duration: number | null;
+}): Promise<void> {
+  return invoke<void>("update_storyboard_duration", { input });
+}
+
+/**
  * 检测 FFmpeg/FFprobe 是否可用
  *
  * @author yt @date 20260708
