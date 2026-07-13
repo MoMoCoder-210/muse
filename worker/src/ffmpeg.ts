@@ -1,12 +1,5 @@
 /**
  * FFmpegHelper - 封装 FFmpeg/FFprobe 子进程调用
- *
- * 职责：
- * 1. 检测 FFmpeg/FFprobe 是否可用（执行 -version 并解析版本）
- * 2. 执行 FFmpeg 命令（支持 AbortSignal 取消 + 超时）
- * 3. 探测媒体文件属性（时长、分辨率、编码、帧率等）
- *
- * @author yt @date 20260708
  */
 
 import { spawn } from "child_process";
@@ -71,8 +64,6 @@ export class FFmpegHelper {
   /**
    * 检测 FFmpeg/FFprobe 是否可用。
    * 执行 -version 并解析版本号，成功返回实例，失败返回 null。
-   *
-   * @author yt @date 20260708
    */
   static async detect(ffmpegPath: string, ffprobePath: string): Promise<FFmpegHelper | null> {
     const helper = new FFmpegHelper(ffmpegPath, ffprobePath);
@@ -115,8 +106,6 @@ export class FFmpegHelper {
    * @param args - ffmpeg 参数（不含可执行文件路径）
    * @param signal - 可选的取消信号
    * @param timeoutMs - 超时毫秒数（默认 10 分钟）
-   *
-   * @author yt @date 20260708
    */
   async execFFmpeg(
     args: string[],
@@ -132,8 +121,6 @@ export class FFmpegHelper {
    * 使用 ffprobe 以 JSON 格式输出流信息，解析为 ProbeResult。
    *
    * @param filePath - 媒体文件绝对路径
-   *
-   * @author yt @date 20260708
    */
   async probe(filePath: string): Promise<ProbeResult> {
     const args = [
@@ -163,8 +150,6 @@ export class FFmpegHelper {
    * 获取音频/视频时长（秒），保留 2 位小数。
    *
    * 轻量版探测，只返回时长，用于语音导入等只需时长的场景。
-   *
-   * @author yt @date 20260708
    */
   async probeDuration(filePath: string): Promise<number> {
     const args = [
@@ -191,8 +176,6 @@ export class FFmpegHelper {
 
   /**
    * 执行子进程，收集 stdout/stderr，支持取消和超时。
-   *
-   * @author yt @date 20260708
    */
   private runProcess(
     cmd: string,
@@ -316,8 +299,6 @@ interface FFprobeStream {
 
 /**
  * 解析 ffprobe JSON 输出为 ProbeResult
- *
- * @author yt @date 20260708
  */
 function parseProbeJSON(json: FFprobeJSON): ProbeResult {
   const videoStream = json.streams?.find((s) => s.codec_type === "video");

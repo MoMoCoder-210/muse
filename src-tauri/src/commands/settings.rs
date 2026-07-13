@@ -1,6 +1,4 @@
 //! 设置相关命令
-//!
-//! @author yt @date 20260703
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
@@ -101,7 +99,6 @@ pub struct FFmpegStatus {
 /// 检查内置 ffmpeg 目录下的可执行文件是否存在。
 /// 版本号由 Worker 启动时检测，此命令仅做路径存在性检查。
 ///
-/// @author yt @date 20260708
 #[tauri::command]
 pub fn detect_ffmpeg(app: tauri::AppHandle) -> FFmpegStatus {
     let ffmpeg_path = crate::app_paths::ffmpeg_path(&app)

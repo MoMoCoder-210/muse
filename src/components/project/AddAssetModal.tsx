@@ -27,7 +27,6 @@ type AddAssetModalProps = {
  *
  * 资产类型由调用方指定，堆叠式表单布局。
  *
- * @author yt @date 20260704
  */
 export function AddAssetModal({ assetType, onConfirm, onCancel, disabled }: AddAssetModalProps) {
   const [name, setName] = useState("");

@@ -270,6 +270,17 @@
   background: rgba(255,255,255,0.01);
 }
 
+.cm-note {
+  margin: 0 0 var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: rgba(127,127,127,0.08);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
 /* 渠道级字段 */
 .cm-fields {
   display: grid;

@@ -10,10 +10,6 @@ type DeleteAssetConfirmProps = {
 
 /**
  * 资产删除确认弹窗。
- *
- * 复用项目删除/片段删除弹窗的样式，支持单个或批量确认。
- *
- * @author yt @date 20260704
  */
 export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: DeleteAssetConfirmProps) {
   const count = cards.length;

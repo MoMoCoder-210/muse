@@ -1,13 +1,4 @@
 //! 模型渠道连通性测试
-//!
-//! 对 OpenAI 兼容端点的 `/models` 发起带 Bearer 鉴权的 GET，
-//! 依据状态码判断鉴权与可达性。所有渠道均走 OpenAI 兼容协议，
-//! 故同一套校验逻辑即可覆盖 text / image / voice / asset。
-//!
-//! 日志说明：本命令为全局设置操作，无 project 上下文（无 `log_path`），
-//! 故用 `eprintln!` 输出到 stderr 便于开发期排障，不入项目日志。
-//!
-//! @author yt @date 20260710
 
 use serde::Serialize;
 

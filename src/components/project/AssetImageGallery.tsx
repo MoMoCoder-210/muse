@@ -41,12 +41,8 @@ type AssetImageGalleryProps = {
 };
 
 /**
- * 资产图片预览组件（支持逐项任务状态）。
+ * 资产图片预览组件
  *
- * 每个 item 有独立的 status：ready（已生成）/ pending（排队）/ running（生成中）/ failed（失败）。
- * 主区域优先展示选中图片，缩略图条展示所有项含状态标记。
- *
- * @author yt @date 20260705
  */
 export function AssetImageGallery({
   images,

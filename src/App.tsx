@@ -14,7 +14,6 @@ type ViewMode = "home" | "projects";
  *
  * 管理页面路由（首页/项目管理）、版本信息、弹窗状态。
  *
- * @author yt @date 20260702
  */
 export default function App() {
   const [view, setView] = useState<ViewMode>("home");

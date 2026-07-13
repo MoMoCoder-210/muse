@@ -5,10 +5,6 @@ import type { ProjectInfo } from "../types/project";
 /**
  * 项目管理 Hook
  *
- * 提供项目列表的加载、实时轮询与缓存能力。
- * 每 3 秒自动拉取最新列表，确保列表始终为最新状态。
- *
- * @author yt @date 20260702
  */
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);

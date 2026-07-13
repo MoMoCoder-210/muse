@@ -12,7 +12,6 @@ type ProjectListProps = {
  *
  * 渲染项目列表项，支持选中、删除操作，空状态提示。
  *
- * @author yt @date 20260702
  */
 export function ProjectList({ projects, selectedProjectId, onSelect, onRequestDelete }: ProjectListProps) {
   if (projects.length === 0) {

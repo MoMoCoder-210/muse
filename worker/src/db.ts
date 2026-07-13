@@ -1,8 +1,6 @@
 /**
  * SQLite 数据库连接管理
- * 基于 better-sqlite3，启用 WAL 模式支持多进程并发访问
  *
- * @author yt @date 20260702
  */
 
 import Database from "better-sqlite3";
@@ -13,10 +11,6 @@ import { mkdirSync } from "fs";
 /**
  * 初始化 SQLite 数据库连接。
  *
- * 必须设置 WAL 模式和 busy_timeout，以支持 Node worker 和 Tauri Rust 层的多进程并发访问。
- * 详见模块 09 第 3.11 节 "SQLite 多进程访问规范"。
- *
- * @author yt @date 20260702
  */
 export function initDatabase(dbPath: string): DatabaseType {
   // 确保目录存在
@@ -54,10 +48,6 @@ export type PendingTask = {
 
 /**
  * 获取任务列表。
- *
- * 查询所有 status = 'pending' 且 lockKey 未被占用的 Task，按 createdAt 排序。
- *
- * @author yt @date 20260702
  */
 export function getPendingTasks(db: DatabaseType): PendingTask[] {
   return db
@@ -79,7 +69,6 @@ export function getPendingTasks(db: DatabaseType): PendingTask[] {
 /**
  * 尝试获取逻辑锁。
  *
- * @author yt @date 20260702
  */
 export function acquireLock(
   db: DatabaseType,
@@ -99,7 +88,6 @@ export function acquireLock(
 /**
  * 释放逻辑锁。
  *
- * @author yt @date 20260702
  */
 export function releaseLock(db: DatabaseType, lockKey: string): void {
   db.prepare("DELETE FROM task_locks WHERE lock_key = ?").run(lockKey);
@@ -108,7 +96,6 @@ export function releaseLock(db: DatabaseType, lockKey: string): void {
 /**
  * 标记任务为 running。
  *
- * @author yt @date 20260702
  */
 export function markTaskRunning(db: DatabaseType, taskId: string): void {
   db.prepare(
@@ -119,7 +106,6 @@ export function markTaskRunning(db: DatabaseType, taskId: string): void {
 /**
  * 标记任务为 waiting_remote。
  *
- * @author yt @date 20260702
  */
 export function markTaskWaitingRemote(
   db: DatabaseType,
@@ -134,7 +120,6 @@ export function markTaskWaitingRemote(
 /**
  * 标记任务为 success。
  *
- * @author yt @date 20260702
  */
 export function markTaskSuccess(
   db: DatabaseType,
@@ -149,7 +134,6 @@ export function markTaskSuccess(
 /**
  * 标记任务为 failed。
  *
- * @author yt @date 20260702
  */
 export function markTaskFailed(
   db: DatabaseType,
@@ -163,14 +147,6 @@ export function markTaskFailed(
 
 /**
  * 统一实体状态转换。
- *
- * 由 task-runner 在任务生命周期各阶段调用，确保任务与关联实体状态严格一致：
- *   - 'running-pending' → 被重试，实体标记为 pending 等待重新调度
- *   - 'running'       → 任务被 Worker 取走执行，实体标记为 running
- *   - 'success'        → 任务执行成功（handler 内部已写入业务数据）
- *   - 'failed'         → 任务最终失败，实体标记为 failed
- *
- * @author yt @date 20260703
  */
 export function transitionEntityStatus(
   db: DatabaseType,
@@ -264,7 +240,6 @@ export type WaitingRemoteTask = {
 /**
  * 获取 waiting_remote 状态的任务（用于恢复轮询）。
  *
- * @author yt @date 20260702
  */
 export function getWaitingRemoteTasks(db: DatabaseType): WaitingRemoteTask[] {
   return db
@@ -277,7 +252,6 @@ export function getWaitingRemoteTasks(db: DatabaseType): WaitingRemoteTask[] {
 /**
  * 获取 running 状态的任务数量。
  *
- * @author yt @date 20260702
  */
 export function getRunningTaskCount(db: DatabaseType): number {
   const result = db
@@ -288,9 +262,7 @@ export function getRunningTaskCount(db: DatabaseType): number {
 
 /**
  * 清理指定 workerId 持有的所有逻辑锁。
- * 在 worker 崩溃后立即调用。
  *
- * @author yt @date 20260702
  */
 export function cleanupWorkerLocks(
   db: DatabaseType,
@@ -305,10 +277,7 @@ export function cleanupWorkerLocks(
 
 /**
  * 重启恢复：将 running 状态的任务回退。
- * - 本地任务：running → pending
- * - 远端任务：running → waiting_remote（有 remoteTaskId）
  *
- * @author yt @date 20260702
  */
 export function recoverRunningTasks(
   db: DatabaseType,
@@ -338,11 +307,6 @@ export function recoverRunningTasks(
 
 /**
  * 恢复超时的 running 任务。
- *
- * 检查 running 状态且 updated_at 超过指定时长的本地任务，回退为 pending。
- * 同时清理对应的 task_locks。用于防止任务因 Worker 崩溃或 handler 卡死而永久滞留。
- *
- * @author yt @date 20260703
  */
 export function recoverStaleTasks(db: DatabaseType, timeoutMs: number): number {
   // 先清理超时任务的锁

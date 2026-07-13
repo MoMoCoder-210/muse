@@ -17,12 +17,6 @@ type SmartTab = "paste" | "file";
 /**
  * 新建片段弹窗
  *
- * 手动输入：标题 + 正文（≤1500字符）
- * 智能创建：粘贴文本或导入 TXT 文件，LLM 自动拆分
- *
- * 两套内容同时渲染，用 visibility 切换，避免切 Tab 时弹窗高度跳动。
- *
- * @author yt @date 20260703
  */
 export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipModalProps) {
   const { toast } = useToast();

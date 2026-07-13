@@ -1,16 +1,5 @@
 /**
  * 片段拆解 — 模型分析片段生成分镜、角色、场景、物品及生图/生视频提示词
- *
- * 基于模块 03，拆解结果写入：
- *   - clip_scripts 表：
- *       script_summary：片段摘要
- *       extracted_resources_json：角色 / 场景 / 物品候选列表（JSON）
- *       raw_model_output：模型原始响应（诊断用）
- *   - storyboards 表：分镜列表（sbid / seq_num / source_text / visual_description / video_prompt）
- *
- * 任务状态（clips.status / clip_scripts.status）由 task-runner 统一维护，handler 不直接修改。
- *
- * @author yt @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -31,8 +20,6 @@ const getPrompt = createPromptLoader("disassemble.md");
  *
  * @returns 解析后的 storyboards、resources 及原始模型输出
  * @throws 模型调用失败或解析失败时抛出错误
- *
- * @author yt @date 20260703
  */
 async function callModelAndParse(
   ctx: TaskContext,
@@ -100,8 +87,6 @@ async function callModelAndParse(
 // ─── 结果保存 ───────────────────────────────────────────────────────
 /**
  * 将拆解结果（storyboards、resource 汇总）写入数据库
- *
- * @author yt @date 20260703
  */
 function saveResults(
   db: DatabaseType,
@@ -168,8 +153,6 @@ function saveResults(
 // ─── 项目步骤推进 ───────────────────────────────────────────────────
 /**
  * 若该项目首次完成拆解（current_step 为 "script"），推进至 "asset"
- *
- * @author yt @date 20260703
  */
 function advanceProjectStep(db: DatabaseType, clipId: string): void {
   const clipRow = db.prepare(
@@ -189,8 +172,6 @@ function advanceProjectStep(db: DatabaseType, clipId: string): void {
 // ─── handler ───────────────────────────────────────────────────────
 /**
  * 片段拆解任务 handler
- *
- * @author yt @date 20260702
  */
 export async function generateClipScriptHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as {
@@ -267,7 +248,6 @@ interface StoryboardItem {
   animationPrompt: string;
 }
 
-// @author yt @date 20260702 解析模型返回的 JSON 为分镜数组
 function parseModelOutput(raw: string): StoryboardItem[] {
   let payload: unknown;
   try {
@@ -320,7 +300,6 @@ interface ExtractedResource {
   tags?: string[];
 }
 
-// @author yt @date 20260702 构建提取的资源对象
 function buildResources(sbs: StoryboardItem[]): {
   characters: ExtractedResource[];
   scenes: ExtractedResource[];

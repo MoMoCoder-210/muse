@@ -24,18 +24,8 @@ interface Wave {
 }
 
 /**
- * 动态背景组件 — 极光波纹 · 光纤网络
+ * 动态背景组件
  *
- * 设计参考：Vercel / Linear / Stripe 着陆页背景动画
- *
- * 视觉层次：
- * 1. 底层：多色径向极光，缓慢漂移呼吸
- * 2. 中层：光纤网络节点，按距离智能连线
- * 3. 顶层：随机迸发的能量波纹，击中节点时点亮
- *
- * 配色保持原四色：蓝 / 青 / 紫 / 橙
- *
- * @author yt @date 20260703
  */
 export function DynamicBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

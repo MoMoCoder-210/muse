@@ -2,7 +2,6 @@
  * concat_video handler - 视频拼接
  *
  * 将多个视频文件按顺序拼接为一个输出文件。
- * 支持归一化处理（统一分辨率、帧率、编码）以确保 concat demuxer 兼容。
  *
  * 输入 (input_json)：
  *   videoPaths: string[]     - 待拼接的视频绝对路径列表（按顺序）
@@ -16,8 +15,6 @@
  *   outputPath: string
  *   duration: number         - 成片时长（秒）
  *   normalizedCount: number  - 归一化的视频数量
- *
- * @author yt @date 20260708
  */
 
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
@@ -47,8 +44,6 @@ interface ConcatVideoOutput {
 /**
  * 判断视频是否需要归一化。
  * 任一条件满足即需重编码。
- *
- * @author yt @date 20260708
  */
 function needsNormalization(
   probe: ProbeResult,
@@ -67,8 +62,6 @@ function needsNormalization(
 
 /**
  * concat_video 任务处理器
- *
- * @author yt @date 20260708
  */
 export async function concatVideoHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as ConcatVideoInput;
@@ -235,8 +228,6 @@ export async function concatVideoHandler(ctx: TaskContext): Promise<string> {
 
 /**
  * 构建归一化 FFmpeg 参数
- *
- * @author yt @date 20260708
  */
 function buildNormalizeArgs(
   inputPath: string,

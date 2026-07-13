@@ -10,7 +10,6 @@ type DeleteClipConfirmProps = {
 /**
  * 片段删除确认弹窗。
  *
- * @author yt @date 20260703
  */
 export function DeleteClipConfirm({ clip, onConfirm, onCancel, disabled }: DeleteClipConfirmProps) {
   return (

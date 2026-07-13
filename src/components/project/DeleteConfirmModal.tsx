@@ -11,10 +11,6 @@ type DeleteConfirmModalProps = {
 
 /**
  * 删除确认弹窗
- *
- * 确认删除项目的二次确认框，支持选择性删除项目文件夹。
- *
- * @author yt @date 20260702
  */
 export function DeleteConfirmModal({
   project,

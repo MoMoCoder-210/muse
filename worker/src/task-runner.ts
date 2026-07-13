@@ -1,16 +1,5 @@
 /**
  * TaskRunner - 任务执行核心循环
- * 基于模块 08 第 3.2 节 "worker 设计"
- *
- * 核心循环：
- * 1. 每 STALE_CHECK_INTERVAL 轮恢复超时 running 任务（防丢失）
- * 2. 查询 pending 任务（LIMIT 20）+ lockKey 未被占用
- * 3. 对每条 Task：尝试获锁 → 获令牌 → 标记 running → 分发 handler
- * 4. handler 完成/超时/失败 → 回写结果 + 释放资源
- * 5. 失败且可重试 + retry_count < max_retry → 回退 pending
- * 6. 收到 wakeup 信号时跳过休眠，立即进入下一轮
- *
- * @author yt @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -98,8 +87,6 @@ export class TaskRunner {
 
   /**
    * 注册任务处理器
-   *
-   * @author yt @date 20260702
    */
   registerHandler(taskType: TaskType, handler: (ctx: TaskContext) => Promise<string>): void {
     this.handlers.set(taskType, handler);
@@ -107,9 +94,6 @@ export class TaskRunner {
 
   /**
    * 唤醒：跳过当前休眠，立即进入下一轮调度。
-   * 由 index.ts 收到 enqueue 命令时调用。
-   *
-   * @author yt @date 20260703
    */
   wakeup(): void {
     this.wakeupRequested = true;
@@ -117,9 +101,6 @@ export class TaskRunner {
 
   /**
    * 取消指定任务：abort 对应的 AbortController，中断正在执行的 handler。
-   * 由 index.ts 收到 cancel 命令时调用。
-   *
-   * @author yt @date 20260703
    */
   cancelTask(taskId: string): void {
     const ctrl = this.runningTasks.get(taskId);
@@ -132,8 +113,6 @@ export class TaskRunner {
 
   /**
    * 启动任务循环
-   *
-   * @author yt @date 20260702
    */
   async start(): Promise<void> {
     this.running = true;
@@ -179,8 +158,6 @@ export class TaskRunner {
 
   /**
    * 停止任务循环
-   *
-   * @author yt @date 20260702
    */
   stop(): void {
     this.running = false;
@@ -189,9 +166,6 @@ export class TaskRunner {
 
   /**
    * 恢复超时的 running 任务。
-   * 场景：Worker 崩溃重启后、handler 卡死未返回、进程被 kill。
-   *
-   * @author yt @date 20260703
    */
   private checkStaleTasks(): void {
     const recovered = recoverStaleTasks(this.db, STALE_TASK_TIMEOUT_MS);
@@ -202,8 +176,6 @@ export class TaskRunner {
 
   /**
    * 处理 pending 任务
-   *
-   * @author yt @date 20260702
    */
   private async processPendingTasks(): Promise<void> {
     const tasks = getPendingTasks(this.db);
@@ -238,8 +210,6 @@ export class TaskRunner {
 
   /**
    * 执行单个任务
-   *
-   * @author yt @date 20260702
    */
   private async executeTask(
     task: PendingTask,
@@ -379,8 +349,6 @@ export class TaskRunner {
 
   /**
    * 包装 Promise，超时后 abort 并抛错。
-   *
-   * @author yt @date 20260703
    */
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, abort: AbortController): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -397,8 +365,6 @@ export class TaskRunner {
 
   /**
    * 判断错误是否可重试
-   *
-   * @author yt @date 20260703
    */
   private isRetryable(err: unknown): boolean {
     const msg = err instanceof Error ? err.message : String(err);
@@ -416,8 +382,6 @@ export class TaskRunner {
    *
    * 注意：当前仅有 text/image/voice 三种 API，它们的操作是同步的，
    * 不会产生 waiting_remote 状态。此方法预留给未来的异步 API（如视频生成服务）。
-   *
-   * @author yt @date 20260702
    */
   private async processWaitingRemoteTasks(): Promise<void> {
     const tasks = getWaitingRemoteTasks(this.db);
@@ -457,8 +421,6 @@ export class TaskRunner {
 
   /**
    * 获取当前活跃任务数（running 状态）
-   *
-   * @author yt @date 20260702
    */
   private getActiveTaskCount(): number {
     return getRunningTaskCount(this.db);
@@ -466,8 +428,6 @@ export class TaskRunner {
 
   /**
    * 判断是否是 429 限流错误
-   *
-   * @author yt @date 20260702
    */
   private isRateLimitError(err: unknown): boolean {
     if (err && typeof err === "object" && "status" in err) {
@@ -478,8 +438,6 @@ export class TaskRunner {
 
   /**
    * 判断是否是配额耗尽错误
-   *
-   * @author yt @date 20260702
    */
   private isQuotaExhaustedError(err: unknown): boolean {
     if (err && typeof err === "object" && "code" in err) {
@@ -490,8 +448,6 @@ export class TaskRunner {
 
   /**
    * 可中断休眠：收到 wakeup 信号时立即返回
-   *
-   * @author yt @date 20260703
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {

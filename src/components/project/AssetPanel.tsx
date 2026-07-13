@@ -4,9 +4,11 @@ import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAs
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
+import type { VoiceBinding } from "../../types/project";
 import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
 import { AddAssetModal, type AddAssetInput } from "./AddAssetModal";
 import { AssetDrawer, type GenerateParams } from "./AssetDrawer";
+import { VoiceBindingDrawer } from "./VoiceBindingDrawer";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_VALUE_MAP, type StyleMode } from "../../config/muse";
@@ -45,7 +47,6 @@ type AssetPanelProps = {
  *
  * 左侧展示已拆解完成的片段列表，右侧展示选中片段的资产（角色/场景/物品）。
  *
- * @author yt @date 20260703
  */
 export function AssetPanel({ project }: AssetPanelProps) {
   const { toast } = useToast();
@@ -76,6 +77,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [addAssetOpen, setAddAssetOpen] = useState<AssetType | null>(null);
   const [drawerTarget, setDrawerTarget] = useState<AssetCardData[] | null>(null);
   const [drawerClosing, setDrawerClosing] = useState(false);
+  const [voiceTarget, setVoiceTarget] = useState<AssetCardData | null>(null);
+  const [voiceClosing, setVoiceClosing] = useState(false);
 
   // 卡片绑定图片路径映射：key = `${type}:${name}`
   const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
@@ -288,6 +291,29 @@ export function AssetPanel({ project }: AssetPanelProps) {
     setDrawerTarget([data]);
   }, []);
 
+  // 点击卡片声音按钮 → 打开声音绑定抽屉
+  const handleOpenVoiceDrawer = useCallback((data: AssetCardData) => {
+    setVoiceClosing(false);
+    setVoiceTarget(data);
+  }, []);
+
+  // 声音绑定抽屉关闭：先播退出动画再移除 DOM
+  const voiceCloseTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleCloseVoiceDrawer = useCallback(() => {
+    setVoiceClosing(true);
+    voiceCloseTimerRef.current = setTimeout(() => {
+      setVoiceTarget(null);
+      setVoiceClosing(false);
+    }, 260);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (voiceCloseTimerRef.current) clearTimeout(voiceCloseTimerRef.current);
+    };
+  }, []);
+
   // 批量生成 → 打开抽屉（多个）
   const handleOpenBatchDrawer = useCallback((cards: AssetCardData[]) => {
     if (cards.length === 0) return;
@@ -441,6 +467,36 @@ export function AssetPanel({ project }: AssetPanelProps) {
           ? { ...c, resource: { ...c.resource, prompt: patch.prompt, description: patch.description } }
           : c
       ) ?? null
+    );
+  }, []);
+
+  // 抽屉内绑定声音后：合并回 clipScripts 与当前抽屉卡片，使重新打开时展示最新绑定
+  const handleVoiceBindingChanged = useCallback((card: AssetCardData, binding: VoiceBinding | undefined) => {
+    setClipScripts((prev) =>
+      prev.map((cs) => {
+        if (cs.clip_id !== card.clipId || !cs.extracted_resources_json) return cs;
+        try {
+          const parsed = JSON.parse(cs.extracted_resources_json) as ParsedAssets;
+          const key = TYPE_TO_KEY[card.type];
+          const list = parsed[key] ?? [];
+          const updated = list.map((r) =>
+            r.name === card.resource.name ? { ...r, voiceBinding: binding } : r
+          );
+          return { ...cs, extracted_resources_json: JSON.stringify({ ...parsed, [key]: updated }) };
+        } catch {
+          return cs;
+        }
+      })
+    );
+    setDrawerTarget((prev) =>
+      prev?.map((c) =>
+        c.id === card.id ? { ...c, resource: { ...c.resource, voiceBinding: binding } } : c
+      ) ?? null
+    );
+    setVoiceTarget((prev) =>
+      prev && prev.id === card.id
+        ? { ...prev, resource: { ...prev.resource, voiceBinding: binding } }
+        : prev
     );
   }, []);
 
@@ -642,6 +698,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                           onToggle={toggleSelect}
                           onDelete={(data) => handleDeleteClick([data])}
                           onDetail={(data) => handleOpenDrawer(data)}
+                          onVoice={(data) => handleOpenVoiceDrawer(data)}
                           disabled={operating}
                         />
                       ))}
@@ -687,6 +744,16 @@ export function AssetPanel({ project }: AssetPanelProps) {
           onCopyFromProject={handleCopyFromProject}
           onImageSelected={handleImageSelected}
           onAssetUpdated={handleAssetUpdated}
+          disabled={operating}
+        />
+      ) : null}
+      {/* 声音绑定抽屉 */}
+      {voiceTarget ? (
+        <VoiceBindingDrawer
+          card={voiceTarget}
+          onClose={handleCloseVoiceDrawer}
+          onVoiceBound={handleVoiceBindingChanged}
+          closing={voiceClosing}
           disabled={operating}
         />
       ) : null}

@@ -1,4 +1,4 @@
-//! @author yt @date 20260702 Sidecar 子进程管理
+//! Sidecar 子进程管理
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -20,7 +20,7 @@ const RESTART_WINDOW_MINS: u64 = 5;
 #[allow(dead_code)]
 const RESTART_DELAY_SECS: u64 = 2;
 
-/// @author yt @date 20260702 Sidecar 错误类型
+/// Sidecar 错误类型
 #[derive(Debug, Error)]
 pub enum SidecarError {
     #[error("sidecar already running")]
@@ -37,7 +37,7 @@ pub enum SidecarError {
 
 type LogLineProcessor = Box<dyn Fn(&str) + Send + 'static>;
 
-/// @author yt @date 20260702 启动日志读取线程
+/// 启动日志读取线程
 fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     stream: R,
     log_path: Arc<std::path::PathBuf>,
@@ -94,7 +94,7 @@ struct ClipScriptReadyPayload {
     error_message: Option<String>,
 }
 
-/// @author yt @date 20260702 解析 stdout 行内容
+/// 解析 stdout 行内容
 ///
 /// 返回 Option<&str>：heartbeat 消息返回 Some("heartbeat")，调用方可据此更新心跳时间戳。
 fn parse_stdout_line<'a>(
@@ -191,7 +191,7 @@ fn parse_stdout_line<'a>(
 /// - 心跳监控（10s 间隔，30s 超时）
 /// - 崩溃检测与恢复（立即清理锁，滑动窗口重启限制）
 /// - 优雅退出（AbortSignal + 30s 超时）
-/// @author yt @date 20260702
+
 pub struct SidecarManager {
     worker_id: String,
     child: Option<Child>,
@@ -242,7 +242,7 @@ impl SidecarManager {
     /// 3. 等待 ready 消息（包含 workerId + protocolVersion）
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
-    /// @author yt @date 20260702
+    
     pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str, ffmpeg_path: &str, ffprobe_path: &str) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
@@ -351,7 +351,7 @@ impl SidecarManager {
     /// 2. worker 停止接收新任务
     /// 3. 等待进行中的任务完成或超时
     /// 4. 超时后强制 kill
-    /// @author yt @date 20260702
+    
     pub fn shutdown(&mut self, timeout_ms: u64) -> Result<(), SidecarError> {
         let log_path = self.log_path.clone();
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
@@ -417,7 +417,7 @@ impl SidecarManager {
     /// - 5 分钟内最多重启 3 次
     /// - 超过后需要手动恢复
     /// - 稳定运行 5 分钟后计数器重置
-    /// @author yt @date 20260702
+    
     pub fn restart(&mut self) -> Result<(), SidecarError> {
         // 检查重启计数
         if let Some(window_start) = self.restart_window_start {
@@ -477,7 +477,7 @@ impl SidecarManager {
     /// - 若从未成功启动过（`db_path` 为空）→ 返回 `NotRunning`，由调用方提示需重启应用。
     /// - 否则清理残留进程后以最新配置重新拉起。
     ///
-    /// @author yt @date 20260712
+    
     pub fn force_restart(&mut self) -> Result<(), SidecarError> {
         if self.is_running() {
             return Ok(());
@@ -509,7 +509,7 @@ impl SidecarManager {
     /// 返回：
     /// - Ok：心跳正常
     /// - Err(Crashed)：心跳超时，需要重启
-    /// @author yt @date 20260702
+    
     pub fn check_heartbeat(&mut self) -> Result<(), SidecarError> {
         if self.child.is_none() {
             return Err(SidecarError::NotRunning);
@@ -525,9 +525,8 @@ impl SidecarManager {
         Ok(())
     }
 
-    /// 更新心跳时间戳（收到 heartbeat 消息时调用）
-    /// 注意：现在由 stdout 读取线程自动更新，此方法保留用于手动场景。
-    /// @author yt @date 20260702
+    /// 更新心跳时间戳。通常由 stdout 读取线程在收到 heartbeat 时自动调用，也可手动触发。
+    
     pub fn update_heartbeat(&mut self) {
         let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
         *ts = Some(Instant::now());
@@ -536,7 +535,7 @@ impl SidecarManager {
     /// 崩溃恢复：清理该 workerId 持有的所有逻辑锁。
     ///
     /// 在 worker 崩溃后立即调用，不等 30 分钟超时。
-    /// @author yt @date 20260702
+    
     pub fn cleanup_locks(&self, db: &rusqlite::Connection) -> Result<(), SidecarError> {
         let pattern = format!("workerId:{}", self.worker_id);
         db.execute(
@@ -550,7 +549,7 @@ impl SidecarManager {
     }
 
     /// 发送 reload_config 命令给 worker
-    /// @author yt @date 20260702
+    
     pub fn send_reload_config(&mut self) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -561,7 +560,7 @@ impl SidecarManager {
     }
 
     /// 发送 enqueue 命令，通知 Worker 立即调度任务。
-    /// @author yt @date 20260703
+    
     pub fn send_enqueue(&mut self, task_id: &str, task_type: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -572,7 +571,7 @@ impl SidecarManager {
     }
 
     /// 发送 cancel 命令，通知 Worker 中止指定任务。
-    /// @author yt @date 20260703
+    
     pub fn send_cancel(&mut self, task_id: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -583,7 +582,7 @@ impl SidecarManager {
     }
 
     /// 发送 upload_asset_image 命令，通知 Worker 将本地图片上传至方舟平台。
-    /// @author yt @date 20260707
+
     pub fn send_upload_asset_image(&mut self, image_id: &str, file_path: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -599,7 +598,7 @@ impl SidecarManager {
     }
 
     /// 发送 delete_ark_file 命令，通知 Worker 从方舟平台删除文件。
-    /// @author yt @date 20260707
+
     pub fn send_delete_ark_file(&mut self, file_id: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -625,13 +624,13 @@ impl SidecarManager {
   }
 
 /// 获取当前 workerId
-/// @author yt @date 20260702
+
   pub fn worker_id(&self) -> &str {
         &self.worker_id
     }
 
     /// 检查 worker 是否在运行
-    /// @author yt @date 20260702
+    
     pub fn is_running(&self) -> bool {
         self.child.is_some()
     }

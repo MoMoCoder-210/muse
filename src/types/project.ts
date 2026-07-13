@@ -22,7 +22,7 @@ export type ScriptSource = {
   project_id: string;
   source_type: "paste" | "txt";
   file_name: string | null;
-  /** @author yt @date 20260702 修正类型与实际返回不一致的问题 */
+  /** 修正类型与实际返回不一致的问题 */
   raw_content?: string;
   normalized_content?: string;
   split_status: "pending" | "running" | "success" | "failed";
@@ -32,7 +32,7 @@ export type ScriptSource = {
   updated_at: string;
 };
 
-/** @author yt @date 20260703 剧本源列表项（不含原文内容，仅元数据） */
+/** 剧本源列表项（不含原文内容，仅元数据） */
 export type ScriptSourceListItem = {
   id: string;
   project_id: string;
@@ -81,7 +81,7 @@ export type ImportScriptResult = {
   source_id: string;
 };
 
-/** @author yt @date 20260702 新增片段级写操作类型 */
+/** 新增片段级写操作类型 */
 
 /** 批量删除片段（软删除） */
 export type DeleteClipsInput = {
@@ -107,9 +107,14 @@ export type SplitClipResult = {
   second_clip_id: string;
 };
 
-/** @author yt @date 20260702 拆解类型 */
+/** 拆解类型 */
 
 export type AssetType = "character" | "scene" | "item";
+
+/** 角色绑定的声音（公共音色或本地上传） */
+export type VoiceBinding =
+  | { source: "public"; voiceId: string; label: string }
+  | { source: "local"; filePath: string; label: string };
 
 export type AssetResource = {
   type: AssetType;
@@ -117,6 +122,8 @@ export type AssetResource = {
   description: string;
   prompt: string;
   tags?: string[];
+  /** 角色资产可绑定声音（公共音色 / 本地上传），场景与物品无此字段 */
+  voiceBinding?: VoiceBinding;
 };
 
 export type ParsedAssets = {

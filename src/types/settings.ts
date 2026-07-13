@@ -1,10 +1,5 @@
 /**
  * 应用设置类型定义
- *
- * 渠道 = OpenAI 兼容端点 (key + url)，内含多个模型 ID。
- * 调优参数（超时/maxTokens/温度/语速）统一按类型管理，所有渠道共享。
- *
- * @author yt @date 20260702
  */
 
 import defaultSettingsJson from "../config/default-settings.json";
@@ -38,9 +33,18 @@ export interface ImageChannel extends ChannelBase {
   activeModelId: string;
 }
 
-export interface VoiceChannel extends ChannelBase {
-  models: ModelEntry[];
-  activeModelId: string;
+/** 语音渠道（OpenSpeech V3 协议，非方舟 Ark） */
+export interface VoiceChannel {
+  id: string;
+  name: string;
+  /** 火山控制台「语音合成」分配的 API Key（X-Api-Key 头） */
+  apiKey: string;
+  /** 资源 ID：官方 2.0 为 seed-tts-2.0，克隆 2.0 为 seed-icl-2.0；留空按音色自动推断 */
+  resourceId: string;
+  /** V3 单向流式接口地址（默认 https://openspeech.bytedance.com/api/v3/tts/unidirectional） */
+  baseUrl: string;
+  /** 采样率，默认 24000 */
+  sampleRate?: number;
 }
 
 export interface AssetChannel extends ChannelBase {

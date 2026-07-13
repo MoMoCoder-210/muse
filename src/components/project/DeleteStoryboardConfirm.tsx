@@ -10,7 +10,6 @@ type DeleteStoryboardConfirmProps = {
 /**
  * 分镜删除确认弹窗。
  *
- * @author yt @date 20260708
  */
 export function DeleteStoryboardConfirm({ sb, onConfirm, onCancel, disabled }: DeleteStoryboardConfirmProps) {
   return (

@@ -16,7 +16,6 @@ type ProjectManagementPageProps = {
  *
  * 集成侧边栏、工作区与弹窗的项目管理主界面。
  *
- * @author yt @date 20260702
  */
 export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();

@@ -14,9 +14,6 @@ type ClipScriptReadyEvent = {
 /**
  * 片段列表数据与轮询 Hook。
  *
- * 负责初始加载、每 3 秒轮询更新 clips/clipScripts/splitStatus。
- *
- * @author yt @date 20260703
  */
 export function useClipPolling(projectId: string) {
   const [clips, setClips] = useState<Clip[]>([]);

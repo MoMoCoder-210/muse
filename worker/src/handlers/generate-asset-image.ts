@@ -7,12 +7,6 @@ import { l, le } from "../utils/utils.js";
 
 /**
  * 资产生图任务 handler。
- *
- * 使用资产拆解阶段生成的 prompt 调用 image 模型，支持生成多张图片（n 参数）。
- * 每张图片写入 asset_images 表，首张自动设为选中（is_selected=1），
- * 并回写 assets.selected_image_id + generated_image_path。
- *
- * @author yt @date 20260704
  */
 export async function generateAssetImageHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as {

@@ -1,7 +1,7 @@
 -- ============================================================================
--- Muse 数据库建表脚本
--- 版本: 1
--- 描述: 全量建表，包含 10 张业务表。IF NOT EXISTS 保证可重复执行
+-- Muse 数据库 Schema（唯一权威定义）
+-- 启动时自动与数据库对比，新增的表/列/索引自动同步。
+-- 始终以本文件为准，不再使用增量迁移脚本。
 -- ============================================================================
 
 -- ============================================================================
@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS assets (
     generated_image_path       TEXT,
     generated_image_thumb_path TEXT,
     selected_image_id          TEXT,
+    voice_binding_json         TEXT,
     -- model | manual | imported
     source                     TEXT NOT NULL DEFAULT 'model',
     -- draft | confirmed | image_pending | image_ready | failed
@@ -155,21 +156,21 @@ CREATE INDEX IF NOT EXISTS idx_assets_clip
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS asset_images (
-    id              TEXT PRIMARY KEY,
-    asset_id        TEXT NOT NULL REFERENCES assets(id),
-    -- 生成参数快照
-    prompt          TEXT NOT NULL,
-    size            TEXT,
-    style           TEXT,
-    -- 图片文件路径
-    image_path      TEXT NOT NULL,
-    thumb_path      TEXT,
-    -- 是否被选中为资产的最终图片
-    is_selected     INTEGER NOT NULL DEFAULT 0,
-    -- generation | manual | imported
-    source          TEXT NOT NULL DEFAULT 'generation',
-    task_id         TEXT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    id                TEXT PRIMARY KEY,
+    asset_id          TEXT NOT NULL REFERENCES assets(id),
+    prompt            TEXT NOT NULL,
+    size              TEXT,
+    style             TEXT,
+    image_path        TEXT NOT NULL,
+    thumb_path        TEXT,
+    is_selected       INTEGER NOT NULL DEFAULT 0,
+    source            TEXT NOT NULL DEFAULT 'generation',
+    task_id           TEXT,
+    ark_file_id       TEXT,
+    ark_upload_status TEXT,
+    ark_upload_error  TEXT,
+    file_name         TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_images_asset
@@ -178,6 +179,21 @@ CREATE INDEX IF NOT EXISTS idx_asset_images_asset
 CREATE INDEX IF NOT EXISTS idx_asset_images_selected
     ON asset_images(asset_id, is_selected)
     WHERE is_selected = 1;
+
+
+-- ============================================================================
+-- 5.2 public_voices — 火山方舟公共音色清单
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public_voices (
+    voice_id          TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    gender            TEXT NOT NULL,
+    age               TEXT NOT NULL,
+    language          TEXT NOT NULL,
+    tags              TEXT,
+    sample_audio_path TEXT
+);
 
 
 -- ============================================================================

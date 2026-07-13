@@ -6,7 +6,7 @@
   "description": "Node sidecar worker for task execution",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/prompts','dist/prompts',{recursive:true})\"",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.cpSync('src/prompts','dist/prompts',{recursive:true});fs.copyFileSync('../src/config/default-settings.json','dist/config/default-settings.json')\"",
     "start": "node dist/index.js"
   },
   "dependencies": {

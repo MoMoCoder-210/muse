@@ -1,6 +1,4 @@
 //! 剧本导入/拆解相关命令
-//!
-//! @author yt @date 20260703
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
@@ -623,6 +621,13 @@ pub fn update_asset_in_clip(
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert("prompt".to_string(), serde_json::Value::String(input.prompt.clone()));
                     obj.insert("description".to_string(), serde_json::Value::String(input.description.clone()));
+                    // 角色绑定声音：写回 extracted_resources_json 的角色对象，
+                    // 使前端 AssetResource.voiceBinding 能直接读取。
+                    if let Some(vb) = &input.voice_binding {
+                        obj.insert("voice_binding".to_string(), serde_json::from_str(vb).unwrap_or(serde_json::Value::Null));
+                    } else {
+                        obj.remove("voice_binding");
+                    }
                     found = true;
                 }
                 break;
@@ -639,9 +644,9 @@ pub fn update_asset_in_clip(
     // 同步绑定层：assets 表的 prompt/description 仅首次生图时写入一次，编辑后不会自动更新，
     // 会导致「从项目复制」选择器展示过期 prompt。按 clip_id + type + name 对齐更新。
     conn.execute(
-        "UPDATE assets SET prompt = ?1, description = ?2
+        "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?6
          WHERE clip_id = ?3 AND type = ?4 AND name = ?5",
-        rusqlite::params![&input.prompt, &input.description, &input.clip_id, &input.asset_type, &input.name],
+        rusqlite::params![&input.prompt, &input.description, &input.voice_binding, &input.clip_id, &input.asset_type, &input.name],
     )
     .map_err(|e| e.to_string())?;
 
@@ -672,6 +677,102 @@ pub struct UpdateAssetInput {
     pub name: String,
     pub description: String,
     pub prompt: String,
+    /// 角色绑定声音（JSON 字符串：公共音色 / 本地上传），场景与物品为空
+    #[serde(default)]
+    pub voice_binding: Option<String>,
+}
+
+/// 返回项目工作区中已导入的音频文件列表（用于本地上传 tab 的文件选择）。
+#[derive(Debug, Serialize)]
+pub struct VoiceFileEntry {
+    pub file_path: String,
+    pub file_name: String,
+}
+
+#[tauri::command]
+pub fn list_workspace_voice_files(
+    clip_id: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<VoiceFileEntry>, String> {
+    let conn = util::open_app_conn(&app)?;
+    let workspace: String = conn
+        .query_row(
+            "SELECT p.workspace_path FROM clips c JOIN projects p ON c.project_id = p.id WHERE c.id = ?1",
+            rusqlite::params![&clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "未找到项目工作区".to_string())?;
+
+    let voices_dir = std::path::PathBuf::from(&workspace).join("audio").join("voices");
+    if !voices_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&voices_dir)
+        .map_err(|e| format!("读取音频目录失败：{}", e))?
+    {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if ["mp3", "wav", "m4a", "ogg", "flac"].contains(&ext.as_str()) {
+                    files.push(VoiceFileEntry {
+                        file_path: path.to_string_lossy().to_string(),
+                        file_name: path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(files)
+}
+
+/// 将外部音频文件导入项目工作区，返回工作区内的路径。
+#[derive(Debug, Serialize)]
+pub struct ImportVoiceResult {
+    pub file_path: String,
+    pub file_name: String,
+}
+
+#[tauri::command]
+pub fn import_voice_file(
+    clip_id: String,
+    source_path: String,
+    app: tauri::AppHandle,
+) -> Result<ImportVoiceResult, String> {
+    let conn = util::open_app_conn(&app)?;
+    let workspace: String = conn
+        .query_row(
+            "SELECT p.workspace_path FROM clips c JOIN projects p ON c.project_id = p.id WHERE c.id = ?1",
+            rusqlite::params![&clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "未找到项目工作区".to_string())?;
+
+    let voices_dir = std::path::PathBuf::from(&workspace).join("audio").join("voices");
+    std::fs::create_dir_all(&voices_dir)
+        .map_err(|e| format!("创建音频目录失败：{}", e))?;
+
+    let fname = std::path::Path::new(&source_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("voice.mp3")
+        .to_string();
+    let dest = voices_dir.join(&fname);
+
+    std::fs::copy(&source_path, &dest)
+        .map_err(|e| format!("复制音频文件失败：{}", e))?;
+
+    Ok(ImportVoiceResult {
+        file_path: dest.to_string_lossy().to_string(),
+        file_name: fname,
+    })
 }
 
 /// 查询资产图片信息

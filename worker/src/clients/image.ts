@@ -2,8 +2,6 @@
  * 生图模型客户端
  *
  * 兼容 OpenAI Images API
- *
- * @author yt @date 20260702
  */
 
 import OpenAI from "openai";
@@ -58,8 +56,6 @@ export class ImageClient {
 
   /**
    * 生成图片，返回临时 URL
-   *
-   * @author yt @date 20260702
    */
   async generate(
     prompt: string,
@@ -126,8 +122,6 @@ export class ImageClient {
   /**
    * 生成图片并直接下载到本地路径
    * 返回本地文件路径
-   *
-   * @author yt @date 20260702
    */
   async generateAndSave(
     prompt: string,
@@ -141,7 +135,6 @@ export class ImageClient {
 }
 
 // ── 文件下载工具 ───────────────────────────────────────────
-// @author yt @date 20260702 下载文件到本地
 async function downloadFile(
   url: string,
   destPath: string,

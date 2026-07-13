@@ -1,12 +1,5 @@
 /**
  * 统一 API 客户端日志工具
- *
- * 所有 client（text/image/voice/asset）的 HTTP 请求与响应通过此模块统一写入磁盘日志，
- * 包含：请求 URL、脱敏 API Key、请求体（截断 2000 字符）、响应体/流式内容、耗时。
- *
- * 仅写磁盘（logLine），不通过 stdout 转发前端 UI，避免与 handler 的 l() 双打。
- *
- * @author yt @date 20260710
  */
 
 import { logLine } from "../logger.js";
@@ -15,7 +8,6 @@ import { logLine } from "../logger.js";
 
 /**
  * 脱敏 API Key，仅展示首 6 位 + 末 4 位，中间替换为 `****`。
- * key 短于 10 位则全部显示（非标准 key，无需脱敏）。
  */
 export function maskKey(key: string): string {
   if (key.length <= 10) return key;
@@ -24,7 +16,6 @@ export function maskKey(key: string): string {
 
 /**
  * 截断文本，超过 maxLen 追加 "…" 后缀。
- * 0 或负数表示不截断。
  */
 function truncate(text: string, maxLen: number): string {
   if (maxLen <= 0 || text.length <= maxLen) return text;

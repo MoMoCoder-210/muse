@@ -1,14 +1,9 @@
 /**
- * Worker 侧配置类型与默认值
- *
- * 与前端 src/types/settings.ts 同步。
- * 渠道 = OpenAI 端点 (key+url)，内含模型 ID 列表。
- * 调优参数统一按类型管理。
- *
- * @author yt @date 20260702
+ * Worker 侧配置类型与默认值。
  */
-
-import defaultSettingsJson from "../../../src/config/default-settings.json";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const defaultSettingsJson = require("./default-settings.json");
 
 // ── 模型条目 ───────────────────────────────────────────────
 
@@ -38,9 +33,18 @@ export interface ImageChannel extends ChannelBase {
   activeModelId: string;
 }
 
-export interface VoiceChannel extends ChannelBase {
-  models: ModelEntry[];
-  activeModelId: string;
+/** 语音渠道（OpenSpeech V3 协议，非方舟 Ark） */
+export interface VoiceChannel {
+  id: string;
+  name: string;
+  /** 火山控制台「语音合成」分配的 API Key（X-Api-Key 头） */
+  apiKey: string;
+  /** 资源 ID：官方 2.0 为 seed-tts-2.0，克隆 2.0 为 seed-icl-2.0；留空按音色自动推断 */
+  resourceId: string;
+  /** V3 单向流式接口地址 */
+  baseUrl: string;
+  /** 采样率，默认 24000 */
+  sampleRate?: number;
 }
 
 export interface AssetChannel extends ChannelBase {}
@@ -117,8 +121,9 @@ export interface ImageModelConfig {
 
 export interface VoiceModelConfig {
   apiKey: string;
+  resourceId: string;
   baseUrl: string;
-  model: string;
+  sampleRate: number;
   speed: number;
   timeoutMs: number;
 }
@@ -137,7 +142,6 @@ export interface VideoModelConfig {
 }
 
 // ── 默认值（单一真相源：src/config/default-settings.json） ──
-// 前端 / Worker / Rust 三端均从该 JSON 派生，避免三处手写重复与漂移。
 
 const DEFAULTS = defaultSettingsJson as unknown as AppSettings;
 
@@ -184,10 +188,13 @@ export function resolveImageConfig(channel: ImageChannel, params: ImageParams): 
 }
 
 export function resolveVoiceConfig(channel: VoiceChannel, params: VoiceParams): VoiceModelConfig {
-  const m = channel.models.find((x) => x.id === channel.activeModelId) ?? channel.models[0] ?? DEFAULT_MODEL_ENTRY;
   return {
-    apiKey: channel.apiKey, baseUrl: channel.baseUrl,
-    timeoutMs: params.timeoutMs, model: m.modelId, speed: params.speed,
+    apiKey: channel.apiKey,
+    resourceId: channel.resourceId ?? "seed-tts-2.0",
+    baseUrl: channel.baseUrl ?? "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+    sampleRate: channel.sampleRate ?? 24000,
+    speed: params.speed,
+    timeoutMs: params.timeoutMs,
   };
 }
 

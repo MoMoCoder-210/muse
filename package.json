@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "桌面端轻量版视频创作工具",
+  "description": "桌面端AI视频视频创作工作流",
   "workspaces": [
     "worker"
   ],
@@ -12,10 +12,11 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:dev": "npm run worker:build && tauri dev",
+    "tauri:build": "npm run worker:build && tauri build",
     "worker:dev": "npm run dev -w worker",
-    "worker:build": "npm run build -w worker"
+    "worker:build": "npm run build -w worker",
+    "gen:voices": "node scripts/gen-public-voices.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

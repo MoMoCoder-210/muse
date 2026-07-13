@@ -3,7 +3,6 @@
  *
  * @param resourcesJson 拆解输出的 JSON 字符串
  * @returns 例如 "角色3·场景2·物品1"
- * @author yt @date 20260703
  */
 export function countResources(resourcesJson: string | null | undefined): string {
   if (!resourcesJson) return "";

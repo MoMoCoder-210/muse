@@ -1,7 +1,7 @@
 /**
  * 视频生成客户端
  *
- * 对接火山方舟 Seedance 2.0 视频生成 API（异步任务模式）。
+ * 对接火山方舟 Seedance 2.0 视频生成 API。
  * 支持文本 + 参考图 + 参考音频的多模态输入。
  *
  * 模型：
@@ -9,8 +9,6 @@
  *   - doubao-seedance-2-0-fast-260128  快速低延迟
  *
  * 提示词中引用素材格式：图片1、图片2、音频1、视频1（按 content 数组中出现顺序从 1 计数）
- *
- * @author yt @date 20260711
  */
 
 import OpenAI from "openai";
@@ -32,7 +30,7 @@ export interface VideoReference {
 /** 视频生成选项 */
 export interface VideoGenerateOptions {
   /** 分辨率：480p / 720p */
-  resolution?: "480p" | "720p";
+  resolution?: "480p" | "720p" | "2k" | "4k";
   /** 宽高比 */
   ratio?: "21:9" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16";
   /** 时长（秒），4~15 */
@@ -199,12 +197,6 @@ export class VideoClient {
 
   /**
    * 生成视频并下载到本地路径。
-   *
-   * @param prompt       视频提示词（按 Seedance 规范引用素材：图片1、音频1）
-   * @param references   参考素材数组（图片/视频/音频 URL）
-   * @param savePath     本地保存路径
-   * @param options      生成选项
-   * @returns 本地文件路径
    */
   async generate(
     prompt: string,

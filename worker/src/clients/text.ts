@@ -2,8 +2,6 @@
  * 文本模型客户端
  *
  * 兼容 OpenAI Chat Completions API（含兼容端点），流式输出。
- *
- * @author yt @date 20260702
  */
 
 import OpenAI from "openai";

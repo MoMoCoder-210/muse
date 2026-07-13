@@ -17,7 +17,6 @@ type ProjectSidebarProps = {
  *
  * 管理页面左侧导航栏，包含项目列表、创建/刷新操作与底部导航。
  *
- * @author yt @date 20260702
  */
 export function ProjectSidebar({
   projects,

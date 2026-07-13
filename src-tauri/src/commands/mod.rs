@@ -1,8 +1,5 @@
 //! Muse 命令层 — Tauri IPC command 注册
 //!
-//! 所有前端可调用的命令分散在子模块中定义。
-//!
-//! @author yt @date 20260703
 
 pub mod util;
 pub mod connection;
@@ -12,6 +9,7 @@ pub mod clip;
 pub mod script;
 pub mod storyboard;
 pub mod settings;
+pub mod voice;
 
 // 重新导出公共函数和结构体
 pub use project::*;
@@ -20,3 +18,4 @@ pub use script::*;
 pub use storyboard::*;
 pub use settings::*;
 pub use connection::*;
+pub use voice::*;

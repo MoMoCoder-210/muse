@@ -3,7 +3,6 @@
  *
  * @param step 工作流步骤名称
  * @returns 对应的索引；未知步骤返回 0
- * @author yt @date 20260703
  */
 export function stepToIndex(step: string): number {
   switch (step) {

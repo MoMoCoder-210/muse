@@ -24,6 +24,8 @@ type AssetCardProps = {
   onToggle: (id: AssetCardId) => void;
   onDelete: (data: AssetCardData) => void;
   onDetail: (data: AssetCardData) => void;
+  /** 角色资产点击声音按钮打开声音绑定抽屉 */
+  onVoice?: (data: AssetCardData) => void;
   disabled?: boolean;
 };
 
@@ -34,7 +36,6 @@ type AssetCardProps = {
  * 图片区：有绑定图片则显示缩略图，否则显示占位 icon。
  * 右上角删除按钮；点击图片区弹出详情抽屉。
  *
- * @author yt @date 20260704
  */
 export function AssetCard({
   data,
@@ -46,9 +47,11 @@ export function AssetCard({
   onToggle,
   onDelete,
   onDetail,
+  onVoice,
   disabled,
 }: AssetCardProps) {
   const { id, resource } = data;
+  const hasVoice = Boolean(resource.voiceBinding);
 
   return (
     <div
@@ -93,6 +96,23 @@ export function AssetCard({
             ✕
           </button>
         </div>
+
+        {/* 右下角：声音绑定按钮（仅角色资产） */}
+        {data.type === "character" && (
+          <button
+            type="button"
+            className={`asset-card-voice asset-card-btn${hasVoice ? " is-bound" : ""}`}
+            onClick={(e) => { e.stopPropagation(); onVoice?.(data); }}
+            disabled={disabled}
+            title={hasVoice ? "已绑定声音，点击重新选择" : "绑定声音"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="asset-card-info">

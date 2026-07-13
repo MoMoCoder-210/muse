@@ -1,7 +1,5 @@
 /**
  * 配置文件读写
- *
- * @author yt @date 20260702
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -92,7 +90,7 @@ export class SettingsManager {
 
   isTextConfigured(): boolean  { return this.getTextConfig().apiKey.trim().length > 0; }
   isImageConfigured(): boolean { return this.getImageConfig().apiKey.trim().length > 0; }
-  isVoiceConfigured(): boolean { return this.getVoiceConfig().apiKey.trim().length > 0; }
+  isVoiceConfigured(): boolean { const c = this.getVoiceConfig(); return c.apiKey.trim().length > 0; }
   isAssetConfigured(): boolean { return this.getAssetConfig().apiKey.trim().length > 0; }
   isVideoConfigured(): boolean { return this.getVideoConfig().apiKey.trim().length > 0; }
 }

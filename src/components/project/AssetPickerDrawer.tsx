@@ -47,7 +47,6 @@ type AssetPickerDrawerProps = {
  * 展示当前项目下同类型的所有资产及其选中图片，
  * 用户点击后将其图片复制到当前编辑的资产。
  *
- * @author yt @date 20260707
  */
 export function AssetPickerDrawer({
   projectId,

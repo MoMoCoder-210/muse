@@ -31,7 +31,6 @@ const STATUS_LABEL: Record<string, string> = {
 /**
  * 片段列表面板。
  *
- * @author yt @date 20260702
  */
 export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPanelProps) {
   const { toast } = useToast();

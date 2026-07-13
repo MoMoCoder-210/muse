@@ -629,6 +629,223 @@
   color: var(--text-secondary);
 }
 
+/* ── 绑定声音区块 ─────────────────────────────── */
+.voice-binding {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-height: 0;
+}
+
+/* 当前绑定概览 */
+.voice-binding-current {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+}
+.voice-binding-badge {
+  font-size: var(--font-size-xxs);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  white-space: nowrap;
+}
+.voice-binding-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-binding-unbind {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.voice-binding-unbind:hover:not(:disabled) {
+  color: var(--danger, #f87171);
+  border-color: var(--danger, #f87171);
+}
+
+/* 来源切换（分段控件） */
+.voice-binding-tabs {
+  display: flex;
+  padding: 3px;
+  gap: 3px;
+  background: var(--segmented-bg);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+}
+.voice-binding-tabs button {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-xs) 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.voice-binding-tabs button.active {
+  background: var(--segmented-active-bg);
+  border: 1px solid var(--segmented-active-border);
+  color: var(--text-primary);
+}
+
+.voice-binding-upload {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.voice-upload-icon {
+  font-size: var(--font-size-control);
+  line-height: 1;
+}
+
+/* 性别筛选（女声 / 男声）：与来源切换一致的整段分段控件 */
+.voice-gender-filter {
+  display: flex;
+  padding: 3px;
+  gap: 3px;
+  background: var(--segmented-bg);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+}
+.voice-gender-filter button {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.voice-gender-filter button.active {
+  background: var(--segmented-active-bg);
+  border: 1px solid var(--segmented-active-border);
+  color: var(--text-primary);
+}
+
+/* 公共声音列表：按年龄分组，占满父组件高度 */
+.voice-binding-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--spacing-xs);
+}
+.voice-age-block {
+  margin-bottom: var(--spacing-xs);
+}
+.voice-age-label {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  margin-bottom: var(--spacing-xs);
+}
+.voice-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--spacing-md) 0;
+}
+/* 胶囊容器：自适应对称网格 */
+.voice-capsules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: var(--spacing-xs);
+}
+.voice-capsule {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding-left: 2px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+}
+.voice-capsule:hover {
+  border-color: var(--border-accent);
+}
+/* 试听按钮（胶囊左端的圆形播放键） */
+.voice-capsule-play {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: none;
+  border-radius: var(--radius-full);
+  background: rgba(var(--accent-primary-rgb), 0.18);
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 9px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.voice-capsule-play:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: #fff;
+}
+/* 胶囊主体（点击绑定） */
+.voice-capsule-body {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  padding: 5px 12px 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.voice-capsule-body:disabled {
+  cursor: default;
+}
+/* 已绑定胶囊高亮 */
+.voice-capsule.is-bound {
+  border-color: var(--accent-primary);
+  background: var(--select-active-bg);
+}
+.voice-capsule.is-bound .voice-capsule-body {
+  color: var(--select-active-text);
+  font-weight: var(--font-weight-medium);
+}
+/* 试听中：播放键脉冲提示 */
+.voice-capsule.is-playing .voice-capsule-play {
+  background: var(--accent-primary);
+  color: #fff;
+  animation: voice-pulse 1s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--accent-primary-rgb), 0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(var(--accent-primary-rgb), 0); }
+}
+
 /* 底部操作栏 */
 .asset-drawer-footer {
   display: flex;
@@ -1200,25 +1417,26 @@
   width: 26px;
   height: 26px;
   padding: 0;
-  border: 1px solid var(--border-faint);
+  border: none;
   border-radius: var(--radius-sm);
-  background: var(--bg-surface-modal);
-  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.42);
+  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
   font-size: var(--font-size-xs);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(6px);
 }
 
 .asset-card-btn:hover {
-  border-color: var(--border-base);
-  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
   transform: translateY(-1px);
 }
 
 .asset-card-btn--delete:hover {
-  background: var(--danger-bg);
-  color: var(--danger-color);
+  background: rgba(220, 38, 38, 0.82);
+  color: #fff;
+  transform: translateY(-1px);
 }
 
 /* 生成中状态角标：图片左上角，实时显示 */
@@ -1347,6 +1565,28 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.asset-card-voice {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: var(--z-above);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 160ms ease, transform 160ms ease, background 140ms ease, color 140ms ease;
+}
+.asset-card:hover .asset-card-voice {
+  opacity: 1;
+  transform: translateY(0);
+}
+.asset-card-voice:hover:not(:disabled) {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+  color: #fff;
+}
+.asset-card-voice.is-bound {
+  background: rgba(var(--accent-primary-rgb), 0.72);
+  color: #fff;
 }
 
 /* 资产卡片已绑定图片缩略图 */

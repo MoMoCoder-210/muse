@@ -1,12 +1,10 @@
 //! 片段/剧本源相关命令
-//!
-//! @author yt @date 20260703
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 
-/// @author yt @date 20260702 片段信息
+/// 片段信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClipInfo {
     pub id: String,

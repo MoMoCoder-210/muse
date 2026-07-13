@@ -1,21 +1,15 @@
 /**
  * 语音模型客户端
- *
- * 兼容 OpenAI Audio Speech API（client.audio.speech.create）。
- * 输出格式默认 mp3，返回二进制流，直接写入本地文件。
- *
- * @author yt @date 20260702
  */
 
-import OpenAI from "openai";
-import { createWriteStream } from "fs";
-import { mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { dirname } from "path";
 import type { VoiceModelConfig } from "../config/defaults.js";
-import { FALLBACK_API_KEY } from "./constants.js";
 import { logRequest, logBinaryDone, logFailure } from "../utils/client-logger.js";
 
-const DEFAULT_VOICE = "zh_female_shuangkuaisisi_moon_bigtts";
+// 默认音色（官方 2.0 大模型音色）
+const DEFAULT_VOICE = "zh_female_yingtaowanzi_uranus_bigtts";
+
 
 export interface VoiceGenerateOptions {
   /** 覆盖配置中的 voice */
@@ -35,27 +29,51 @@ export interface VoiceGenerateResult {
   sizeBytes: number;
 }
 
+/**
+ * 从字符串中提取所有「首尾拼接」的顶层 JSON 对象。
+ */
+function extractJsonObjects(s: string): any[] {
+  const out: any[] = [];
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  let start = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+    } else {
+      if (c === '"') inStr = true;
+      else if (c === "{") {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (c === "}") {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try {
+            out.push(JSON.parse(s.slice(start, i + 1)));
+          } catch {
+            // 跳过无法解析的片段
+          }
+          start = -1;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export class VoiceClient {
-  private client: OpenAI;
   private config: VoiceModelConfig;
 
   constructor(config: VoiceModelConfig) {
     this.config = config;
-    this.client = this.buildClient(config);
-  }
-
-  private buildClient(config: VoiceModelConfig): OpenAI {
-    return new OpenAI({
-      apiKey: config.apiKey || FALLBACK_API_KEY,
-      baseURL: config.baseUrl,
-      timeout: config.timeoutMs,
-      maxRetries: 0,
-    });
   }
 
   updateConfig(config: VoiceModelConfig): void {
     this.config = config;
-    this.client = this.buildClient(config);
   }
 
   /**
@@ -63,67 +81,98 @@ export class VoiceClient {
    *
    * @param text      需要合成的文本
    * @param savePath  保存路径（含文件名，如 audio/clip_01.mp3）
-   *
-   * @author yt @date 20260702
    */
   async synthesize(
     text: string,
     savePath: string,
     options: VoiceGenerateOptions = {}
   ): Promise<VoiceGenerateResult> {
-    if (!this.config.apiKey) {
-      throw new Error("VoiceClient: apiKey is not configured");
+    const cfg = this.config;
+    if (!cfg.apiKey) {
+      throw new Error("VoiceClient: apiKey 未配置");
     }
 
     const format = options.format ?? "mp3";
     const voice = options.voice ?? DEFAULT_VOICE;
-    const speed = options.speed ?? this.config.speed;
+    const resourceId = cfg.resourceId.trim();
+    const sampleRate = cfg.sampleRate ?? 24000;
+    const baseUrl = cfg.baseUrl.trim().replace(/\/+$/, "");
 
-    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/audio/speech`;
-    const reqBody = { model: this.config.model, input: text, voice, speed, response_format: format };
-    logRequest("VoiceClient", "POST", apiUrl, this.config.apiKey, reqBody);
+    const reqBody = {
+      req_params: {
+        text,
+        speaker: voice,
+        audio_params: { format, sample_rate: sampleRate },
+      },
+    };
+    logRequest("VoiceClient", "POST", baseUrl, cfg.apiKey, reqBody);
     const startedAt = Date.now();
 
     try {
-      const response = await this.client.audio.speech.create(
-        {
-          model: this.config.model,
-          input: text,
-          voice: voice as Parameters<
-            OpenAI["audio"]["speech"]["create"]
-          >[0]["voice"],
-          speed,
-          response_format: format,
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 300000);
+      const signal = options.signal ?? controller.signal;
+
+      const resp = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": cfg.apiKey,
+          "X-Api-Resource-Id": resourceId,
+          "Connection": "keep-alive",
         },
-        { signal: options.signal }
-      );
+        body: JSON.stringify(reqBody),
+        signal,
+      });
+      clearTimeout(timer);
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(`VoiceClient HTTP ${resp.status}: ${txt}`);
+      }
+
+      // OpenSpeech V3 为单向流式：响应是「多个 JSON 对象首尾拼接」
+      // （每个对象是一段音频块，含 data 字段的 base64 音频）。
+      // 成功对象 -> {"code":0,"message":"OK","data":"<base64 片段>",...}
+      // 失败对象 -> {"code":<非零>,"message":"<错误描述>",...}
+      // 个别情况下也可能直接返回裸二进制流（首字节非 '{'），一并兼容。
+      const buf = Buffer.from(await resp.arrayBuffer());
+      let audioBuf: Buffer | null = null;
+      if (buf.length > 0 && buf[0] === 0x7b) {
+        const objs = extractJsonObjects(buf.toString("utf-8"));
+        const parts: string[] = [];
+        for (const obj of objs) {
+          // V3 成功码为 0 或 20000000，其余均视为错误
+          if (obj && obj.code !== undefined && obj.code !== 0 && obj.code !== 20000000) {
+            const msg =
+              (obj.message as string) ||
+              (obj.error && (obj.error as any).message) ||
+              "未知错误";
+            throw new Error(`VoiceClient: ${msg}`);
+          }
+          if (obj && typeof obj.data === "string") {
+            parts.push(obj.data);
+          }
+        }
+        if (parts.length > 0) {
+          audioBuf = Buffer.from(parts.join(""), "base64");
+        }
+      }
+      if (!audioBuf) {
+        // 非 JSON（裸二进制流）或无可解析片段：按原 buffer 处理
+        audioBuf = buf;
+      }
 
       await mkdir(dirname(savePath), { recursive: true });
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await writeBuffer(buffer, savePath);
+      await writeFile(savePath, audioBuf);
 
       const elapsed = Date.now() - startedAt;
-      logBinaryDone("VoiceClient", apiUrl, elapsed, buffer.byteLength);
+      logBinaryDone("VoiceClient", baseUrl, elapsed, audioBuf.byteLength);
 
-      return { filePath: savePath, sizeBytes: buffer.byteLength };
+      return { filePath: savePath, sizeBytes: audioBuf.byteLength };
     } catch (err) {
-      logFailure("VoiceClient", apiUrl, Date.now() - startedAt, err);
+      logFailure("VoiceClient", baseUrl, Date.now() - startedAt, err);
       throw err;
     }
   }
-}
-
-// ── 写 Buffer 到文件 ─────────────────────────────────────
-// @author yt @date 20260702 写 Buffer 到文件
-function writeBuffer(buffer: Buffer, filePath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const writer = createWriteStream(filePath);
-    writer.write(buffer, (err) => {
-      if (err) { writer.destroy(); return reject(err); }
-      writer.end();
-    });
-    writer.on("finish", resolve);
-    writer.on("error", reject);
-  });
 }

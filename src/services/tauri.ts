@@ -3,7 +3,6 @@
  *
  * 所有 invoke 调用集中在这里，组件不直接引入 @tauri-apps/api
  *
- * @author yt @date 20260702
  */
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -26,7 +25,6 @@ import type { AppSettings } from "../types/settings";
 /**
  * 获取应用版本号
  *
- * @author yt @date 20260702
  */
 export async function getAppVersion(): Promise<string> {
   return invoke<string>("get_app_version");
@@ -35,7 +33,6 @@ export async function getAppVersion(): Promise<string> {
 /**
  * 列出所有项目
  *
- * @author yt @date 20260702
  */
 export async function listProjects(): Promise<ProjectInfo[]> {
   return invoke<ProjectInfo[]>("list_projects");
@@ -44,7 +41,6 @@ export async function listProjects(): Promise<ProjectInfo[]> {
 /**
  * 获取单个项目详情
  *
- * @author yt @date 20260702
  */
 export async function getProject(projectId: string): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("get_project", { projectId });
@@ -53,7 +49,6 @@ export async function getProject(projectId: string): Promise<ProjectInfo> {
 /**
  * 创建新项目
  *
- * @author yt @date 20260702
  */
 export async function createProject(input: CreateProjectInput): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("create_project", { input });
@@ -62,7 +57,6 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
 /**
  * 启动工作进程
  *
- * @author yt @date 20260702
  */
 export async function startWorker(projectId?: string): Promise<string> {
   return invoke<string>("start_worker", { projectId });
@@ -71,7 +65,6 @@ export async function startWorker(projectId?: string): Promise<string> {
 /**
  * 导入剧本
  *
- * @author yt @date 20260702
  */
 export async function importScript(input: ImportScriptInput): Promise<ImportScriptResult> {
   return invoke<ImportScriptResult>("import_script", { input });
@@ -80,7 +73,6 @@ export async function importScript(input: ImportScriptInput): Promise<ImportScri
 /**
  * 手动创建单个片段（无剧本归属）
  *
- * @author yt @date 20260703
  */
 export async function createClip(input: { project_id: string; title: string; source_text: string }): Promise<Clip> {
   return invoke<Clip>("create_clip", { input });
@@ -89,7 +81,6 @@ export async function createClip(input: { project_id: string; title: string; sou
 /**
  * 列出项目下的所有片段
  *
- * @author yt @date 20260702
  */
 export async function listClips(projectId: string): Promise<Clip[]> {
   return invoke<Clip[]>("list_clips", { projectId });
@@ -98,7 +89,6 @@ export async function listClips(projectId: string): Promise<Clip[]> {
 /**
  * 获取剧本源内容
  *
- * @author yt @date 20260702
  */
 export async function getScriptSource(projectId: string): Promise<ScriptSource | null> {
   return invoke<ScriptSource | null>("get_script_source", { projectId });
@@ -107,7 +97,6 @@ export async function getScriptSource(projectId: string): Promise<ScriptSource |
 /**
  * 列出项目所有剧本源
  *
- * @author yt @date 20260703
  */
 export async function listScriptSources(projectId: string): Promise<ScriptSourceListItem[]> {
   return invoke<ScriptSourceListItem[]>("list_script_sources", { projectId });
@@ -116,18 +105,16 @@ export async function listScriptSources(projectId: string): Promise<ScriptSource
 /**
  * 删除项目
  *
- * @author yt @date 20260702
  */
 export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<void> {
   return invoke<void>("delete_project", { projectId, deleteFiles });
 }
 
-/** @author yt @date 20260702 新增片段级写操作 IPC */
+/** 新增片段级写操作 IPC */
 
 /**
  * 批量软删除片段，支持单条（传长度1数组）或多条
  *
- * @author yt @date 20260702
  */
 export async function deleteClips(clipIds: string[]): Promise<void> {
   return invoke<void>("delete_clips", { input: { clip_ids: clipIds } });
@@ -136,7 +123,6 @@ export async function deleteClips(clipIds: string[]): Promise<void> {
 /**
  * 更新片段标题/摘要/正文，返回更新后的片段
  *
- * @author yt @date 20260702
  */
 export async function updateClip(input: UpdateClipInput): Promise<Clip> {
   return invoke<Clip>("update_clip", { input });
@@ -145,7 +131,6 @@ export async function updateClip(input: UpdateClipInput): Promise<Clip> {
 /**
  * 在指定字符位置把一个片段拆成两个，返回两段 id
  *
- * @author yt @date 20260702
  */
 export async function splitClip(input: SplitClipInput): Promise<SplitClipResult> {
   return invoke<SplitClipResult>("split_clip", { input });
@@ -154,7 +139,6 @@ export async function splitClip(input: SplitClipInput): Promise<SplitClipResult>
 /**
  * 确保工作进程已启动后导入剧本
  *
- * @author yt @date 20260702
  */
 export async function ensureWorkerAndImportScript(
   projectId: string,
@@ -169,7 +153,6 @@ export async function ensureWorkerAndImportScript(
 /**
  * 获取应用设置
  *
- * @author yt @date 20260702
  */
 export async function getSettings(): Promise<AppSettings> {
   return invoke<AppSettings>("get_settings");
@@ -178,7 +161,6 @@ export async function getSettings(): Promise<AppSettings> {
 /**
  * 保存应用设置
  *
- * @author yt @date 20260702
  */
 export async function saveSettings(settings: AppSettings): Promise<void> {
   return invoke<void>("save_settings", { settings });
@@ -190,7 +172,6 @@ import type { ClipScriptInfo, GenerateClipScriptInput } from "../types/project";
 /**
  * 触发片段拆解任务
  *
- * @author yt @date 20260702
  */
 export async function generateClipScript(input: GenerateClipScriptInput): Promise<{ task_id: string }> {
   return invoke<{ task_id: string }>("generate_clip_script", { input });
@@ -201,7 +182,6 @@ export async function generateClipScript(input: GenerateClipScriptInput): Promis
  *
  * 根据资产拆解阶段生成的 prompt 创建 image 生成任务。
  *
- * @author yt @date 20260704
  */
 export async function generateAssetImage(input: {
   project_id: string;
@@ -219,7 +199,6 @@ export async function generateAssetImage(input: {
 /**
  * 添加资产到片段拆解结果
  *
- * @author yt @date 20260704
  */
 export async function addAssetToClip(input: {
   clip_id: string;
@@ -240,14 +219,45 @@ export async function updateAssetInClip(input: {
   name: string;
   description: string;
   prompt: string;
+  voice_binding?: string;
 }): Promise<void> {
   return invoke<void>("update_asset_in_clip", { input });
 }
 
 /**
+ * 试听公共音色
+ */
+export interface PreviewVoiceResult {
+  /** 缓存文件绝对路径*/
+  sample_path: string;
+  /** 是否命中本地缓存（true=复用，false=本次新生成） */
+  cached: boolean;
+}
+export async function previewPublicVoice(voiceId: string): Promise<PreviewVoiceResult> {
+  return invoke<PreviewVoiceResult>("preview_public_voice", { voiceId });
+}
+
+export interface VoiceFileEntry {
+  file_path: string;
+  file_name: string;
+}
+
+export async function listWorkspaceVoiceFiles(clipId: string): Promise<VoiceFileEntry[]> {
+  return invoke<VoiceFileEntry[]>("list_workspace_voice_files", { clipId });
+}
+
+export interface ImportVoiceResult {
+  file_path: string;
+  file_name: string;
+}
+
+export async function importVoiceFile(clipId: string, sourcePath: string): Promise<ImportVoiceResult> {
+  return invoke<ImportVoiceResult>("import_voice_file", { clipId, sourcePath });
+}
+
+/**
  * 获取资产图片信息
  *
- * @author yt @date 20260705
  */
 export async function getAssetImageInfo(input: {
   clip_id: string;
@@ -267,7 +277,6 @@ export async function getAssetImageInfo(input: {
  *
  * AssetPanel 快速渲染卡片缩略图用。
  *
- * @author yt @date 20260705
  */
 export async function batchGetAssetSelectedImages(input: {
   clip_id: string;
@@ -287,7 +296,6 @@ export async function batchGetAssetGenerating(input: {
 /**
  * 导入本地图片到指定资产（复制到项目目录 + 注册 + 自动绑定）
  *
- * @author yt @date 20260705
  */
 export async function importLocalAssetImage(input: {
   clip_id: string;
@@ -301,7 +309,6 @@ export async function importLocalAssetImage(input: {
 /**
  * 重试上传失败的资产图片
  *
- * @author yt @date 20260707
  */
 export async function retryUploadAssetImage(imageId: string): Promise<void> {
   return invoke("retry_upload_asset_image", { imageId });
@@ -310,7 +317,6 @@ export async function retryUploadAssetImage(imageId: string): Promise<void> {
 /**
  * 查询项目下指定类型的所有资产及其选中图片（资产选择器用）
  *
- * @author yt @date 20260707
  */
 export async function listProjectAssetImages(input: {
   projectId: string;
@@ -332,7 +338,6 @@ export async function listProjectAssetImages(input: {
 /**
  * 从项目内另一个资产复制选中图片到当前资产
  *
- * @author yt @date 20260707
  */
 export async function copyAssetImageFrom(input: {
   source_image_id: string;
@@ -346,7 +351,6 @@ export async function copyAssetImageFrom(input: {
 /**
  * 获取资产所有生成图片列表
  *
- * @author yt @date 20260705
  */
 export async function listAssetImages(input: {
   clip_id: string;
@@ -368,7 +372,6 @@ export async function listAssetImages(input: {
  *
  * 供抽屉实时展示：已完成图片 + 进行中任务统一排序。
  *
- * @author yt @date 20260705
  */
 export async function listAssetImageTasks(input: {
   clip_id: string;
@@ -392,7 +395,6 @@ export async function listAssetImageTasks(input: {
 /**
  * 选中资产的指定图片作为最终使用图片
  *
- * @author yt @date 20260705
  */
 export async function selectAssetImage(input: {
   clip_id: string;
@@ -406,7 +408,6 @@ export async function selectAssetImage(input: {
 /**
  * 删除单张资产图片（可选同时删除文件）
  *
- * @author yt @date 20260705
  */
 export async function deleteAssetImage(input: {
   clip_id: string;
@@ -421,7 +422,6 @@ export async function deleteAssetImage(input: {
 /**
  * 从片段拆解结果中删除资产
  *
- * @author yt @date 20260704
  */
 export async function deleteAssetFromClip(input: {
   clip_id: string;
@@ -434,7 +434,6 @@ export async function deleteAssetFromClip(input: {
 /**
  * 删除资产（批量）
  *
- * @author yt @date 20260704
  */
 export async function deleteAssets(assetIds: string[]): Promise<void> {
   return invoke<void>("delete_assets", { input: { asset_ids: assetIds } });
@@ -444,7 +443,6 @@ export async function deleteAssets(assetIds: string[]): Promise<void> {
 /**
  * 查询项目所有拆解记录（按 clip_id 去重，最新一条为准）
  *
- * @author yt @date 20260702
  */
 export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[]> {
   return invoke<ClipScriptInfo[]>("get_clip_scripts", { projectId });
@@ -453,7 +451,6 @@ export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[
 /**
  * 取消片段拆解任务
  *
- * @author yt @date 20260702
  */
 export async function cancelClipScript(clipId: string): Promise<void> {
   return invoke<void>("cancel_clip_script", { input: { clip_id: clipId } });
@@ -464,7 +461,6 @@ export async function cancelClipScript(clipId: string): Promise<void> {
 /**
  * 查询指定片段的分镜列表
  *
- * @author yt @date 20260707
  */
 export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
   return invoke<Storyboard[]>("list_storyboards", { clipId });
@@ -473,7 +469,6 @@ export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
 /**
  * 查询指定片段的所有资产（含绑定图片路径）
  *
- * @author yt @date 20260707
  */
 export async function listClipAssets(clipId: string): Promise<StoryboardAssetInfo[]> {
   return invoke<StoryboardAssetInfo[]>("list_clip_assets", { clipId });
@@ -482,7 +477,6 @@ export async function listClipAssets(clipId: string): Promise<StoryboardAssetInf
 /**
  * 更新分镜关联资产
  *
- * @author yt @date 20260707
  */
 export async function updateStoryboardAssets(input: {
   storyboard_id: string;
@@ -496,7 +490,6 @@ export async function updateStoryboardAssets(input: {
 /**
  * 在当前片段末尾新增一个空白分镜
  *
- * @author yt @date 20260708
  */
 export async function createStoryboard(input: {
   clip_id: string;
@@ -508,9 +501,6 @@ export async function createStoryboard(input: {
 /**
  * 在指定分镜后插入新分镜，自动重排序号
  *
- * after_storyboard_id 为 null 则插入到最前面。
- *
- * @author yt @date 20260708
  */
 export async function insertStoryboard(input: {
   clip_id: string;
@@ -523,7 +513,6 @@ export async function insertStoryboard(input: {
 /**
  * 删除一个分镜，同时清理关联记录
  *
- * @author yt @date 20260708
  */
 export async function deleteStoryboard(input: {
   storyboard_id: string;
@@ -534,7 +523,6 @@ export async function deleteStoryboard(input: {
 /**
  * 更新分镜的视频生成参数与提示词（失焦保存）
  *
- * @author yt @date 20260708
  */
 export async function updateStoryboardParams(input: {
   storyboard_id: string;
@@ -546,7 +534,6 @@ export async function updateStoryboardParams(input: {
 
 /**
  * 实时更新分镜时长（秒），写回分镜记录本身。
- * 该时长即「模型拆解出来的分镜秒数」，可编辑并实时回写。
  */
 export async function updateStoryboardDuration(input: {
   storyboard_id: string;
@@ -558,7 +545,6 @@ export async function updateStoryboardDuration(input: {
 /**
  * 检测 FFmpeg/FFprobe 是否可用
  *
- * @author yt @date 20260708
  */
 export async function detectFFmpeg(): Promise<{
   available: boolean;
@@ -572,10 +558,6 @@ export async function detectFFmpeg(): Promise<{
 
 /**
  * 测试渠道连通性（OpenAI 兼容端点）
- *
- * 对 `${baseUrl}/models` 发起带 Bearer 鉴权的 GET，校验 key+url 是否可用。
- *
- * @author yt @date 20260710
  */
 export interface TestConnectionResult {
   ok: boolean;

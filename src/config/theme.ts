@@ -11,7 +11,6 @@
  * 切换主题时，只需在 <html data-theme="light"> 对应的 CSS 块中
  * 重新声明这些变量即可，TS 侧通过 getCssVar() 读取实时值。
  *
- * @author yt @date 20260702
  */
 
 // ─────────────────────────────────────────────
@@ -35,12 +34,12 @@ export interface ThemeTokens {
 
   // 文字
   textPrimary: string;     // 主文字
-  textSecondary: string;   // 次级文字（描述、说明）
-  textMuted: string;       // 弱化文字（元信息、时间戳）
-  textAccent: string;      // 强调文字（badge、kicker）
-  textSuccess: string;     // 成功状态文字（项目状态标签）
+  textSecondary: string;   // 次级文字
+  textMuted: string;       // 弱化文字
+  textAccent: string;      // 强调文字
+  textSuccess: string;     // 成功状态文字
 
-  // 主色 / 品牌色
+  // 主色
   accentPrimary: string;       // 主色（蓝色）
   accentSecondary: string;     // 辅色（青色）
   accentPurple: string;        // 紫色（canvas 光晕）
@@ -48,10 +47,10 @@ export interface ThemeTokens {
 
   // 边框
   borderBase: string;          // 通用边框
-  borderSubtle: string;        // 更淡的边框（列表项）
-  borderFaint: string;         // 极淡边框（workflow step）
+  borderSubtle: string;        // 更淡的边框
+  borderFaint: string;         // 极淡边框
   borderAccent: string;        // 聚焦 / 激活边框
-  borderAccentSubtle: string;  // 次级聚焦边框（select menu）
+  borderAccentSubtle: string;  // 次级聚焦边框
 
   // 基础语义色
   colorDanger: string;
@@ -121,8 +120,8 @@ export interface ThemeTokens {
 
   // Canvas 动画
   canvasParticleColor: string;
-  canvasLineColor: string;        // 粒子连线颜色（含 alpha 格式字符串前缀，由 JS 动态插入 alpha）
-  canvasGlow1: string;            // 光晕1 内色（无 alpha，由 JS 插入）
+  canvasLineColor: string;
+  canvasGlow1: string;
   canvasGlow2: string;
   canvasGlow3: string;
   canvasGlow4: string;
@@ -346,7 +345,7 @@ export const darkTheme: ThemeTokens = {
 };
 
 // ─────────────────────────────────────────────
-// 主题注册表（后续新增主题在此追加）
+// 主题注册表
 // ─────────────────────────────────────────────
 export const themes: Record<ThemeName, ThemeTokens> = {
   dark: darkTheme,
@@ -360,7 +359,6 @@ export const defaultTheme: ThemeName = "dark";
 
 /**
  * 将 camelCase token key 转为 CSS 变量名。
- * 例如：bgBase → --bg-base
  */
 function tokenToCssVar(key: string): string {
   return "--" + key.replace(/([A-Z])/g, (c) => "-" + c.toLowerCase());
@@ -368,9 +366,7 @@ function tokenToCssVar(key: string): string {
 
 /**
  * 将一个主题的 token 对象注入到 document.documentElement 的 CSS 变量中。
- * 在应用启动时或切换主题时调用。
  *
- * @author yt @date 20260702
  */
 export function applyTheme(name: ThemeName = defaultTheme): void {
   const tokens = themes[name];
@@ -383,9 +379,7 @@ export function applyTheme(name: ThemeName = defaultTheme): void {
 
 /**
  * 从当前 document 中读取某个 CSS 变量的计算值。
- * 供 canvas 动画等 JS 逻辑实时读取主题颜色。
  *
- * @author yt @date 20260702
  */
 export function getCssVar(key: keyof ThemeTokens): string {
   return getComputedStyle(document.documentElement)

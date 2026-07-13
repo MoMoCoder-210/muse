@@ -3,8 +3,6 @@
  *
  * 对接火山方舟 File API（OpenAI 兼容），将本地图片上传至方舟平台，
  * 返回 file_id 供 Seedance 2.0 视频生成时作为参考图引用。
- *
- * @author yt @date 20260707
  */
 
 import { readFile } from "fs/promises";

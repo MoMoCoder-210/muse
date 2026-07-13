@@ -2,8 +2,6 @@
  * Handler 公共工具模块
  *
  * 提供日志、JSON 清洗、提示词加载等 handler 之间共用的功能。
- *
- * @author yt @date 20260703
  */
 
 import { readFileSync } from "fs";
@@ -34,8 +32,6 @@ export function le(source: string, message: string): void {
 
 /**
  * 移除 Markdown 代码围栏（```json ... ``` 或 ``` ... ```）
- *
- * @author yt @date 20260703
  */
 export function stripCodeFences(text: string): string {
   const trimmed = text.trim();
@@ -47,8 +43,6 @@ export function stripCodeFences(text: string): string {
 
 /**
  * 从 dist/prompts/ 加载指定文件名，并缓存结果。
- *
- * @author yt @date 20260703
  */
 export function loadPrompt(filename: string): string {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -57,9 +51,6 @@ export function loadPrompt(filename: string): string {
 
 /**
  * 创建带内存缓存的提示词加载器。
- * 首次调用时从文件读取，后续调用返回缓存。
- *
- * @author yt @date 20260703
  */
 export function createPromptLoader(filename: string): () => string {
   let cache: string | null = null;

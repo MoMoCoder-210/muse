@@ -1,12 +1,10 @@
 //! 项目相关命令
-//!
-//! @author yt @date 20260703
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 
-/// @author yt @date 20260702 创建项目输入参数
+/// 创建项目输入参数
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
     pub name: String,
@@ -16,7 +14,7 @@ pub struct CreateProjectInput {
     pub style_mode: Option<String>,
 }
 
-/// @author yt @date 20260702 项目信息
+/// 项目信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub id: String,

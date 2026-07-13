@@ -21,7 +21,6 @@ function toOption<T extends string>(item: SelectOption<T> | T): SelectOption<T> 
  *
  * 支持自定义选项或字符串列表，带搜索/点击外部关闭行为。
  *
- * @author yt @date 20260702
  */
 export function SelectField<T extends string>({
   label,

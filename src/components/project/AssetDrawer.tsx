@@ -118,7 +118,6 @@ type AssetDrawerProps = {
  * 右侧悬浮抽屉。单个资产直接展示详情；批量模式可左右切换资产，
  * 生成参数统一设置后可单个生成或批量生成。
  *
- * @author yt @date 20260705
  */
 export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, onAssetUpdated, closing, disabled }: AssetDrawerProps) {
   const { toast } = useToast();

@@ -37,6 +37,14 @@ const CHANNEL_FIELDS = [
   { key: "baseUrl",label: "Base URL", type: "text" as const,     placeholder: "请输入URL" },
 ];
 
+// ── 语音渠道字段（OpenSpeech V3 协议，非方舟 Ark） ──────
+const VOICE_FIELDS = [
+  { key: "name",       label: "名称",     type: "text" as const,     placeholder: "请输入名称" },
+  { key: "apiKey",     label: "API Key", type: "password" as const, placeholder: "火山控制台 语音合成 → API Key" },
+  { key: "resourceId", label: "Resource ID", type: "text" as const, placeholder: "如 seed-tts-2.0 或 seed-icl-2.0" },
+  { key: "baseUrl",    label: "Base URL", type: "text" as const, placeholder: "https://openspeech.bytedance.com/api/v3/tts/unidirectional" },
+];
+
 // ── 全局参数字段（按类型） ──────────────────────────────
 
 const TEXT_PARAMS_FIELDS = [
@@ -81,7 +89,13 @@ export function SettingsPage({ onClose }: Props) {
     detectFFmpeg().then(setFFmpeg).catch(() => setFFmpeg(null));
   }, []);
 
-  /** 以完整设置对象即时持久化；统一以 settingsRef.current 为基准，避免闭包陈旧导致覆盖 */
+  /** 仅更新内存状态，不写盘、不弹 toast（ChannelManager 的 onChange 专用） */
+  const updateState = useCallback((next: AppSettings) => {
+    settingsRef.current = next;
+    setSettings(next);
+  }, []);
+
+  /** 完整持久化：写盘 + toast。ChannelManager 的 onPersist 专用 */
   const persist = useCallback(async (next: AppSettings) => {
     settingsRef.current = next;
     setSettings(next);
@@ -155,7 +169,7 @@ export function SettingsPage({ onClose }: Props) {
             fields={CHANNEL_FIELDS} hasModels
             params={settings.textParams as unknown as Record<string, number>} paramsFields={TEXT_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, textParams: p as any })}
-            onChange={(next) => persist({ ...settingsRef.current, text: next })}
+            onChange={(next) => updateState({ ...settingsRef.current, text: next })}
             onPersist={(u) => persist({ ...settingsRef.current, text: u })}
           />
         )}
@@ -165,17 +179,17 @@ export function SettingsPage({ onClose }: Props) {
             fields={CHANNEL_FIELDS} hasModels
             params={settings.imageParams as unknown as Record<string, number>} paramsFields={IMAGE_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as any })}
-            onChange={(next) => persist({ ...settingsRef.current, image: next })}
+            onChange={(next) => updateState({ ...settingsRef.current, image: next })}
             onPersist={(u) => persist({ ...settingsRef.current, image: u })}
           />
         )}
         {tab === "voice" && (
           <ChannelManager
             list={settings.voice} blank={DEFAULT_VOICE_CHANNEL}
-            fields={CHANNEL_FIELDS} hasModels
+            fields={VOICE_FIELDS} hasModels={false} enableTest={false} fixedSingle
             params={settings.voiceParams as unknown as Record<string, number>} paramsFields={VOICE_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, voiceParams: p as any })}
-            onChange={(next) => persist({ ...settingsRef.current, voice: next })}
+            onChange={(next) => updateState({ ...settingsRef.current, voice: next })}
             onPersist={(u) => persist({ ...settingsRef.current, voice: u })}
           />
         )}
@@ -186,7 +200,7 @@ export function SettingsPage({ onClose }: Props) {
             resolutionOptions={VIDEO_RESOLUTION_OPTIONS}
             params={settings.videoParams as unknown as Record<string, number>} paramsFields={VIDEO_PARAMS_FIELDS}
             onParamsChange={(p) => persist({ ...settingsRef.current, videoParams: p as any })}
-            onChange={(next) => persist({ ...settingsRef.current, video: next })}
+            onChange={(next) => updateState({ ...settingsRef.current, video: next })}
             onPersist={(u) => persist({ ...settingsRef.current, video: u })}
           />
         )}

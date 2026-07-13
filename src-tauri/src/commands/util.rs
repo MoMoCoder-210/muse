@@ -1,28 +1,17 @@
 //! 共享工具函数
-//!
-//! @author yt @date 20260703
 
 use crate::sidecar::SharedSidecarManager;
 use serde_json::{Map, Value};
 
 /// 返回默认设置 JSON
-///
-/// 数据来源为 `src/config/default-settings.json`，该文件是前端 / Worker / Rust
-/// 三端默认值的**单一真相源**（前端与 Worker 同样 import 此 JSON），
-/// 修改默认值只需改这一份文件，三端自动一致，不再需要「同步点」维护。
-///
-/// @author yt @date 20260703
+
 pub(crate) fn default_settings_json() -> Value {
     serde_json::from_str(include_str!("../../../src/config/default-settings.json"))
         .expect("默认设置 JSON 解析失败（src/config/default-settings.json）")
 }
 
 /// 清洗并补全设置 JSON，兼容旧版扁平格式自动迁移。
-///
-/// 所有默认值均取自 `default_settings_json()`（即 src/config/default-settings.json），
-/// 与前端 / Worker 共享同一份真相源，避免多处手写默认值漂移。
-///
-/// @author yt @date 20260703
+
 pub(crate) fn sanitize_settings(input: Value) -> Value {
     let default = default_settings_json();
     let mut root = Map::new();
@@ -56,12 +45,17 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
         &["timeoutMs"],
     ));
 
-    // voice 渠道
+    // voice 渠道（OpenSpeech V3：apiKey / resourceId / baseUrl / sampleRate，无 models）
     root.insert("voice".to_string(), sanitize_channel_list(
         source.and_then(|obj| obj.get("voice")),
         &default["voice"],
-        &[("apiKey", ""), ("baseUrl", "")],
-        &[("id", "m1"), ("modelId", "")],
+        &[
+            ("apiKey", ""),
+            ("resourceId", ""),
+            ("baseUrl", "https://openspeech.bytedance.com/api/v3/tts/unidirectional"),
+            ("sampleRate", "24000"),
+        ],
+        &[],
     ));
     // voice 参数
     root.insert("voiceParams".to_string(), sanitize_section(
@@ -301,14 +295,16 @@ pub(crate) fn resolve_workspace_path(
     crate::app_paths::default_projects_root().join(dir_name)
 }
 
-/// 初始化数据库 Schema 并运行迁移
+/// 初始化数据库 Schema：启动时对比 schema.sql 与实际库结构，自动补全缺失的表/列/索引。
 pub(crate) fn ensure_project_schema(
     db_path: &std::path::Path,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
     let conn = crate::db::init_db(db_path).map_err(|e| e.to_string())?;
-    let migrations_dir = resolve_migrations_dir(app)?;
-    crate::db::run_migrations(&conn, &migrations_dir).map_err(|e| e.to_string())?;
+    let schema_path = resolve_schema_path(app)?;
+    crate::db::sync_schema(&conn, &schema_path).map_err(|e| e.to_string())?;
+    // 播种公共音色清单（仅插元数据，不覆盖已缓存的样例音频）
+    crate::commands::voice::seed_public_voices(&conn).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -319,8 +315,6 @@ pub(crate) fn open_app_conn(app: &tauri::AppHandle) -> Result<rusqlite::Connecti
 }
 
 /// 查询指定项目的工作区路径。
-///
-/// @author yt @date 20260703
 pub(crate) fn get_project_workspace_path(
     app: &tauri::AppHandle,
     project_id: &str,
@@ -334,20 +328,20 @@ pub(crate) fn get_project_workspace_path(
     .map_err(|e| e.to_string())
 }
 
-/// 解析迁移脚本目录
-fn resolve_migrations_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+/// 解析 schema.sql 路径（权威 Schema 定义文件）
+fn resolve_schema_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let cwd = std::env::current_dir().unwrap_or_default();
     let candidates = [
-        app_data_dir.join("migrations"),
-        cwd.join("migrations"),
-        cwd.join("..").join("migrations"),
+        app_data_dir.join("migrations").join("schema.sql"),
+        cwd.join("migrations").join("schema.sql"),
+        cwd.join("..").join("migrations").join("schema.sql"),
     ];
 
     candidates
         .into_iter()
         .find(|path| path.exists())
-        .ok_or_else(|| "Migrations directory not found".to_string())
+        .ok_or_else(|| "schema.sql not found".to_string())
 }
 
 /// 规范化文本内容
@@ -362,11 +356,6 @@ pub(crate) fn normalize_text(text: &str) -> String {
 }
 
 /// 确保 Worker 进程在线：已运行则跳过，否则启动。
-///
-/// Worker 随应用启动后全局唯一，通过全局 db 访问所有项目数据，
-/// 不再按项目 workspace_path 区分。切换项目不会导致 Worker 重启。
-///
-/// @author yt @date 20260703
 pub(crate) fn ensure_worker_running(
     state: &SharedSidecarManager,
     app: &tauri::AppHandle,
@@ -412,8 +401,6 @@ pub(crate) fn ensure_worker_running(
 }
 
 /// 向 Worker 发送 enqueue 命令，触发立即调度。
-///
-/// @author yt @date 20260703
 pub(crate) fn send_enqueue_to_worker(
     state: &SharedSidecarManager,
     task_id: &str,
@@ -426,8 +413,6 @@ pub(crate) fn send_enqueue_to_worker(
 }
 
 /// 向 Worker 发送 cancel 命令，中止指定任务。
-///
-/// @author yt @date 20260703
 pub(crate) fn send_cancel_to_worker(
     state: &SharedSidecarManager,
     task_id: &str,
@@ -444,8 +429,6 @@ struct ArkConfig {
 }
 
 /// 从 settings.json 的 asset.channels 中取活跃渠道
-///
-/// @author yt @date 20260707
 fn load_ark_config(app: &tauri::AppHandle) -> Result<ArkConfig, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let settings_path = app_data_dir.join("settings.json");
@@ -483,11 +466,6 @@ fn load_ark_config(app: &tauri::AppHandle) -> Result<ArkConfig, String> {
 }
 
 /// 同步上传本地图片到方舟平台，返回 file_id。
-///
-/// 使用 ureq 直接发起 HTTP 请求，阻塞当前线程直到完成。
-/// 用于导入本地图片时同步上传到方舟平台。
-///
-/// @author yt @date 20260707
 pub(crate) fn upload_ark_file_sync(
     app: &tauri::AppHandle,
     file_path: &str,
@@ -570,12 +548,7 @@ pub(crate) fn upload_ark_file_sync(
     Ok(file_id)
 }
 
-/// 同步从方舟平台删除文件（直接 HTTP DELETE，不经过 Worker）。
-///
-/// 从 settings.json 的 asset 节读取 apiKey / baseUrl / timeoutMs。
-/// 若配置缺失或 API 调用失败则返回错误。
-///
-/// @author yt @date 20260707
+/// 同步从方舟平台删除文件（直接 HTTP DELETE，不经过 Worker）
 pub(crate) fn delete_ark_file_sync(
     app: &tauri::AppHandle,
     file_id: &str,

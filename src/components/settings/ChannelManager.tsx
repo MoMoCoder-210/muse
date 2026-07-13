@@ -1,10 +1,5 @@
 /**
  * 模型渠道管理器（语言 / 生图 / 语音 / 视频 / 素材）
- *
- * 负责渠道的增删改、模型 ID 管理、连通性测试与全局参数编辑。
- * 变更通过 onPersist 即时持久化，由父组件 SettingsPage 统一写盘。
- *
- * @author yt @date 20260710
  */
 
 import { useState, useCallback } from "react";
@@ -16,15 +11,15 @@ import { testConnection } from "../../services/tauri";
 interface ChannelEditor {
   id: string;
   name: string;
-  apiKey: string;
-  baseUrl: string;
   models: Array<{ id: string; modelId: string; resolutions?: string[] }>;
   activeModelId: string;
+  // 其余字段（apiKey / baseUrl / appId / accessKey / resourceId ...）由 fields 动态驱动
+  [k: string]: any;
 }
 
 type FieldDef = { key: string; label: string; type: "text" | "password" | "number"; placeholder?: string };
 
-/** 渠道通用形状：所有渠道至少含 id/name，模型类渠道含可选 models/apiKey/baseUrl */
+/** 渠道通用形状：所有渠道至少含 id/name，模型类渠道含可选 models */
 interface ChannelLike {
   id: string;
   name: string;
@@ -32,6 +27,8 @@ interface ChannelLike {
   baseUrl?: string;
   models?: Array<{ id: string; modelId: string; resolutions?: string[] }>;
   activeModelId?: string;
+  // 其余字段由 fields 动态驱动
+  [k: string]: any;
 }
 
 interface ChannelManagerProps<T extends ChannelLike> {
@@ -47,15 +44,20 @@ interface ChannelManagerProps<T extends ChannelLike> {
   onChange: (next: ChannelList<T>) => void;
   /** 新增/编辑/删除后立即持久化 */
   onPersist: (updated: ChannelList<T>) => void;
+  /** 是否显示「测试连接」按钮；语音（V3）等无 OpenAI /models 探测的渠道置 false */
+  enableTest?: boolean;
+  /** 顶部说明文案（如语音渠道的协议提示） */
+  note?: string;
+  /** 固定单渠道（不可新增/删除/切换默认，名称锁定）。语音等只能接入指定服务时使用 */
+  fixedSingle?: boolean;
 }
 
 // ── 工具 ────────────────────────────────────────────────
 
 /** 由 blank 模板生成空白编辑态表单 */
-function emptyForm<T extends ChannelLike>(blank: T): ChannelEditor {
+function emptyForm<T extends ChannelLike>(_blank: T): ChannelEditor {
   return {
     id: "", name: "",
-    apiKey: blank.apiKey ?? "", baseUrl: blank.baseUrl ?? "",
     models: [],
     activeModelId: "",
   };
@@ -66,7 +68,7 @@ function emptyForm<T extends ChannelLike>(blank: T): ChannelEditor {
 export function ChannelManager<T extends ChannelLike>({
   list, blank, fields, hasModels, resolutionOptions,
   params, paramsFields, onParamsChange,
-  onChange, onPersist,
+  onChange, onPersist, enableTest = true, note, fixedSingle = false,
 }: ChannelManagerProps<T>) {
   const [form, setForm] = useState<ChannelEditor>(() => emptyForm(blank));
   // 展开的渠道 id；"__new__" 表示展开「新增渠道」面板；null 表示全部收起
@@ -117,13 +119,16 @@ export function ChannelManager<T extends ChannelLike>({
   // ── 新增 / 编辑（行内展开） ─────────────────────
 
   const startEdit = useCallback((ch: T) => {
-    setForm({
-      id: ch.id, name: ch.name, apiKey: ch.apiKey ?? "", baseUrl: ch.baseUrl ?? "",
+    const init: ChannelEditor = {
+      id: ch.id, name: ch.name,
       models: hasModels ? (ch.models ?? []).map((m: any) => ({ id: m.id, modelId: m.modelId, resolutions: m.resolutions ?? [] })) : [],
       activeModelId: hasModels ? (ch.activeModelId ?? ch.models?.[0]?.id ?? "") : "",
-    });
+    };
+    // 复制动态字段（apiKey / appId / accessKey / resourceId / baseUrl ...）
+    for (const f of fields) (init as any)[f.key] = (ch as any)[f.key] ?? "";
+    setForm(init);
     setTestState(null);
-  }, [hasModels]);
+  }, [hasModels, fields]);
 
   /** 点击渠道行：展开其编辑面板；再次点击同一行则收起 */
   const toggleExpand = useCallback((ch: T) => {
@@ -143,33 +148,35 @@ export function ChannelManager<T extends ChannelLike>({
   }, [blank, hasModels]);
 
   const handleAdd = useCallback(() => {
-    const newCh = {
-      ...blank,
-      id: generateId(),
-      name: form.name || `渠道 ${channels.length + 1}`,
-      apiKey: form.apiKey, baseUrl: form.baseUrl,
-      ...(hasModels ? { models: form.models, activeModelId: form.activeModelId } : {}),
-    } as T;
+    const newCh: any = { ...blank, id: generateId(), name: form.name || `渠道 ${channels.length + 1}` };
+    for (const f of fields) newCh[f.key] = (form as any)[f.key] ?? "";
+    if (hasModels) { newCh.models = form.models; newCh.activeModelId = form.activeModelId; }
     const updated = { channels: [...channels, newCh], activeId: newCh.id };
     onChange(updated);
     onPersist(updated);
     setForm(emptyForm(blank));
     setExpandedId(null);
-  }, [form, blank, channels, hasModels, onChange, onPersist]);
+  }, [form, blank, channels, hasModels, fields, onChange, onPersist]);
 
   const handleSave = useCallback(() => {
     const updated = {
       ...list,
       channels: channels.map((ch: T) =>
-        ch.id === form.id ? { ...ch, name: form.name, apiKey: form.apiKey, baseUrl: form.baseUrl,
-          ...(hasModels ? { models: form.models, activeModelId: form.activeModelId } : {}) } : ch,
+        ch.id === form.id
+          ? (() => {
+              const u: any = { ...ch, name: form.name };
+              for (const f of fields) u[f.key] = (form as any)[f.key] ?? "";
+              if (hasModels) { u.models = form.models; u.activeModelId = form.activeModelId; }
+              return u;
+            })()
+          : ch,
       ),
     };
     onChange(updated);
     onPersist(updated);
     setForm(emptyForm(blank));
     setExpandedId(null);
-  }, [form, blank, channels, hasModels, onChange, list, onPersist]);
+  }, [form, blank, channels, hasModels, fields, onChange, list, onPersist]);
 
   const cancel = useCallback(() => {
     setForm(emptyForm(blank));
@@ -184,13 +191,17 @@ export function ChannelManager<T extends ChannelLike>({
         {fields.map((f) => (
           <label key={f.key} className="cm-field">
             <span className="cm-field-label">{f.label}</span>
-            <input
-              type={f.type}
-              className="cm-field-input"
-              value={String((form as any)[f.key] ?? "")}
-              onChange={(e) => updateField(f.key, e.target.value)}
-              placeholder={f.placeholder}
-            />
+            {fixedSingle && f.key === "name" ? (
+              <input className="cm-field-input" value="火山语音（OpenSpeech V3）" disabled readOnly />
+            ) : (
+              <input
+                type={f.type}
+                className="cm-field-input"
+                value={String((form as any)[f.key] ?? "")}
+                onChange={(e) => updateField(f.key, e.target.value)}
+                placeholder={f.placeholder}
+              />
+            )}
           </label>
         ))}
       </div>
@@ -306,16 +317,18 @@ export function ChannelManager<T extends ChannelLike>({
   /** 表单底部（测试连接 + 操作按钮），mode 区分保存/新增 */
   const renderEditorFooter = (mode: "edit" | "add") => (
     <div className="cm-form-footer">
-      <div className="cm-test-row">
-        <button type="button" className="cm-test-btn"
-          onClick={handleTest}
-          disabled={testing || !form.apiKey.trim() || !form.baseUrl.trim()}>
-          {testing ? "测试中…" : "测试连接"}
-        </button>
-        {testState && (
-          <span className={`cm-test-result ${testState.ok ? "is-ok" : "is-err"}`}>{testState.message}</span>
-        )}
-      </div>
+      {enableTest && (
+        <div className="cm-test-row">
+          <button type="button" className="cm-test-btn"
+            onClick={handleTest}
+            disabled={testing || fields.some((f) => !(form as any)[f.key]?.trim())}>
+            {testing ? "测试中…" : "测试连接"}
+          </button>
+          {testState && (
+            <span className={`cm-test-result ${testState.ok ? "is-ok" : "is-err"}`}>{testState.message}</span>
+          )}
+        </div>
+      )}
 
       <div className="cm-form-actions">
         <button type="button" className="ghost-button" onClick={cancel}>
@@ -329,18 +342,20 @@ export function ChannelManager<T extends ChannelLike>({
   );
 
   const handleTest = useCallback(async () => {
-    if (!form.apiKey.trim() || !form.baseUrl.trim()) return;
+    const apiKey = (form as any).apiKey ?? "";
+    const baseUrl = (form as any).baseUrl ?? "";
+    if (!String(apiKey).trim() || !String(baseUrl).trim()) return;
     setTesting(true);
     setTestState(null);
     try {
-      const res = await testConnection({ apiKey: form.apiKey.trim(), baseUrl: form.baseUrl.trim() });
+      const res = await testConnection({ apiKey: String(apiKey).trim(), baseUrl: String(baseUrl).trim() });
       setTestState({ ok: res.ok, message: res.message });
     } catch (e) {
       setTestState({ ok: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
       setTesting(false);
     }
-  }, [form.apiKey, form.baseUrl]);
+  }, [form]);
 
   // ── 列表 ──────────────────────────────────────────
 
@@ -370,11 +385,13 @@ export function ChannelManager<T extends ChannelLike>({
   return (
     <div className="channel-manager-v2">
 
+      {note && <div className="cm-note">{note}</div>}
+
       {/* ══ 渠道列表（点击行展开/收起编辑） ══════ */}
       <div className="cm-section">
         <div className="cm-section-header">
-          <span className="cm-section-title">渠道列表 ({channels.length})</span>
-          {channels.length > 0 && expandedId !== "__new__" && (
+          {!fixedSingle && <span className="cm-section-title">渠道列表 ({channels.length})</span>}
+          {!fixedSingle && channels.length > 0 && expandedId !== "__new__" && (
             <button type="button" className="cm-add-top-btn" onClick={openAdd}>+ 新增渠道</button>
           )}
         </div>
@@ -388,7 +405,7 @@ export function ChannelManager<T extends ChannelLike>({
               const expanded = expandedId === ch.id;
               const host = extractHost(ch.baseUrl ?? "");
               const modelCount = hasModels ? (ch.models?.length ?? 0) : 0;
-              const hasKey = !!ch.apiKey?.trim();
+              const hasKey = !!((ch.apiKey ?? "")?.trim());
               return (
                 <div key={ch.id} className={`cm-channel-item ${isActive ? "cm-channel-item--active" : ""}`}>
                   <div className={`cm-channel-row ${expanded ? "cm-channel-row--expanded" : ""}`}>
@@ -402,14 +419,16 @@ export function ChannelManager<T extends ChannelLike>({
                       <span className="cm-channel-caret">{expanded ? "▾" : "▸"}</span>
                     </button>
                     <div className="cm-channel-row-actions">
-                      {!isActive && (
+                      {!fixedSingle && !isActive && (
                         <button type="button" className="cm-channel-action-btn"
                           onClick={() => switchActive(ch.id)} title="设为默认渠道">设为默认</button>
                       )}
-                      <button type="button" className="cm-channel-action-btn cm-channel-action-btn--danger"
-                        disabled={channels.length <= 1}
-                        title={channels.length <= 1 ? "至少保留一个渠道" : "删除该渠道"}
-                        onClick={() => setDeleteTarget(ch.id)}>删除</button>
+                      {!fixedSingle && (
+                        <button type="button" className="cm-channel-action-btn cm-channel-action-btn--danger"
+                          disabled={channels.length <= 1}
+                          title={channels.length <= 1 ? "至少保留一个渠道" : "删除该渠道"}
+                          onClick={() => setDeleteTarget(ch.id)}>删除</button>
+                      )}
                     </div>
                   </div>
 
@@ -426,20 +445,20 @@ export function ChannelManager<T extends ChannelLike>({
         )}
 
         {/* 新增渠道面板（行内展开） */}
-        {expandedId === "__new__" ? (
+        {!fixedSingle && expandedId === "__new__" ? (
           <div className="cm-row-panel cm-row-panel--new">
             <div className="cm-row-panel-title">新增渠道</div>
             {renderEditorBody()}
             {renderEditorFooter("add")}
           </div>
         ) : (
-          channels.length === 0 && (
+          !fixedSingle && channels.length === 0 && (
             <button type="button" className="cm-add-trigger" onClick={openAdd}>+ 新增渠道</button>
           )
         )}
       </div>
 
-      {/* ══ 全局参数 ══════════════════════════════ */}
+      {/* ══ 全局参数 ════════════════════════════ */}
       <div className="cm-section">
         <div className="cm-section-header">
           <span className="cm-section-title">全局参数</span>
@@ -488,5 +507,3 @@ function extractHost(url: string): string {
   try { return new URL(url).hostname; }
   catch { const m = url.match(/https?:\/\/([^\/\s]+)/); return m ? m[1] : url; }
 }
-
-

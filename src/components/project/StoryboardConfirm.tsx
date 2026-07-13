@@ -10,7 +10,6 @@ type StoryboardConfirmProps = {
 /**
  * 分镜操作确认弹窗（添加/插入通用）。
  *
- * @author yt @date 20260708
  */
 export function StoryboardConfirm({ title, message, confirmText, onConfirm, onCancel, disabled }: StoryboardConfirmProps) {
   return (

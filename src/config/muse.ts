@@ -31,7 +31,6 @@ export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
 /**
  * 工作流阶段定义。
  *
- * @author yt @date 20260702
  */
 export const WORKFLOW_STEPS = [
   { id: "script", label: "片段管理" },
@@ -44,14 +43,8 @@ export type WorkflowStepId = (typeof WORKFLOW_STEPS)[number]["id"];
 
 /**
  * 视频分辨率选项 — 用户在设置页按模型配置「支持的分辨率」。
- *
- * 分镜页选择某模型后，分辨率下拉仅渲染该模型在设置里配置支持的分辨率。
- *
- * @author yt @date 20260712
  */
 export const VIDEO_RESOLUTION_OPTIONS = ["420", "720", "1080", "2k", "4k"] as const;
-export type VideoResolution = (typeof VIDEO_RESOLUTION_OPTIONS)[number];
-
 export const VIDEO_DURATION_MIN = 4;
 export const VIDEO_DURATION_MAX = 15;
 export const VIDEO_ASPECT_OPTIONS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;

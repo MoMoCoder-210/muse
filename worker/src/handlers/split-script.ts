@@ -2,13 +2,11 @@
  * 智能拆片段
  *
  * 两段式拆分：
- *   1. 规则拆分（正则匹配集数标志），失败时回退模型拆分
+ *   1. 规则拆分，失败时回退模型拆分
  *   2. 模型拆分按文本长度选择策略：
  *      - ≤1500 字且无集数关键字 → 整体返回，不拆分
  *      - ≤6000 字 → 单次调用 LLM
  *      - >6000 字 → 按段落边界分块，逐批调用，尾集回收（carry-over）
- *
- * @author yt @date 20260702
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -78,8 +76,6 @@ const JSON_REPAIR_HINT =
 
 /**
  * 查找文本中所有集数标志的位置。
- *
- * @author yt @date 20260702
  */
 function findEpisodeMarkers(text: string): number[] {
   const positions: number[] = [];
@@ -97,8 +93,6 @@ function findEpisodeMarkers(text: string): number[] {
 
 /**
  * 检查文本开头是否包含设定关键词。
- *
- * @author yt @date 20260702
  */
 function hasSettingKeywords(text: string): boolean {
   const sample = text.slice(0, 500);
@@ -107,8 +101,6 @@ function hasSettingKeywords(text: string): boolean {
 
 /**
  * 检查文本是否包含任意集数标志（用于短文本不拆分判定）。
- *
- * @author yt @date 20260702
  */
 function hasEpisodeMarkers(text: string): boolean {
   return EPISODE_PATTERNS.some((pattern) => pattern.test(text));
@@ -119,8 +111,6 @@ function hasEpisodeMarkers(text: string): boolean {
  *
  * 输入示例："第一集 初入职场"、"第3章 转机"、"Chapter 1: The Beginning"
  * 去除集数编号前缀后取剩余文本，若纯编号则回退为原文本身。
- *
- * @author yt @date 20260710
  */
 function extractTitle(markerLine: string): string {
   if (!markerLine) return "";
@@ -136,8 +126,6 @@ function extractTitle(markerLine: string): string {
 
 /**
  * 统计语义字数（中文字、英文单词、标点各算1）。
- *
- * @author yt @date 20260702
  */
 function countWords(text: string): number {
   const cn = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -149,8 +137,6 @@ function countWords(text: string): number {
 /**
  * 尝试规则拆分。
  * 返回 ClipDraft[] 或 null（失败时）。
- *
- * @author yt @date 20260702
  */
 export function ruleSplit(text: string): ClipDraft[] | null {
   let workText = text;
@@ -239,7 +225,6 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 // ─── 写入数据库 ────────────────────────────────────────────────────
 /**
  * 写入片段到数据库
- * @author yt @date 20260702
  */
 function insertClips(
   db: DatabaseType,
@@ -283,7 +268,6 @@ const getSplitPrompt = createPromptLoader("split.md");
 
 /**
  * 按段落换行符边界将文本切分为多个块
- * @author yt @date 20260702 长文本分块处理
  */
 function chunkText(text: string, maxChars: number): string[] {
   const paragraphs = text.split("\n");
@@ -328,7 +312,6 @@ function chunkText(text: string, maxChars: number): string[] {
 
 /**
  * 解析模型返回的 JSON 数组为 ClipDraft[]
- * @author yt @date 20260702
  */
 function parseModelClips(raw: string): ClipDraft[] {
   let payload: unknown;
@@ -367,8 +350,6 @@ function parseModelClips(raw: string): ClipDraft[] {
 
 /**
  * 校验拆分结果对原文的覆盖率，低于 80% 视为模型漏内容抛错
- *
- * @author yt @date 20260702
  */
 function validateCoverage(clips: ClipDraft[], originalText: string): void {
   const totalClipWords = clips.reduce((sum, clip) => sum + clip.wordCount, 0);
@@ -385,8 +366,6 @@ function validateCoverage(clips: ClipDraft[], originalText: string): void {
 
 /**
  * 全局重排 sortIndex
- *
- * @author yt @date 20260702
  */
 function reindexClips(clips: ClipDraft[]): ClipDraft[] {
   return clips.map((clip, index) => ({ ...clip, sortIndex: index + 1 }));
@@ -401,7 +380,6 @@ function reindexClips(clips: ClipDraft[]): ClipDraft[] {
  *   1. 用系统提示词（split.md）+ 批次追加提示拼接 system 消息
  *   2. 解析 JSON；解析失败时执行一次 JSON 修复重试
  * @param batchHint 批次追加提示（非末批 / 末批 / 单次）
- * @author yt @date 20260702
  */
 async function callModelOnce(
   ctx: TaskContext,
@@ -458,7 +436,6 @@ async function callModelOnce(
 
 /**
  * 模型智能拆分：按文本长度选择策略。
- * @author yt @date 20260702
  */
 async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
   const textClient = ctx.clients?.text;
@@ -557,8 +534,6 @@ async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> 
 
 /**
  * split_script 任务 handler
- *
- * @author yt @date 20260702
  */
 export async function splitScriptHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as { projectId: string; sourceId: string; forceAi?: boolean };
@@ -570,8 +545,6 @@ export async function splitScriptHandler(ctx: TaskContext): Promise<string> {
 
 /**
  * 实际的拆分入口，由 task-runner 在分发时调用。
- *
- * @author yt @date 20260702
  */
 export async function splitScriptWithInput(
   ctx: TaskContext,

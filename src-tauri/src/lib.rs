@@ -1,4 +1,4 @@
-//! @author yt @date 20260702 Muse 应用库入口，注册插件与命令
+//! Muse 应用库入口，注册插件与命令
 
 mod app_paths;
 mod commands;
@@ -154,6 +154,8 @@ pub fn run() {
             commands::add_asset_to_clip,
             commands::delete_asset_from_clip,
             commands::update_asset_in_clip,
+            commands::list_workspace_voice_files,
+            commands::import_voice_file,
             commands::get_asset_image_info,
             commands::list_asset_images,
             commands::select_asset_image,
@@ -177,6 +179,7 @@ pub fn run() {
             commands::update_storyboard_duration,
             commands::detect_ffmpeg,
             commands::test_connection,
+            commands::preview_public_voice,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

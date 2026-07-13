@@ -31,11 +31,11 @@
     "channels": [
       {
         "id": "default",
-        "name": "默认",
+        "name": "火山语音合成2.0",
         "apiKey": "",
-        "baseUrl": "",
-        "models": [{ "id": "m1", "modelId": "" }],
-        "activeModelId": "m1"
+        "resourceId": "",
+        "baseUrl": "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+        "sampleRate": 24000
       }
     ],
     "activeId": "default"

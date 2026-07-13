@@ -6,7 +6,6 @@ import type { ImportScriptResult } from "../types/project";
  * 检查文本模型(活跃渠道)是否已配置 API Key。
  *
  * @returns true 表示已配置，false 表示未配置
- * @author yt @date 20260703
  */
 export async function hasTextModelApiKey(): Promise<boolean> {
   const settings = await getSettings();
@@ -22,7 +21,6 @@ export async function hasTextModelApiKey(): Promise<boolean> {
  * @param pasteText 粘贴的文本内容（file 模式下可忽略）
  * @param filePath  文件路径（paste 模式下可忽略）
  * @returns 导入结果
- * @author yt @date 20260703
  */
 export async function importScriptByTab(
   projectId: string,

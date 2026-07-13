@@ -1,14 +1,5 @@
 /**
  * Worker 入口文件 - Node sidecar
- *
- * 职责：
- * 1. 通过 stdio 与 Tauri 主进程通信（JSON line 协议）
- * 2. 启动时发送 ready 消息（包含 workerId + protocolVersion）
- * 3. 定期发送心跳（10s 间隔）
- * 4. 接收命令：enqueue / cancel / shutdown / ping
- * 5. 推送事件：task_event / batch_progress / quota_exhausted / log / error
- *
- * @author yt @date 20260702
  */
 
 import { randomUUID } from "crypto";
@@ -53,8 +44,6 @@ interface UnknownWorkerCommand {
 
 /**
  * 发送消息到 Tauri 主进程（stdout）
- *
- * @author yt @date 20260702
  */
 function sendMessage(msg: WorkerMessage): void {
   process.stdout.write(JSON.stringify(msg) + "\n");
@@ -62,8 +51,6 @@ function sendMessage(msg: WorkerMessage): void {
 
 /**
  * 发送日志（统一通过 stdout 转发到 Rust 项目日志，避免双写）
- *
- * @author yt @date 20260702
  */
 function sendLog(level: "info" | "warn" | "error", message: string): void {
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
@@ -71,8 +58,6 @@ function sendLog(level: "info" | "warn" | "error", message: string): void {
 
 /**
  * 发送任务事件
- *
- * @author yt @date 20260702
  */
 function emitEvent(event: TaskEvent): void {
   sendMessage({ version: PROTOCOL_VERSION, msg: "task_event", event });
@@ -80,8 +65,6 @@ function emitEvent(event: TaskEvent): void {
 
 /**
  * 发送心跳
- *
- * @author yt @date 20260702
  */
 function sendHeartbeat(): void {
   if (!running) return;
@@ -137,8 +120,6 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
 
 /**
  * 处理优雅关闭
- *
- * @author yt @date 20260702
  */
 async function handleShutdown(timeoutMs: number): Promise<void> {
   sendLog("info", `收到关闭指令，超时：${timeoutMs}ms`);

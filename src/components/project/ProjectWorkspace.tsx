@@ -17,7 +17,6 @@ type ProjectWorkspaceProps = {
 /**
  * 项目工作区主视图
  *
- * @author yt @date 20260702
  */
 export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated }: ProjectWorkspaceProps) {
   const [clipScripts, setClipScripts] = useState<ClipScriptInfo[] | null>(null);
