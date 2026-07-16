@@ -192,6 +192,7 @@
        hero     clamp 首页大标题
   */
   --font-family:          "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-family-mono:     "JetBrains Mono", "Fira Code", monospace;
   --font-size-xxs:        11px;
   --font-size-xs:         12px;
   --font-size-sm:         13px;

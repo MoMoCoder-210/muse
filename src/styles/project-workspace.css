@@ -1,6 +1,11 @@
 /* ── 工作区 ───────────────────────────────────── */
 .project-workspace {
-  padding: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -12,7 +17,7 @@
 }
 
 .workspace-header h2 {
-  margin: 10px 0 0;
+  margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-section);
   line-height: var(--line-height-section);
 }

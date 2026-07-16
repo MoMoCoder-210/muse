@@ -289,9 +289,10 @@ export function StoryboardPanel({ project }: Props) {
                 />
               )}
 
-              {/* ========== 下方：缩略图条 ========== */}
-              <div
-                className="sb-strip-wrap"
+              {/* ========== 第四行：分镜缩略列表 ========== */}
+              <div className="sd-row-card sd-row-card--strip">
+                <div
+                  className="sb-strip-wrap"
                 onWheel={(e) => {
                   const el = e.currentTarget;
                   el.scrollLeft += e.deltaY;
@@ -382,6 +383,7 @@ export function StoryboardPanel({ project }: Props) {
                   </button>
                 </div>
               </div>
+            </div>
             </div>
           )}
         </div>
@@ -825,10 +827,12 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
     }
   }, [clipId, sb, toast]);
 
+
   return (
-    <div className={`sd-detail${saving ? " is-busy" : ""}`}>
-      {/* 上方两栏：视频播放器 50% | 提示词 50% */}
-      <div className="sd-detail-top">
+    <div className={saving ? "sd-detail is-busy" : "sd-detail"}>
+      {/* 第一行：视频播放器 + 提示词 */}
+      <div className="sd-row-card sd-row-card--grow">
+        <div className="sd-detail-top">
         {/* 左侧：视频播放器 */}
         <div className="sd-detail-left">
           {currentVideoSrc ? (
@@ -970,9 +974,10 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
           </div>
         </div>
       </div>
+      </div>
 
-      {/* 下方批次区：全宽 */}
-      <div className="sd-section">
+      {/* 第二行：视频批次 */}
+      <div className="sd-row-card">
         <div className="sd-batch-thumbs">
           {videos.map((v, i) => {
             const isSelected = v.id === sb.selected_video_id;
@@ -1026,113 +1031,115 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         </div>
       </div>
 
-      {/* 底部两栏：左资产 | 右参数 */}
-      <div className="sd-bottom-row">
-        {/* 左侧：资产 */}
-        <div className="sd-section sd-section--assets">
-          <span className="sd-section-label">关联资产</span>
-          <div className="sd-detail-assets">
-            {CATS.map((cat) => {
-              const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
-              return (
-                <div key={cat.type} className="sd-detail-asset-row">
-                  <span className="sd-detail-asset-icon">{cat.icon}</span>
-                  <div className="sd-detail-asset-chips">
-                    {linkedList.map((a) => {
-                      const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
-                      return (
-                        <span
-                          key={a.asset_id}
-                          className={`sd-detail-chip on${!img ? " sd-detail-chip--nogen" : ""}`}
-                          title={!img ? `${a.name}（图片未生成，点击去生成）` : (a.description || a.name)}
-                          onClick={() => { if (img) setPreviewImg(img); }}
-                        >
-                          {img ? (
-                            <span className="sd-detail-chip-img"><img src={img} alt="" /></span>
-                          ) : (
-                            <span className="sd-detail-chip-img sd-detail-chip-img--empty" title="图片未生成">
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                              </svg>
-                            </span>
-                          )}
-                          <span className="sd-detail-chip-name">{a.name}</span>
-                          <button
-                            className="sd-detail-chip-x"
-                            disabled={busy}
-                            onClick={(e) => { e.stopPropagation(); onToggle(a); }}
-                            title="取消关联"
+      {/* 第三行：关联资产 + 参数 */}
+      <div className="sd-row-split">
+        {/* 左侧：关联资产 */}
+        <div className="sd-row-card sd-row-card--fixed">
+          <div className="sd-section sd-section--assets">
+            <span className="sd-section-label">关联资产</span>
+            <div className="sd-detail-assets">
+              {CATS.map((cat) => {
+                const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
+                return (
+                  <div key={cat.type} className="sd-detail-asset-row">
+                    <span className="sd-detail-asset-icon">{cat.icon}</span>
+                    <div className="sd-detail-asset-chips">
+                      {linkedList.map((a) => {
+                        const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
+                        return (
+                          <span
+                            key={a.asset_id}
+                            className={`sd-detail-chip on${!img ? " sd-detail-chip--nogen" : ""}`}
+                            title={!img ? `${a.name}（图片未生成，点击去生成）` : (a.description || a.name)}
+                            onClick={() => { if (img) setPreviewImg(img); }}
                           >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                          </button>
-                        </span>
-                      );
-                    })}
-                    <button className="sd-detail-chip sd-detail-chip--add" disabled={busy} onClick={() => setPickerCat(cat.type)} title={`关联${cat.label}`}>+</button>
+                            {img ? (
+                              <span className="sd-detail-chip-img"><img src={img} alt="" /></span>
+                            ) : (
+                              <span className="sd-detail-chip-img sd-detail-chip-img--empty" title="图片未生成">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </span>
+                            )}
+                            <span className="sd-detail-chip-name">{a.name}</span>
+                            <button
+                              className="sd-detail-chip-x"
+                              disabled={busy}
+                              onClick={(e) => { e.stopPropagation(); onToggle(a); }}
+                              title="取消关联"
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                          </span>
+                        );
+                      })}
+                      <button className="sd-detail-chip sd-detail-chip--add" disabled={busy} onClick={() => setPickerCat(cat.type)} title={`关联${cat.label}`}>+</button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* 右侧：视频生成参数 */}
-        <div className="sd-section sd-section--params">
-          <div className="sd-params-grid">
-            <label className="sd-param-field">
-              <span className="sd-param-label">模型</span>
-              <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
-                {Object.keys(videoModels).length === 0
-                  ? <option value="">未配置模型</option>
-                  : Object.keys(videoModels).map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </label>
-            <label className="sd-param-field">
-              <span className="sd-param-label">时长</span>
-              <div className="sd-param-duration">
-                <input
-                  type="number"
-                  className="sd-param-input"
-                  min={VIDEO_DURATION_MIN}
-                  max={VIDEO_DURATION_MAX}
-                  value={params.duration}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const raw = Number(e.target.value);
-                    if (!Number.isFinite(raw)) return;
-                    const dv = clampDuration(raw);
-                    setParams((prev) => ({ ...prev, duration: Math.max(VIDEO_DURATION_MIN, Math.min(VIDEO_DURATION_MAX, Math.round(raw))) }));
-                    // 实时写回分镜记录（模型拆解的分镜秒数）
-                    onDurationWrite(sb, dv);
-                  }}
-                  onBlur={saveParams}
-                />
-                <span className="sd-param-unit">s</span>
-              </div>
-            </label>
-            <label className="sd-param-field">
-              <span className="sd-param-label">分辨率</span>
-              <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
-                {getResolutions(params.model, videoModels).map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </label>
-            <label className="sd-param-field">
-              <span className="sd-param-label">宽高比</span>
-              <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
-                {VIDEO_ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </label>
+        <div className="sd-row-card sd-row-card--fixed">
+          <div className="sd-section sd-section--params">
+            <div className="sd-params-grid">
+              <label className="sd-param-field">
+                <span className="sd-param-label">模型</span>
+                <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
+                  {Object.keys(videoModels).length === 0
+                    ? <option value="">未配置模型</option>
+                    : Object.keys(videoModels).map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+              <label className="sd-param-field">
+                <span className="sd-param-label">时长</span>
+                <div className="sd-param-duration">
+                  <input
+                    type="number"
+                    className="sd-param-input"
+                    min={VIDEO_DURATION_MIN}
+                    max={VIDEO_DURATION_MAX}
+                    value={params.duration}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      if (!Number.isFinite(raw)) return;
+                      const dv = clampDuration(raw);
+                      setParams((prev) => ({ ...prev, duration: Math.max(VIDEO_DURATION_MIN, Math.min(VIDEO_DURATION_MAX, Math.round(raw))) }));
+                      onDurationWrite(sb, dv);
+                    }}
+                    onBlur={saveParams}
+                  />
+                  <span className="sd-param-unit">s</span>
+                </div>
+              </label>
+              <label className="sd-param-field">
+                <span className="sd-param-label">分辨率</span>
+                <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
+                  {getResolutions(params.model, videoModels).map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </label>
+              <label className="sd-param-field">
+                <span className="sd-param-label">宽高比</span>
+                <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
+                  {VIDEO_ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
+            </div>
+            <button
+              className="sd-generate-btn primary-button"
+              disabled
+              title={Object.keys(videoModels).length === 0 ? "请先在设置中配置视频模型" : "视频生成功能即将开放"}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
+              生成视频
+            </button>
           </div>
-          {/* 视频生成后端 handler（generate_video）尚未实现，先禁用并明确提示，避免「死按钮」 */}
-          <button
-            className="sd-generate-btn primary-button"
-            disabled
-            title={Object.keys(videoModels).length === 0 ? "请先在设置中配置视频模型" : "视频生成功能即将开放"}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
-            生成视频
-          </button>
         </div>
       </div>
 

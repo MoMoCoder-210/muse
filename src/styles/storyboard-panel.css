@@ -5,7 +5,7 @@
 .sb-scroll {
   height: 100%;
   overflow: hidden;
-  padding: var(--spacing-xl) var(--spacing-xl) 0;
+  padding: var(--spacing-md) var(--spacing-md) 0;
   background: var(--bg-surface-deep);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -19,26 +19,38 @@
 .sb-empty p { margin: 0; }
 
 .sb-view {
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; gap: var(--spacing-xs);
   height: 100%;
   overflow: hidden;
 }
 
-/* 详情区（上方，flex-grow 撑满剩余空间） */
+/* 详情区（透传容器，仅承载 is-busy 状态）
+   ⚠️ display:contents 移除盒模型，禁止加 background/border/padding/margin */
 .sd-detail {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column; gap: var(--spacing-md);
-  padding: var(--spacing-xl);
-  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  display: contents;
+}
+.sd-detail.is-busy { opacity: 0.45; pointer-events: none; }
+.sd-row-card {
+  display: flex; flex-direction: column;
+  padding: var(--spacing-sm);
   background: var(--bg-surface-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  flex-shrink: 0;
+}
+.sd-row-card--grow { flex: 1; min-height: 0; }
+.sd-row-card--fixed {
+  overflow: hidden;
+  height: 160px;
+}
+.sd-row-card--strip {
+  height: 120px;
 }
 
 /* ============================================================
    上方：选中分镜详情
    ============================================================ */
-
-.sd-detail.is-busy { opacity: 0.45; pointer-events: none; }
 
 /* ── 上方两栏：左50%视频 | 右50%提示词 ── */
 .sd-detail-top {
@@ -49,8 +61,9 @@
 /* 左侧：视频播放器 */
 .sd-detail-left {
   flex: 1; min-width: 0;
-  border-radius: var(--radius-md); overflow: hidden;
+  border-radius: var(--radius-sm); overflow: hidden;
   background: var(--bg-input);
+  border: 1px solid var(--border-faint);
   display: flex; align-items: center; justify-content: center;
 }
 
@@ -71,7 +84,6 @@
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
   background: #000;
-  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .sd-player-video {
@@ -173,17 +185,15 @@
    下方三区域：视频批次 / 资产+参数
    ============================================================ */
 
-/* 通用区块卡片 */
+/* 通用区块 */
 .sd-section {
   flex-shrink: 0;
   display: flex; flex-direction: column; gap: var(--spacing-xs);
-  padding: var(--spacing-sm);
-  background: var(--bg-surface-deep);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  padding: 0;
 }
 
-.sd-section-label {
+.sd-section-label,
+.sd-detail-prompt-label {
   font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold);
   color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
   flex-shrink: 0;
@@ -282,26 +292,26 @@
 }
 @keyframes sb-spin { to { transform: rotate(360deg); } }
 
-/* ── 2. 底部两栏：左资产 | 右参数（两区等高，整体贴合内容高度，不撑满） ── */
-.sd-bottom-row {
+/* ── 2. 第三行：双卡片并排（关联资产 | 参数） ── */
+.sd-row-split {
   flex-shrink: 0;
-  display: flex; gap: var(--spacing-md);
+  display: flex; gap: var(--spacing-sm);
   align-items: stretch;
-  overflow: hidden;
+}
+.sd-row-split .sd-row-card--fixed {
+  flex: 1; min-width: 0;
 }
 
-/* 资产区块：由内容决定高度，超长则内部滚动 */
+/* 资产区块：撑满卡片高度，超长则内部滚动 */
 .sd-section--assets {
-  flex: 1; min-width: 0;
-  max-height: 168px;
+  flex: 1; min-height: 0;
   overflow-y: auto;
 }
 
-/* 参数区块：与资产区严格等高 */
+/* 参数区块：撑满卡片高度，不滚动 */
 .sd-section--params {
-  flex: 1; min-width: 0;
-  max-height: 168px;
-  overflow-y: auto;
+  flex: 1; min-height: 0;
+  overflow: hidden;
   justify-content: flex-start;
 }
 
@@ -313,7 +323,7 @@
   flex-shrink: 0;
 }
 .sd-param-field {
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: var(--spacing-xs);
   min-width: 0;
 }
 .sd-param-field .sd-param-label {
@@ -400,16 +410,11 @@
   flex: 1; min-height: 0;
   display: flex; flex-direction: column; gap: var(--spacing-xs);
 }
-.sd-detail-prompt-label {
-  flex-shrink: 0;
-  font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold);
-  color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
-}
 .sd-detail-prompt-text {
   flex: 1; min-height: 0;
-  margin: 0; padding: var(--spacing-md); background: var(--bg-input);
-  border: 1px solid var(--border-faint); border-radius: var(--radius-md);
-  font-family: "JetBrains Mono","Fira Code",monospace;
+  margin: 0; padding: var(--spacing-sm); background: var(--bg-input);
+  border: 1px solid var(--border-faint); border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-xxs); color: var(--text-muted);
   line-height: 1.6; white-space: pre-wrap; overflow-y: auto;
   resize: none;
@@ -557,11 +562,8 @@
 .sb-strip-wrap {
   flex-shrink: 0;
   overflow-x: auto; overflow-y: hidden;
-  padding: var(--spacing-sm) 0 0;
-  background: var(--bg-surface-deep);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  min-height: 105px;
+  padding: 0;
+  height: 100%;
 }
 
 .sb-strip {
@@ -579,11 +581,11 @@
   display: flex; flex-direction: column; align-items: center;
   padding: 0; border: none; background: transparent;
   color: var(--text-muted); font-size: var(--font-size-xxs);
-  cursor: pointer; flex-shrink: 0; width: 80px;
+  cursor: pointer; flex-shrink: 0; width: 96px;
 }
 
 .sb-strip-item--add {
-  width: 76px; aspect-ratio: 4/3;
+  width: 88px; aspect-ratio: 4/3;
   justify-content: center;
   background: var(--bg-hover-subtle);
   border: 2px dashed var(--border-base);
@@ -608,7 +610,7 @@
 
 /* 底部文字脱离文档流，使 sb-strip-item 高度 = thumb 高度 */
 .sb-strip-dur {
-  position: absolute; bottom: -18px; left: 0; right: 0;
+  position: absolute; bottom: -20px; left: 0; right: 0;
   font-size: var(--font-size-xxs); color: var(--text-muted); font-variant-numeric: tabular-nums;
   text-align: center; line-height: 1.2;
 }
