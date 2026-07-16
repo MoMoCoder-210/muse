@@ -834,27 +834,6 @@
   gap: 10px;
 }
 
-/* 界面入口按钮 */
-
-.home-settings-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-md);
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.home-settings-btn:hover {
-  background: var(--chip-bg);
-  color: var(--text-primary);
-}
-
 .sidebar-footer {
   display: flex;
   align-items: stretch;

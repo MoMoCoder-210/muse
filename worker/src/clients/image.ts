@@ -59,7 +59,7 @@ export class ImageClient {
    */
   async generate(
     prompt: string,
-    options: ImageGenerateOptions = {}
+    options: ImageGenerateOptions = { watermark: false }
   ): Promise<ImageGenerateResult> {
     if (!this.config.apiKey) {
       throw new Error("ImageClient: apiKey is not configured");
@@ -126,7 +126,7 @@ export class ImageClient {
   async generateAndSave(
     prompt: string,
     savePath: string,
-    options: ImageGenerateOptions = {}
+    options: ImageGenerateOptions = { watermark: false }
   ): Promise<string> {
     const { url } = await this.generate(prompt, options);
     await downloadFile(url, savePath, options.signal);

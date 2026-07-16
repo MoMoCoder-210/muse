@@ -151,7 +151,7 @@ export function ChannelManager<T extends ChannelLike>({
     const newCh: any = { ...blank, id: generateId(), name: form.name || `渠道 ${channels.length + 1}` };
     for (const f of fields) newCh[f.key] = (form as any)[f.key] ?? "";
     if (hasModels) { newCh.models = form.models; newCh.activeModelId = form.activeModelId; }
-    const updated = { channels: [...channels, newCh], activeId: newCh.id };
+    const updated = { channels: [...channels, newCh], activeId: channels.length === 0 ? newCh.id : list.activeId };
     onChange(updated);
     onPersist(updated);
     setForm(emptyForm(blank));

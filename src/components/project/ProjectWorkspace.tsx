@@ -7,6 +7,7 @@ import type { ClipScriptInfo } from "../../types/project";
 import { StepPlaceholder } from "../common/StepPlaceholder";
 import { AssetPanel } from "./AssetPanel";
 import { StoryboardPanel } from "./StoryboardPanel";
+import { VideoEditorPage } from "./VideoEditorPage";
 import { CreateClipModal } from "./CreateClipModal";
 
 type ProjectWorkspaceProps = {
@@ -66,7 +67,6 @@ export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated 
   return (
     <div className="workspace-inner">
       <WorkflowBoard
-        progressStep={project.current_step}
         activeIndex={activeStep}
         disabledSteps={disabledSteps}
         onStepClick={setActiveStep}
@@ -81,6 +81,8 @@ export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated 
         <AssetPanel project={project} />
       ) : activeStep === 2 ? (
         <StoryboardPanel project={project} />
+      ) : activeStep === 3 ? (
+        <VideoEditorPage project={project} />
       ) : (
         <StepPlaceholder stepIndex={activeStep} projectName={project.name} />
       )}

@@ -1,4 +1,11 @@
 /* 删除确认弹窗 */
+
+/* 统一确认弹窗标题大小 — 与添加资产弹窗一致 */
+.delete-confirm-title {
+  font-size: var(--font-size-lg);
+}
+
+
 .delete-confirm-panel {
   max-width: 420px;
 }
@@ -23,7 +30,7 @@
   margin: 0 0 14px;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: var(--line-height-base);
 }
 
 .delete-confirm-body strong {

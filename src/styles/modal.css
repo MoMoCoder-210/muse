@@ -66,3 +66,49 @@
 .modal-script-textarea {
   min-height: 220px;
 }
+
+/* 关闭按钮（帮助等通用弹窗） */
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--modal-close-btn-color);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 帮助弹窗 */
+.help-panel {
+  width: min(460px, 100%);
+}
+.help-body {
+  margin-top: var(--spacing-lg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.7;
+}
+.help-body p {
+  margin: 0;
+}
+.help-body ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.help-body li {
+  margin: 4px 0;
+}
+.help-body strong {
+  color: var(--text-primary);
+}

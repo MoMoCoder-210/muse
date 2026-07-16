@@ -133,19 +133,72 @@ function saveResults(
     `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, actualMode);
   }
 
-  // 写入故事板
+  // ── 将拆解出的资产写入 assets 表，并建立 name → assetId 映射 ──
+  const findAsset = db.prepare(`
+    SELECT id FROM assets
+    WHERE clip_id = ? AND type = ? AND name = ?
+  `);
+  const insertAsset = db.prepare(`
+    INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'model', 'draft')
+  `);
+
+  // type → name → assetId
+  const idMap = new Map<string, Map<string, string>>();
+  idMap.set("character", new Map());
+  idMap.set("scene", new Map());
+  idMap.set("item", new Map());
+
+  for (const type of ["character", "scene", "item"] as const) {
+    const list = type === "character" ? resources.characters
+      : type === "scene" ? resources.scenes : resources.items;
+    const map = idMap.get(type)!;
+    for (const r of list) {
+      const existing = findAsset.get(clipId, type, r.name) as { id: string } | undefined;
+      if (existing) {
+        map.set(r.name, existing.id);
+      } else {
+        const id = randomUUID();
+        insertAsset.run(id, projectId, clipId, type, r.name, r.description, r.prompt);
+        map.set(r.name, id);
+        l("拆解", `  新增资产: ${type} "${r.name}" id=${id.slice(0, 8)}`);
+      }
+    }
+  }
+
+  // ── 写入故事板，携带分镜→资产的绑定 ──
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
-      visual_description, video_prompt, video_duration)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      visual_description, video_prompt, video_duration,
+      character_ids_json, scene_ids_json, item_ids_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
+  const charById = idMap.get("character")!;
+  const sceneById = idMap.get("scene")!;
+  const itemById = idMap.get("item")!;
+
   for (let i = 0; i < storyboards.length; i++) {
     const sb = storyboards[i];
+    // 按名称从 idMap 中查找资产 ID
+    const charIds = sb.characters
+      .map((c) => charById.get(c.name))
+      .filter(Boolean) as string[];
+    const sceneIds = sb.scenes
+      .map((s) => sceneById.get(s.name))
+      .filter(Boolean) as string[];
+    const itemIds = sb.items
+      .map((it) => itemById.get(it.name))
+      .filter(Boolean) as string[];
+
     insertSb.run(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
       sb.description, sb.animationPrompt,
       sb.duration ?? 15,
+      JSON.stringify(charIds),
+      JSON.stringify(sceneIds),
+      JSON.stringify(itemIds),
     );
   }
 }

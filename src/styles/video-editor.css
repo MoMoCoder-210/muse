@@ -1,0 +1,848 @@
+/* ============================================================
+   视频拼接工作台 — 上下分栏布局
+   上：视频拼接（可拖拽）  下：成片展示（不可拖拽）
+   ============================================================ */
+
+.ve-layout {
+  height: 100%;
+  overflow: hidden;
+}
+
+.ve-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  gap: var(--spacing-md);
+}
+
+/* 视频页复用分镜管理的悬停抽屉，保持 --rail-width 与分镜管理一致（206px） */
+
+/* 主区纵向分栏：上拼接 / 下成片 */
+.ve-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* ── 通用面板（上/下两区共用） ── */
+.ve-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 50% -10%, rgba(var(--accent-primary-rgb), 0.05), transparent 55%),
+    var(--bg-surface-deep);
+  overflow: hidden;
+}
+.ve-panel--top {
+  flex: 1;
+}
+.ve-panel--bottom {
+  flex: 1;
+}
+
+/* ffmpeg 缺失警告 */
+.ve-warn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+  background: rgba(var(--color-warning-rgb), 0.1);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+/* ── 面板头（上/下共用同一套标题样式） ── */
+.ve-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+}
+
+.ve-strip-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.ve-strip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-selected);
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.ve-output-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--color-success-rgb), 0.14);
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+/* 成片面板头（与上方拼接头对称，图标 + 标题同行） */
+.ve-output-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.ve-output-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.ve-strip-title-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ve-strip-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: 0.4px;
+}
+
+.ve-strip-sub {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 顶部批量工具 */
+.ve-strip-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.ve-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease,
+    transform 120ms ease;
+}
+
+.ve-tool-btn:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  color: var(--accent-primary);
+  background: var(--bg-selected);
+  transform: translateY(-1px);
+}
+
+.ve-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ve-strip-count {
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-primary);
+  background: var(--badge-bg);
+  padding: 4px 11px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* 空状态 */
+.ve-strip-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* ── 分镜视频卡片区 ──
+   横向单排，卡片高度 = 100% 容器（随窗口动态变化），
+   宽度由 CSS aspect-ratio 按视频比例自动算出，
+   超出容器部分横向滚动。
+*/ 
+.ve-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-base) transparent;
+}
+
+.ve-cards::-webkit-scrollbar {
+  height: 8px;
+}
+
+.ve-cards::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: var(--radius-full);
+}
+
+/* 单个卡片 — 高度撑满容器，整卡按视频比例(aspect-ratio)约束宽度，
+   避免被 <video> 固有尺寸撑爆成黑幕；meta 改为浮层不占高度，
+   thumb 占满整卡，故 thumb 比例=视频比例，无黑边。 */
+.ve-card {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+  aspect-ratio: var(--card-ar-num, 1.7778);
+  max-width: 94vw;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.ve-card:hover {
+  border-color: var(--border-base);
+  box-shadow: 0 0 0 1px var(--border-accent-subtle);
+}
+
+.ve-card.playing {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary), 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.ve-card.off {
+  opacity: 0.55;
+}
+
+.ve-card.selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1.5px var(--accent-primary), 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+.ve-card--output {
+  border-color: rgba(var(--color-success-rgb), 0.5);
+}
+
+/* 拖拽中其他卡片平滑让位 */
+.ve-card.shifting {
+  transition: transform 180ms ease;
+}
+
+/* 间隙式落点指示 — 高度跟随卡片动态自适应 */
+.ve-card-gap {
+  width: 5px;
+  height: 100%;
+  flex-shrink: 0;
+  border-radius: 3px;
+  margin: 0 8px;
+  align-self: stretch;
+  background: linear-gradient(
+    to bottom,
+    transparent 8%,
+    var(--color-warning) 25%,
+    var(--color-warning) 75%,
+    transparent 92%
+  );
+  box-shadow:
+    0 0 14px rgba(var(--color-warning-rgb), 0.5),
+    0 0 6px rgba(var(--color-warning-rgb), 0.3);
+  animation: gap-pulse 800ms ease-in-out infinite alternate;
+}
+@keyframes gap-pulse {
+  from {
+    box-shadow:
+      0 0 6px rgba(var(--color-warning-rgb), 0.35),
+      0 0 2px rgba(var(--color-warning-rgb), 0.2);
+  }
+  to {
+    box-shadow:
+      0 0 18px rgba(var(--color-warning-rgb), 0.55),
+      0 0 8px rgba(var(--color-warning-rgb), 0.35);
+  }
+}
+
+/* 拖拽中卡片 — 紧跟鼠标、无过渡、无 hover 上浮 */
+.ve-card.dragging {
+  opacity: 0.82;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  transform: translateX(var(--drag-offset-x, 0px));
+  transition: box-shadow 140ms ease, opacity 140ms ease;
+}
+.ve-card.dragging:hover {
+  transform: translateX(var(--drag-offset-x, 0px)) !important;
+}
+
+/* 缩略图 — 占满整卡（meta 为浮层不占位），整卡按比例故 thumb 比例=视频比例，无黑边 */
+.ve-card-thumb {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+/* 隐藏原生控件（改用自定义控件） */
+.ve-card-video::-webkit-media-controls {
+  display: none !important;
+}
+
+/* ── 自定义播放控件条：播放时覆盖视频底部，暂停时随卡片状态自动移除 ── */
+.ve-ctrl {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  cursor: default;
+  animation: ve-ctrl-in 160ms ease;
+}
+
+@keyframes ve-ctrl-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 按钮 + 时间行（上方一行，两端对齐） */
+.ve-ctrl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 4px;
+}
+
+.ve-ctrl-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.ve-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* 时间组：居中，超窄时整体省略不挤压 */
+.ve-ctrl-times {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ve-ctrl-time {
+  flex-shrink: 0;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 进度条：底部独立一行，左右留间隔不贴边 */
+.ve-ctrl-track {
+  flex: none;
+  width: 100%;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* 缩进后的实际轨道区域（承载底槽与填充） */
+.ve-ctrl-bar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 轨道底槽 */
+.ve-ctrl-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.ve-ctrl-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  z-index: 1;
+}
+
+.ve-ctrl-knob {
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+.ve-card-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* 播放按钮（未播放时覆盖，随卡片等比缩放） */
+.ve-card-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: clamp(38px, 13%, 58px);
+  height: clamp(38px, 13%, 58px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.ve-card-play svg {
+  width: 52%;
+  height: 52%;
+  margin-left: 4%;
+}
+
+.ve-card-play:hover {
+  background: var(--accent-primary);
+  transform: scale(1.08);
+}
+
+/* 分镜编号角标 */
+.ve-card-seq {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+/* 成片：左上角磨砂胶囊（恢复此前版本） */
+.ve-card-seq--output {
+  top: 6px;
+  left: 6px;
+  gap: 4px;
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  color: #6ee7a8;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 7px;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  letter-spacing: 0.04em;
+  z-index: 2;
+}
+
+/* 角标前的小圆点，提升精致感 */
+.ve-card-seq--output::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.9);
+}
+
+/* 成片卡片右上角删除按钮（常驻，磨砂胶囊风格，红色危险色） */
+.ve-card-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(229, 72, 77, 0.45);
+  border-radius: 50%;
+  background: rgba(229, 72, 77, 0.16);
+  color: #fca5a5;
+  cursor: pointer;
+  opacity: 1;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.ve-card-del:hover {
+  background: rgba(229, 72, 77, 0.34);
+  border-color: rgba(229, 72, 77, 0.72);
+  color: #fff;
+}
+
+/* 播放时隐藏右上角删除按钮，避免与视频控件重叠 */
+.ve-card.playing .ve-card-del {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 拼接区：左下角时长（MM:SS），与成片底部信息呼应 */
+.ve-card-dur-b {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+
+/* 拼接区：右下角分镜序号，与左下时长对称 */
+.ve-card-seq-b {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+
+/* 播放时隐藏底部时长与序号，避免与视频控件重叠 */
+.ve-card.playing .ve-card-dur-b,
+.ve-card.playing .ve-card-seq-b {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+/* 纳入/排除 勾选框（左上角，常驻） */
+.ve-card-check {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, opacity 120ms ease;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* 未选中时默认隐藏；悬停卡片才显示，便于勾选 */
+.ve-card:hover .ve-card-check {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ve-card-check svg {
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.ve-card-check.on {
+  opacity: 1;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 80%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.ve-card-check.on svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ve-card-check:hover:not(:disabled) {
+  transform: scale(1.08);
+}
+
+.ve-card-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* meta 浮层：绝对定位叠加在视频底部，不占布局高度，
+   故 thumb 占满整卡、视频无黑边；播放时控件条(.ve-ctrl,z-index:3)覆盖其上 */
+.ve-card-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 18px var(--spacing-sm) var(--spacing-sm);
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+.ve-card-meta > * {
+  pointer-events: auto;
+}
+
+/* 播放时：隐藏卡片上除视频控件外的所有元素（标题行、成片角标等） */
+.ve-card.playing .ve-card-meta,
+.ve-card.playing .ve-card-seq {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.ve-card-dur {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+
+.ve-card-ar {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 拼接面板底部操作条：紧凑按钮 ── */
+.ve-panel-foot {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-top: 1px solid var(--border-subtle);
+  background: linear-gradient(0deg, var(--bg-panel-subtle), transparent);
+}
+
+.ve-foot-row {
+  display: flex;
+  justify-content: center;
+}
+
+/* 拼接按钮 — 紧凑居中主 CTA */
+.ve-concat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  min-width: 200px;
+  min-height: 36px;
+  padding: var(--spacing-xs) var(--spacing-xl);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.3px;
+  border-radius: var(--radius-full);
+  box-shadow: 0 8px 20px var(--btn-primary-shadow);
+}
+
+.ve-concat-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px var(--btn-primary-shadow);
+}
+
+.ve-concat-btn:disabled {
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+.ve-btn-spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ve-spin 0.7s linear infinite;
+}
+
+@keyframes ve-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 进度条（横向条内联） */
+.ve-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.ve-progress-bar {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  transition: width 240ms ease;
+}
+
+/* 输出卡片 meta 操作行 */
+.ve-output-card-meta-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
+.ve-output-card-btns {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ve-output-card-btns .ve-link-btn {
+  padding: 2px 5px;
+  font-size: var(--font-size-xxs);
+  line-height: 1;
+}
+
+/* 文件路径 + 操作按钮 */
+.ve-link-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.ve-link-btn:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+  background: var(--bg-selected);
+}
+
+.ve-link-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

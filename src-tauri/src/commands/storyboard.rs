@@ -29,8 +29,8 @@ pub struct StoryboardInfo {
     pub video_state: String,
     pub voice_path: Option<String>,
     pub voice_duration: Option<f64>,
-    pub video_path: Option<String>,
     pub video_duration: Option<f64>,
+    pub selected_video_id: Option<String>,
 }
 
 /// 分镜关联资产简要信息
@@ -59,8 +59,8 @@ pub fn list_storyboards(
                     character_ids_json, scene_ids_json, item_ids_json,
                     image_param_json, video_param_json, voice_param_json,
                     image_state, voice_state, video_state,
-                    voice_path, voice_duration,
-                    video_path, video_duration
+                    voice_path, voice_duration, video_duration,
+                    selected_video_id
              FROM storyboards
              WHERE clip_id = ?1
              ORDER BY seq_num ASC",
@@ -91,8 +91,8 @@ pub fn list_storyboards(
                 video_state: row.get::<_, Option<String>>(18)?.unwrap_or_else(|| "pending".to_string()),
                 voice_path: row.get(19)?,
                 voice_duration: row.get(20)?,
-                video_path: row.get(21)?,
-                video_duration: row.get(22)?,
+                video_duration: row.get(21)?,
+                selected_video_id: row.get(22)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -297,8 +297,8 @@ pub fn create_storyboard(
         video_state: "pending".to_string(),
         voice_path: None,
         voice_duration: None,
-        video_path: None,
         video_duration: None,
+        selected_video_id: None,
     })
 }
 
@@ -458,8 +458,8 @@ pub fn insert_storyboard(
         video_state: "pending".to_string(),
         voice_path: None,
         voice_duration: None,
-        video_path: None,
         video_duration: None,
+        selected_video_id: None,
     })
 }
 
@@ -531,4 +531,235 @@ pub struct UpdateStoryboardDurationInput {
     pub storyboard_id: String,
     /// 时长（秒）；null 表示清空
     pub duration: Option<f64>,
+}
+
+/// 将视频文件导入项目工作区
+#[derive(Debug, Serialize)]
+pub struct ImportVideoResult {
+    pub file_path: String,
+    pub file_name: String,
+}
+
+#[tauri::command]
+pub fn import_video_file(
+    clip_id: String,
+    source_path: String,
+    app: tauri::AppHandle,
+) -> Result<ImportVideoResult, String> {
+    let conn = util::open_app_conn(&app)?;
+    let workspace: String = conn
+        .query_row(
+            "SELECT p.workspace_path FROM clips c JOIN projects p ON c.project_id = p.id WHERE c.id = ?1",
+            rusqlite::params![&clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "未找到项目工作区".to_string())?;
+
+    let video_dir = std::path::PathBuf::from(&workspace).join("video");
+    std::fs::create_dir_all(&video_dir)
+        .map_err(|e| format!("创建视频目录失败：{}", e))?;
+
+    // 原始文件名仅用于界面展示，磁盘存储使用唯一名，避免同名视频互相覆盖
+    let display_name = std::path::Path::new(&source_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("video.mp4")
+        .to_string();
+
+    // 生成唯一文件名：保留原始扩展名，前缀用 UUID，杜绝重名覆盖
+    let ext = std::path::Path::new(&display_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e))
+        .unwrap_or_default();
+    let unique_name = format!("{}{}", uuid::Uuid::new_v4().to_string(), ext);
+    let dest = video_dir.join(&unique_name);
+
+    std::fs::copy(&source_path, &dest)
+        .map_err(|e| format!("复制视频文件失败：{}", e))?;
+
+    Ok(ImportVideoResult {
+        file_path: dest.to_string_lossy().to_string(),
+        file_name: display_name,
+    })
+}
+
+/// 分镜视频记录（storyboard_videos 表）
+#[derive(Debug, Serialize)]
+pub struct StoryboardVideoInfo {
+    pub id: String,
+    pub storyboard_id: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub source: String,
+    pub duration: Option<f64>,
+}
+
+/// 追加视频到分镜（INSERT storyboard_videos + 自动选中）
+#[derive(Deserialize)]
+pub struct AddStoryboardVideoInput {
+    pub storyboard_id: String,
+    pub video_path: String,
+    pub file_name: Option<String>,
+}
+
+#[tauri::command]
+pub fn add_storyboard_video(
+    input: AddStoryboardVideoInput,
+    app: tauri::AppHandle,
+) -> Result<StoryboardVideoInfo, String> {
+    let conn = util::open_app_conn(&app)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let fname = input.file_name.unwrap_or_else(|| {
+        std::path::Path::new(&input.video_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("video.mp4")
+            .to_string()
+    });
+
+    conn.execute(
+        "INSERT INTO storyboard_videos (id, storyboard_id, file_path, file_name, source)
+         VALUES (?1, ?2, ?3, ?4, 'manual')",
+        rusqlite::params![&id, &input.storyboard_id, &input.video_path, &fname],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 仅当分镜尚未绑定视频时才自动选中新上传的视频
+    conn.execute(
+        "UPDATE storyboards SET selected_video_id = ?1, updated_at = datetime('now')
+         WHERE id = ?2 AND selected_video_id IS NULL",
+        rusqlite::params![&id, &input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(StoryboardVideoInfo {
+        id,
+        storyboard_id: input.storyboard_id,
+        file_path: input.video_path,
+        file_name: fname,
+        source: "manual".to_string(),
+        duration: None,
+    })
+}
+
+/// 切换分镜选中的视频
+#[derive(Deserialize)]
+pub struct SelectStoryboardVideoInput {
+    pub storyboard_id: String,
+    pub video_id: String,
+}
+
+#[tauri::command]
+pub fn select_storyboard_video(
+    input: SelectStoryboardVideoInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+    conn.execute(
+        "UPDATE storyboards SET selected_video_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![&input.video_id, &input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 列出分镜的所有视频
+#[tauri::command]
+pub fn list_storyboard_videos(
+    storyboard_id: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<StoryboardVideoInfo>, String> {
+    let conn = util::open_app_conn(&app)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, storyboard_id, file_path, file_name, source, duration
+             FROM storyboard_videos WHERE storyboard_id = ?1 ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![&storyboard_id], |row| {
+            Ok(StoryboardVideoInfo {
+                id: row.get(0)?,
+                storyboard_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                source: row.get(4)?,
+                duration: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r.map_err(|e| e.to_string())?);
+    }
+    Ok(results)
+}
+
+/// 删除分镜视频输入
+#[derive(Deserialize)]
+pub struct DeleteStoryboardVideoInput {
+    pub storyboard_id: String,
+    pub video_id: String,
+    /// 是否同时删除磁盘视频文件，默认 true
+    #[serde(default = "default_delete_file")]
+    pub delete_file: bool,
+}
+
+fn default_delete_file() -> bool { true }
+
+/// 删除分镜视频（数据库记录，可选同时删除文件）
+#[tauri::command]
+pub fn delete_storyboard_video(
+    input: DeleteStoryboardVideoInput,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+
+    // 获取文件路径（仅在需要删除文件时）
+    let file_path = if input.delete_file {
+        conn.query_row(
+            "SELECT file_path FROM storyboard_videos WHERE id = ?1 AND storyboard_id = ?2",
+            rusqlite::params![&input.video_id, &input.storyboard_id],
+            |row| row.get::<_, String>(0),
+        ).ok()
+    } else {
+        None
+    };
+
+    // 删除数据库记录——若该视频被 storyboards.selected_video_id 引用，
+    // SQLite 外键约束会阻止删除并返回 FOREIGN KEY 错误
+    let affected = conn
+        .execute(
+            "DELETE FROM storyboard_videos WHERE id = ?1 AND storyboard_id = ?2",
+            rusqlite::params![&input.video_id, &input.storyboard_id],
+        )
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.to_lowercase().contains("foreign key") {
+                "该视频已被设为分镜最终视频，请先更换或取消选中后再删除".to_string()
+            } else {
+                format!("删除失败：{}", msg)
+            }
+        })?;
+
+    if affected == 0 {
+        return Err("视频记录不存在".to_string());
+    }
+
+    // 可选删除磁盘文件
+    if let Some(p) = file_path {
+        let _ = std::fs::remove_file(&p);
+    }
+
+    // 清除该分镜对该视频的选中引用（若刚刚删除的并非当前选中视频则无影响）
+    let _ = conn.execute(
+        "UPDATE storyboards SET selected_video_id = NULL, updated_at = datetime('now')
+         WHERE id = ?1 AND selected_video_id = ?2",
+        rusqlite::params![&input.storyboard_id, &input.video_id],
+    );
+
+    Ok(())
 }

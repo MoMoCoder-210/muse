@@ -542,6 +542,128 @@ export async function updateStoryboardDuration(input: {
   return invoke<void>("update_storyboard_duration", { input });
 }
 
+export interface ImportVideoResult {
+  file_path: string;
+  file_name: string;
+}
+
+export async function importVideoFile(clipId: string, sourcePath: string): Promise<ImportVideoResult> {
+  return invoke<ImportVideoResult>("import_video_file", { clipId, sourcePath });
+}
+
+export async function selectStoryboardVideo(input: {
+  storyboard_id: string;
+  video_id: string;
+}): Promise<void> {
+  return invoke<void>("select_storyboard_video", { input });
+}
+
+export interface StoryboardVideoInfo {
+  id: string;
+  storyboard_id: string;
+  file_path: string;
+  file_name: string;
+  source: string;
+  duration: number | null;
+}
+
+export async function listStoryboardVideos(storyboardId: string): Promise<StoryboardVideoInfo[]> {
+  return invoke<StoryboardVideoInfo[]>("list_storyboard_videos", { storyboardId });
+}
+
+export async function addStoryboardVideo(input: {
+  storyboard_id: string;
+  video_path: string;
+  file_name?: string;
+}): Promise<StoryboardVideoInfo> {
+  return invoke<StoryboardVideoInfo>("add_storyboard_video", { input });
+}
+
+export async function deleteStoryboardVideo(input: {
+  storyboard_id: string;
+  video_id: string;
+  delete_file?: boolean;
+}): Promise<void> {
+  return invoke("delete_storyboard_video", { input });
+}
+
+// ── 视频拼接 ─────────────────────────────────────────────
+
+/** 可拼接的分镜视频片段（含选中视频路径、时长） */
+export interface ConcatSegment {
+  seq: number;
+  clip_title: string;
+  storyboard_id: string;
+  file_path: string;
+  file_name: string;
+  duration: number | null;
+}
+
+/** 拼接结果 */
+/** 拼接结果（前端统一视图：拼接返回 + DB 持久化记录合并，id 持久化后才有） */
+export interface ConcatResult {
+  id?: string;
+  output_path: string;
+  file_name: string;
+  duration: number;
+  segment_count: number;
+  audio_included: boolean;
+}
+
+/** 拼接进度事件载荷（后端通过 Tauri event 推送） */
+export interface ConcatProgressEvent {
+  percent: number;
+  stage: string;
+}
+
+/** 查询片段下「已选中分镜视频」的有序列表 */
+export async function listClipConcatVideos(clipId: string): Promise<ConcatSegment[]> {
+  return invoke<ConcatSegment[]>("list_clip_concat_videos", { clipId });
+}
+
+/** 持久化一条拼接成片记录 */
+export interface SaveConcatOutputInput {
+  clip_id: string;
+  output_path: string;
+  file_name: string;
+  duration: number;
+  segment_count: number;
+  audio_included: boolean;
+}
+export async function saveConcatOutput(input: SaveConcatOutputInput): Promise<string> {
+  return invoke<string>("save_concat_output", { input });
+}
+
+/** 删除一条拼接成片（数据库记录，可选同时删除文件） */
+export async function deleteConcatOutput(id: string, deleteFile = true): Promise<void> {
+  return invoke<void>("delete_concat_output", { input: { id, delete_file: deleteFile } });
+}
+
+/** 成片列表行 */
+export interface ConcatOutputRow {
+  id: string;
+  output_path: string;
+  file_name: string;
+  duration: number;
+  segment_count: number;
+  audio_included: boolean;
+  created_at: string;
+}
+
+/** 查询指定片段的所有拼接成片 */
+export async function listConcatOutputs(clipId: string): Promise<ConcatOutputRow[]> {
+  return invoke<ConcatOutputRow[]>("list_concat_outputs", { clipId });
+}
+export async function concatStoryboardVideos(input: {
+  clip_id: string;
+  segments: string[];
+  height?: number;
+  aspect_ratio?: string;
+  output_name?: string;
+}): Promise<ConcatResult> {
+  return invoke<ConcatResult>("concat_clip_videos", { input });
+}
+
 /**
  * 检测 FFmpeg/FFprobe 是否可用
  *
@@ -554,6 +676,14 @@ export async function detectFFmpeg(): Promise<{
   ffprobe_exists: boolean;
 }> {
   return invoke("detect_ffmpeg");
+}
+
+/**
+ * 在系统文件管理器中打开文件所在文件夹（并选中该文件）
+ *
+ */
+export async function openInFolder(path: string): Promise<void> {
+  return invoke<void>("open_in_folder", { path });
 }
 
 /**

@@ -2,6 +2,7 @@
 //!
 
 pub mod util;
+pub mod video;
 pub mod connection;
 
 pub mod project;
@@ -16,6 +17,7 @@ pub use project::*;
 pub use clip::*;
 pub use script::*;
 pub use storyboard::*;
+pub use video::*;
 pub use settings::*;
 pub use connection::*;
 pub use voice::*;

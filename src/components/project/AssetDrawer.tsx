@@ -110,6 +110,8 @@ type AssetDrawerProps = {
   /** 抽屉是否正在执行关闭动画 */
   closing?: boolean;
   disabled?: boolean;
+  /** 默认创作风格，不传则取 STYLE_OPTIONS 第一项 */
+  defaultStyle?: StyleMode;
 };
 
 /**
@@ -119,11 +121,11 @@ type AssetDrawerProps = {
  * 生成参数统一设置后可单个生成或批量生成。
  *
  */
-export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, onAssetUpdated, closing, disabled }: AssetDrawerProps) {
+export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGenerate, onSelectLocal, onCopyFromProject, onImageSelected, onAssetUpdated, closing, disabled, defaultStyle }: AssetDrawerProps) {
   const { toast } = useToast();
   const [ratio, setRatio] = useState<AspectRatio>("16:9");
   const [tier, setTier] = useState<ResolutionTier>("2K");
-  const [style, setStyle] = useState<StyleMode>(STYLE_OPTIONS[0]);
+  const [style, setStyle] = useState<StyleMode>(defaultStyle ?? STYLE_OPTIONS[0]);
   const [imageCount, setImageCount] = useState(1);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imgStatus, setImgStatus] = useState<"loading" | "ready" | "failed" | "none">("none");

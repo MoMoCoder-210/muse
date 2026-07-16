@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAppVersion } from "./services/tauri";
 import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
+import { TitleBar } from "./components/layout/TitleBar";
+import { HelpModal } from "./components/layout/HelpModal";
 import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
@@ -20,6 +22,7 @@ export default function App() {
   const [version, setVersion] = useState("unknown");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
     getAppVersion().then(setVersion).catch(() => {
@@ -37,17 +40,20 @@ export default function App() {
       <div className="app-shell">
         <DynamicBackdrop />
 
+        <TitleBar
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenHelp={() => setHelpOpen(true)}
+        />
+
         {view === "home" ? (
           <HomePage
             version={version}
             onCreateProject={() => setCreateModalOpen(true)}
             onGoToProjects={() => setView("projects")}
-            onOpenSettings={() => setSettingsOpen(true)}
           />
         ) : (
           <ProjectManagementPage
             onGoHome={() => setView("home")}
-            onOpenSettings={() => setSettingsOpen(true)}
           />
         )}
 
@@ -60,6 +66,10 @@ export default function App() {
 
         {settingsOpen ? (
           <SettingsPage onClose={() => setSettingsOpen(false)} />
+        ) : null}
+
+        {helpOpen ? (
+          <HelpModal version={version} onClose={() => setHelpOpen(false)} />
         ) : null}
       </div>
     </ToastProvider>

@@ -9,7 +9,6 @@ type ProjectSidebarProps = {
   onCreateProject: () => void;
   onDeleteProject: (project: ProjectInfo) => void;
   onGoHome: () => void;
-  onOpenSettings: () => void;
 };
 
 /**
@@ -25,22 +24,12 @@ export function ProjectSidebar({
   onCreateProject,
   onDeleteProject,
   onGoHome,
-  onOpenSettings,
 }: ProjectSidebarProps) {
   return (
     <aside className="project-sidebar">
-      {/* 头部：应用名 + 设置入口 */}
+      {/* 头部 */}
       <div className="sidebar-header">
         <h2 className="sidebar-title">{APP_NAME}</h2>
-        <button
-          type="button"
-          className="sidebar-settings-btn"
-          onClick={onOpenSettings}
-          aria-label="打开设置"
-          title="设置"
-        >
-          ⚙
-        </button>
       </div>
 
       {/* 操作区：创建 */}

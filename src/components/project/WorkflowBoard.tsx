@@ -1,9 +1,6 @@
 import { WORKFLOW_STEPS } from "../../config/muse";
-import { stepToIndex } from "../../utils/workflow";
 
 type WorkflowBoardProps = {
-  /** 后台记录的进度（拆解完成后推进） */
-  progressStep: string;
   /** 用户当前选中查看的阶段索引 */
   activeIndex: number;
   /** 禁止点击的阶段索引集合 */
@@ -18,15 +15,13 @@ type WorkflowBoardProps = {
  * 显示 4 个工作流步骤，区分进度状态、选中状态和禁用状态。
  *
  */
-export function WorkflowBoard({ progressStep, activeIndex, disabledSteps, onStepClick }: WorkflowBoardProps) {
-  const progress = stepToIndex(progressStep);
+export function WorkflowBoard({ activeIndex, disabledSteps, onStepClick }: WorkflowBoardProps) {
   const ds = disabledSteps ?? new Set<number>();
 
   return (
     <div className="workflow-board">
       {WORKFLOW_STEPS.map((step, index) => {
-        const state =
-          index === activeIndex ? "active" : index < progress ? "done" : "pending";
+        const state = index === activeIndex ? "active" : "pending";
         const disabled = ds.has(index);
         return (
           <div

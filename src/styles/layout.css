@@ -2,10 +2,103 @@
 
 .app-shell {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   background: var(--bg-base);
+}
+
+/* ── 自定义窗口标题栏 ─────────────────────────── */
+.app-titlebar {
+  position: relative;
+  z-index: var(--z-sticky);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  background: var(--bg-surface-modal);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tb-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+.tb-logo {
+  color: var(--accent-primary);
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.tb-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tb-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tb-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.tb-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tb-window-controls {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+.tb-btn--win {
+  width: 40px;
+  height: 32px;
+  border-radius: 0;
+}
+.tb-btn--win svg {
+  width: 12px;
+  height: 12px;
+}
+.tb-btn--close:hover {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+/* 内容区填充剩余空间 */
+.home-screen,
+.projects-screen {
+  flex: 1;
+  min-height: 0;
 }
 
 .backdrop-canvas {
@@ -29,7 +122,7 @@
 .home-screen {
   display: grid;
   place-items: center;
-  padding: var(--spacing-2xl);
+  padding: 0 var(--spacing-2xl) var(--spacing-2xl);
 }
 
 .home-card {
@@ -94,7 +187,7 @@
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 18px;
-  padding: 18px;
+  padding: 12px 18px 18px;
   transition: grid-template-columns 260ms cubic-bezier(0.25, 0, 0.25, 1);
 }
 

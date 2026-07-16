@@ -46,9 +46,9 @@ pub fn create_project(
     let dirs = [
         "source/scripts",
         "clips",
-        "assets/characters/thumbs",
-        "assets/scenes/thumbs",
-        "assets/items/thumbs",
+        "assets/characters",
+        "assets/scenes",
+        "assets/items",
         "storyboards/draft",
         "storyboards/final",
         "audio",
@@ -240,28 +240,25 @@ pub fn delete_project(
     }
 
     // ── 按外键依赖顺序删除关联记录 ──────────────────────────────
-    // 依赖关系图（箭头表示 "被引用"）：
+    // 依赖关系图（箭头表示 "被引用"，箭头尾端是子表/引用方）：
     //   task_locks ──► tasks ──► projects
+    //   storyboard_videos ──► tasks ──► projects
+    //   storyboard_videos ──► storyboards ──► projects
+    //   storyboards (selected_video_id) ──► storyboard_videos (需先 NULL 再删)
     //   storyboard_assets ──► storyboards ──► projects
     //   asset_images ──► assets ──► projects
     //   clip_scripts ──► clips ──► projects
+    //   concat_outputs ──► clips ──► projects   ← concat_outputs 必须在 clips 之前删除
     //   script_sources ──► projects
     //   exports ──► projects
     //
-    // 新增表时请同步更新此列表，或考虑迁移到 ON DELETE CASCADE。
+    // 删除口诀：子表先删，父表后删。新增表时请同步更新此列表。
     // ───────────────────────────────────────────────────────────
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     // 使用闭包包装事务操作，确保 ? 提前返回时自动 rollback
     let tx_result = (|| -> Result<(), String> {
-        // 1. task_locks（依赖 tasks.lock_key）
-        tx.execute(
-            "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)",
-            rusqlite::params![&project_id],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // 检查并记录拆解中的任务
+        // 0. 前置：记录运行中任务数量（子查询不受后续删除影响）
         let split_task_count: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 AND type = 'split_script' AND status IN ('pending', 'running')",
@@ -269,17 +266,6 @@ pub fn delete_project(
                 |row| row.get(0),
             )
             .unwrap_or(0);
-
-        if split_task_count > 0 {
-            crate::project_log::append_log(
-                &log_path,
-                "拆解",
-                "INFO",
-                &format!("剧本拆解任务已取消（共{}个）", split_task_count),
-            );
-        }
-
-        // 检查并记录片段拆解中的任务
         let clip_task_count: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 AND type = 'generate_clip_script' AND status IN ('pending', 'running')",
@@ -288,84 +274,111 @@ pub fn delete_project(
             )
             .unwrap_or(0);
 
-        if clip_task_count > 0 {
-            crate::project_log::append_log(
-                &log_path,
-                "拆解",
-                "INFO",
-                &format!("片段拆解任务已取消（共{}个）", clip_task_count),
-            );
-        }
+        // 1. task_locks（依赖 tasks.lock_key）
+        tx.execute(
+            "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
 
-        // 2. tasks
+        // 2. 解除 storyboards → storyboard_videos 的循环引用
+        tx.execute(
+            "UPDATE storyboards SET selected_video_id = NULL WHERE project_id = ?1",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 3. storyboard_videos（依赖 storyboards.id + tasks.id，必须在这两张表之前删除）
+        tx.execute(
+            "DELETE FROM storyboard_videos WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 4. tasks（storyboard_videos.task_id 已清，安全删除）
         tx.execute(
             "DELETE FROM tasks WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 3. storyboard_assets（依赖 storyboards.id）
+        // 5. storyboard_assets（依赖 storyboards.id）
         tx.execute(
             "DELETE FROM storyboard_assets WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 4. storyboards
+        // 6. storyboards
         tx.execute(
             "DELETE FROM storyboards WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 5. asset_images（依赖 assets.id，必须在 assets 之前删除）
+        // 7. asset_images（依赖 assets.id）
         tx.execute(
             "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?1)",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 6. assets
+        // 8. assets
         tx.execute(
             "DELETE FROM assets WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 7. clip_scripts（依赖 clips.id）
+        // 9. clip_scripts（依赖 clips.id）
         tx.execute(
             "DELETE FROM clip_scripts WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 8. clips
+        // 10. concat_outputs（依赖 clips.id，必须在 clips 之前删除）
+        tx.execute(
+            "DELETE FROM concat_outputs WHERE project_id = ?1",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 11. clips
         tx.execute(
             "DELETE FROM clips WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 9. script_sources
+        // 12. script_sources
         tx.execute(
             "DELETE FROM script_sources WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 10. exports
+        // 13. exports
         tx.execute(
             "DELETE FROM exports WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
 
-        // 11. projects（根表，最后删除）
+        // 14. projects（根表，最后删除）
         tx.execute(
             "DELETE FROM projects WHERE id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
+
+        // 记录已取消的任务
+        if split_task_count > 0 {
+            crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("剧本拆解任务已取消（共{}个）", split_task_count));
+        }
+        if clip_task_count > 0 {
+            crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("片段拆解任务已取消（共{}个）", clip_task_count));
+        }
 
         Ok(())
     })();

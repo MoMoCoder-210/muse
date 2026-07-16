@@ -3,6 +3,7 @@ import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from 
 import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, batchGetAssetGenerating, importLocalAssetImage, copyAssetImageFrom } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
+import { isClipDecomposed } from "../../utils/clip";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
 import type { VoiceBinding } from "../../types/project";
 import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
@@ -35,9 +36,6 @@ const ASSET_CATEGORIES: { type: AssetType; label: string; icon: string }[] = [
   { type: "item", label: "物品", icon: "📦" },
 ];
 
-const RAIL_HOTZONE = 30;
-const RAIL_WIDTH = 206;
-
 type AssetPanelProps = {
   project: ProjectInfo;
 };
@@ -56,21 +54,9 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetCardId>>(new Set());
   const [operating, setOperating] = useState(false);
-  const [railLocked, setRailLocked] = useState(false);
-  const [railExpanded, setRailExpanded] = useState(false);
-  const layoutRef = useRef<HTMLDivElement>(null);
-
-  // ── 鼠标追踪：30px 进入 → 展开，260px 离开 → 收起（滞后防抖） ──
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!layoutRef.current) return;
-    const rect = layoutRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    setRailExpanded((prev) => {
-      if (prev && x > RAIL_WIDTH) return false;
-      if (!prev && x < RAIL_HOTZONE) return true;
-      return prev;
-    });
-  }, []);
+  // ── 左侧片段栏：常驻展开，可点击收起 ──
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const toggleRail = useCallback(() => setRailCollapsed((v) => !v), []);
 
   // 弹窗/抽屉状态
   const [deleteTarget, setDeleteTarget] = useState<AssetCardData[] | null>(null);
@@ -111,6 +97,11 @@ export function AssetPanel({ project }: AssetPanelProps) {
       ]);
       setClips(clipList);
       setClipScripts(csList);
+      // 进入该步骤时自动选中第一个已拆解片段（无符合片段则不选择）
+      const dec = clipList.filter((c) => isClipDecomposed(c.status));
+      setSelectedClipId((prev) =>
+        prev && dec.some((c) => c.id === prev) ? prev : (dec[0]?.id ?? null),
+      );
     } catch (err) {
       toast("资产数据加载失败，请检查后端的日志。", "error");
     } finally {
@@ -122,11 +113,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
     load();
   }, [load]);
 
-  // 已拆解成功的片段
-  const disassembledClips = clips.filter((c) => {
-    const cs = clipScripts.find((s) => s.clip_id === c.id);
-    return cs?.status === "success" && cs.extracted_resources_json;
-  });
+  // 已拆解的片段（与分镜管理 / 视频编辑统一口径：按片段状态判定）
+  const disassembledClips = clips.filter((c) => isClipDecomposed(c.status));
 
   // 选中片段的资产数据
   const selectedScript = clipScripts.find((s) => s.clip_id === selectedClipId);
@@ -328,13 +316,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
     const appearance = assetOverrides[card.id]?.prompt ?? card.resource.prompt;
     const styleValue = resolveStyle(style);
     if (card.type === "character") {
-      return `[风格:${styleValue}] 角色设定图，纯白背景。画面左侧为一张大幅的脸部与半身特写，右侧排布三个全身视图（正面、侧面、背面），三视图比例协调、姿态清晰。${appearance}`;
+      return `[风格:${styleValue}] 角色设定图，纯白背景，无任何文字。画面左侧为一张大幅的脸部与半身特写，右侧排布三个全身视图（正面、侧面、背面），三视图比例协调、姿态清晰，4K高清。${appearance.replace(/^角色设定图[。，]\s*/i, "")}`;
     }
     if (card.type === "item") {
-      return `[风格:${styleValue}] 产品摄影，主体独立置于纯白背景上，居中构图，无遮挡，展现清晰的材质与细节纹理，柔光均匀布光。${appearance}`;
+      return `[风格:${styleValue}] 产品摄影，纯白背景，无任何文字，居中构图，无遮挡，展现清晰的材质与细节纹理，柔光均匀布光。精致质感，高精度渲染，4K高清。${appearance}`;
     }
     // scene
-    return `[风格:${styleValue}] 场景概念图，注重空间层次与氛围营造，不能出现任何一个人物。${appearance}`;
+    return `[风格:${styleValue}] 全景场景概念图，全景视角，注重空间层次与氛围营造，电影级构图，不能出现任何一个人物，4K高清。${appearance}`;
   }, [resolveStyle, assetOverrides]);
 
   // 抽屉内单个生成
@@ -570,13 +558,10 @@ export function AssetPanel({ project }: AssetPanelProps) {
   }, [selectedClipId, load, toast]);
 
   return (
-    <div className="rail-layout" ref={layoutRef} onMouseMove={handleMouseMove}>
-      {/* ── 左侧：悬停展开式片段栏 ── */}
+    <div className="rail-layout">
+      {/* ── 左侧：片段栏（常驻，可点击收起） ── */}
       <div
-        className={`rail-clips${
-          railLocked ? " is-locked" : selectedClipId ? (railExpanded ? " is-expanded" : "") : " is-locked-open"
-        }`}
-        onMouseLeave={() => setRailLocked(false)}
+        className={`rail-clips${railCollapsed ? " is-collapsed" : " is-expanded"}`}
       >
         <div className="rail-clips-inner">
           <div className="rail-clips-head">
@@ -599,17 +584,14 @@ export function AssetPanel({ project }: AssetPanelProps) {
                     key={clip.id}
                     type="button"
                     className={`rail-clips-item${isSelected ? " on" : ""}`}
-                    onClick={() => {
-                      setSelectedClipId(clip.id);
-                      setRailLocked(true);
-                    }}
+                    onClick={() => setSelectedClipId(clip.id)}
                     title={clip.title}
                   >
                     <span className="rail-clips-item-num">{clip.sort_index}</span>
                     <span className="rail-clips-item-text">
                       <span className="rail-clips-item-title">{clip.title}</span>
                       {cs && (
-                        <span className="rail-clips-item-cnt">{countResources(cs.extracted_resources_json)} 资产</span>
+                        <span className="rail-clips-item-cnt">{countResources(cs.extracted_resources_json)}</span>
                       )}
                     </span>
                   </button>
@@ -618,11 +600,25 @@ export function AssetPanel({ project }: AssetPanelProps) {
             </div>
           )}
         </div>
+        <button
+          type="button"
+          className="rail-clips-toggle"
+          onClick={toggleRail}
+          title={railCollapsed ? "展开片段列表" : "收起片段列表"}
+          aria-label={railCollapsed ? "展开片段列表" : "收起片段列表"}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d={railCollapsed ? "M6 4L10 8L6 12" : "M10 4L6 8L10 12"} />
+          </svg>
+        </button>
       </div>
 
       {/* ── 右侧：资产展示 ── */}
       <div className="rail-main">
         <div className="asset-display-panel">
+          <div className="panel-header">
+            <h3>资产列表</h3>
+          </div>
           {!selectedClipId ? (
             <p className="empty-clip-list">请从左侧选择已拆解的片段</p>
           ) : !parsedResources ? (
@@ -745,6 +741,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
           onImageSelected={handleImageSelected}
           onAssetUpdated={handleAssetUpdated}
           disabled={operating}
+          defaultStyle={project.style_mode as StyleMode}
         />
       ) : null}
       {/* 声音绑定抽屉 */}

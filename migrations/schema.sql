@@ -133,7 +133,6 @@ CREATE TABLE IF NOT EXISTS assets (
     prompt                     TEXT NOT NULL DEFAULT '',
     reference_image_path       TEXT,
     generated_image_path       TEXT,
-    generated_image_thumb_path TEXT,
     selected_image_id          TEXT,
     voice_binding_json         TEXT,
     -- model | manual | imported
@@ -162,7 +161,6 @@ CREATE TABLE IF NOT EXISTS asset_images (
     size              TEXT,
     style             TEXT,
     image_path        TEXT NOT NULL,
-    thumb_path        TEXT,
     is_selected       INTEGER NOT NULL DEFAULT 0,
     source            TEXT NOT NULL DEFAULT 'generation',
     task_id           TEXT,
@@ -225,8 +223,7 @@ CREATE TABLE IF NOT EXISTS storyboards (
     fused_image_path   TEXT,
     voice_path         TEXT,
     voice_duration     REAL,
-    video_path         TEXT,
-    video_duration     REAL,
+    selected_video_id  TEXT REFERENCES storyboard_videos(id),
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -236,6 +233,26 @@ CREATE INDEX IF NOT EXISTS idx_storyboards_clip_seq
 
 CREATE INDEX IF NOT EXISTS idx_storyboards_project
     ON storyboards(project_id);
+
+
+-- ============================================================================
+-- 6.1 storyboard_videos — 分镜视频（任务生成 + 手动上传）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS storyboard_videos (
+    id              TEXT PRIMARY KEY,
+    storyboard_id   TEXT NOT NULL REFERENCES storyboards(id),
+    file_path       TEXT NOT NULL,
+    file_name       TEXT NOT NULL DEFAULT '',
+    -- manual | generated
+    source          TEXT NOT NULL DEFAULT 'manual',
+    task_id         TEXT REFERENCES tasks(id),
+    duration        REAL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sv_storyboard
+    ON storyboard_videos(storyboard_id);
 
 
 -- ============================================================================
@@ -336,3 +353,23 @@ CREATE TABLE IF NOT EXISTS exports (
 
 CREATE INDEX IF NOT EXISTS idx_exports_project
     ON exports(project_id);
+
+
+-- ============================================================================
+-- 11. concat_outputs — 片段视频拼接成片记录（绑定 clip_id）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS concat_outputs (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES projects(id),
+    clip_id         TEXT NOT NULL REFERENCES clips(id),
+    output_path     TEXT NOT NULL,
+    file_name       TEXT NOT NULL,
+    duration        REAL NOT NULL DEFAULT 0,
+    segment_count   INTEGER NOT NULL DEFAULT 0,
+    audio_included  INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_concat_outputs_clip
+    ON concat_outputs(clip_id);

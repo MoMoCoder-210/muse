@@ -8,7 +8,6 @@ import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type ProjectManagementPageProps = {
   onGoHome: () => void;
-  onOpenSettings: () => void;
 };
 
 /**
@@ -17,7 +16,7 @@ type ProjectManagementPageProps = {
  * 集成侧边栏、工作区与弹窗的项目管理主界面。
  *
  */
-export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManagementPageProps) {
+export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -71,6 +70,7 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
           selectedProjectId={selectedProjectId}
           onSelectProject={(id) => {
             setSelectedProjectId(id);
+            setSidebarOpen(false);
             setProjectOverrides((prev) => {
               const next = { ...prev };
               delete next[id];
@@ -80,7 +80,6 @@ export function ProjectManagementPage({ onGoHome, onOpenSettings }: ProjectManag
           onCreateProject={() => setModalOpen(true)}
           onDeleteProject={(project) => setDeleteTarget(project)}
           onGoHome={onGoHome}
-          onOpenSettings={onOpenSettings}
         />
 
         {/* 切换按钮：紧贴侧边栏右边缘 */}

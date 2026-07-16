@@ -173,8 +173,10 @@ export type Storyboard = {
   video_state: StoryboardState;
   voice_path: string | null;
   voice_duration: number | null;
-  video_path: string | null;
+  /** 分镜时长（秒），由模型拆解或手动调整写回 */
   video_duration: number | null;
+  /** 当前选中的 storyboard_videos.id */
+  selected_video_id: string | null;
 };
 
 /** 分镜关联的资产简要信息（含绑定图片路径） */
