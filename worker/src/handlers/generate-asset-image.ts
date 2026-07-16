@@ -114,28 +114,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
         status: "ready",
       });
 
-      // 同步上传至方舟平台，成功/失败均写入 DB 状态
-      const assetClient = ctx.clients?.asset;
-      if (assetClient) {
-        try {
-          const arkFile = await assetClient.uploadImage(savePath);
-          db.prepare(
-            "UPDATE asset_images SET ark_file_id = ?, ark_upload_status = 'uploaded' WHERE id = ?"
-          ).run(arkFile.id, imageId);
-          l("资产生图", `方舟上传成功 imageId=${imageId} arkFileId=${arkFile.id}`);
-        } catch (uploadErr) {
-          const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-          db.prepare(
-            "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ? WHERE id = ?"
-          ).run(msg, imageId);
-          l("资产生图", `方舟上传失败 imageId=${imageId} 错误=${msg}`);
-        }
-      } else {
-        // 素材管理未配置，标记为无需上传
-        db.prepare(
-          "UPDATE asset_images SET ark_upload_status = NULL WHERE id = ?"
-        ).run(imageId);
-      }
+      // 生图阶段仅落盘并登记为待上传；方舟文件仅在视频任务实际需要参考图时上传。
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       le("资产生图", `第${i + 1}张失败 assetType=${input.assetType} name=${input.name} 错误=${msg}`);

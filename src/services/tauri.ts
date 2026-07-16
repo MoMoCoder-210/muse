@@ -307,14 +307,6 @@ export async function importLocalAssetImage(input: {
 }
 
 /**
- * 重试上传失败的资产图片
- *
- */
-export async function retryUploadAssetImage(imageId: string): Promise<void> {
-  return invoke("retry_upload_asset_image", { imageId });
-}
-
-/**
  * 查询项目下指定类型的所有资产及其选中图片（资产选择器用）
  *
  */
@@ -385,8 +377,6 @@ export async function listAssetImageTasks(input: {
   is_selected: boolean;
   status: string;       // "ready" | "pending" | "running" | "failed"
   error_message: string | null;
-  ark_upload_status: string | null;  // "pending" | "uploaded" | "failed" | null
-  ark_upload_error: string | null;
   created_at: string;
 }[]> {
   return invoke("list_asset_image_tasks", { input });
@@ -470,8 +460,11 @@ export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
  * 查询指定片段的所有资产（含绑定图片路径）
  *
  */
-export async function listClipAssets(clipId: string): Promise<StoryboardAssetInfo[]> {
-  return invoke<StoryboardAssetInfo[]>("list_clip_assets", { clipId });
+export async function listClipAssets(
+  clipId: string,
+  storyboardId?: string,
+): Promise<StoryboardAssetInfo[]> {
+  return invoke<StoryboardAssetInfo[]>("list_clip_assets", { clipId, storyboardId });
 }
 
 /**
@@ -530,6 +523,13 @@ export async function updateStoryboardParams(input: {
   video_prompt: string | null;
 }): Promise<void> {
   return invoke<void>("update_storyboard_params", { input });
+}
+
+/** 提交一个分镜视频生成任务。Worker 会读取已持久化的 promptDoc 序列化文本和 mention_map。 */
+export async function generateStoryboardVideo(input: {
+  storyboard_id: string;
+}): Promise<{ task_id: string }> {
+  return invoke<{ task_id: string }>("generate_storyboard_video", { input });
 }
 
 /**

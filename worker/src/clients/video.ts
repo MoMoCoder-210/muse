@@ -18,6 +18,7 @@ import { dirname } from "path";
 import type { VideoModelConfig } from "../config/defaults.js";
 import { FALLBACK_API_KEY } from "./constants.js";
 import { logRequest, logResponse, logFailure } from "../utils/client-logger.js";
+import { l } from "../utils/utils.js";
 
 // ── 类型定义 ──────────────────────────────────────────────
 
@@ -29,8 +30,10 @@ export interface VideoReference {
 
 /** 视频生成选项 */
 export interface VideoGenerateOptions {
+  /** 覆盖设置中当前激活模型；分镜选择的模型以此为准。 */
+  model?: string;
   /** 分辨率：480p / 720p */
-  resolution?: "480p" | "720p" | "2k" | "4k";
+  resolution?: "480p" | "720p" | "1080p" | "2k" | "4k";
   /** 宽高比 */
   ratio?: "21:9" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16";
   /** 时长（秒），4~15 */
@@ -118,14 +121,18 @@ export class VideoClient {
     ];
 
     const reqBody = {
-      model: this.config.model,
+      model: options.model || this.config.model,
       content,
       ratio: options.ratio ?? "16:9",
       duration: options.duration ?? 5,
+      ...(options.resolution ? { resolution: options.resolution } : {}),
       generate_audio: options.generateAudio ?? false,
       watermark: options.watermark ?? false,
     };
 
+    // 记录实际交给 SDK 的完整业务请求体，便于验证提示词、参考资源和模型参数。
+    // reqBody 不包含 Authorization/API Key；通过 l 双写到 Worker 日志文件和应用实时日志。
+    l("VideoClient", `最终模型请求（完整参数，无凭据）\n${JSON.stringify({ method: "POST", url: apiUrl, body: reqBody }, null, 2)}`);
     logRequest("VideoClient", "POST", apiUrl, this.config.apiKey, reqBody);
     const startedAt = Date.now();
 
@@ -212,7 +219,7 @@ export class VideoClient {
     await mkdir(dirname(savePath), { recursive: true });
     await downloadFile(videoUrl, savePath, options.signal);
 
-    return { filePath: savePath, model: this.config.model };
+    return { filePath: savePath, model: options.model || this.config.model };
   }
 }
 

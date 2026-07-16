@@ -43,10 +43,7 @@ pub fn run() {
                 .to_string_lossy()
                 .to_string();
             // 使用全局默认 workspace（非项目特定），Worker 只需 db + config 即可工作
-            let default_workspace = app_data_dir
-                .join("workspace")
-                .to_string_lossy()
-                .to_string();
+            let default_workspace = app_data_dir.join("workspace").to_string_lossy().to_string();
             std::fs::create_dir_all(&default_workspace).ok();
 
             // 解析 FFmpeg/FFprobe 路径
@@ -58,8 +55,17 @@ pub fn run() {
                 .unwrap_or_default();
 
             let state = app.state::<sidecar::SharedSidecarManager>();
-            let mut mgr = state.lock().map_err(|e| std::io::Error::other(e.to_string()))?;
-            match mgr.start(&db_path, &default_workspace, &config_path, &log_path.to_string_lossy(), &ffmpeg_path, &ffprobe_path) {
+            let mut mgr = state
+                .lock()
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            match mgr.start(
+                &db_path,
+                &default_workspace,
+                &config_path,
+                &log_path.to_string_lossy(),
+                &ffmpeg_path,
+                &ffprobe_path,
+            ) {
                 Ok(()) => {
                     project_log::append_log(&log_path, "应用", "INFO", "Worker 已随应用启动");
                 }
@@ -96,7 +102,9 @@ pub fn run() {
                             Err(sidecar::SidecarError::Crashed(msg)) => {
                                 log::warn!("Worker 心跳超时：{}", msg);
                                 project_log::append_log(
-                                    &log_path, "应用", "WARN",
+                                    &log_path,
+                                    "应用",
+                                    "WARN",
                                     &format!("Worker 心跳超时，尝试重启：{}", msg),
                                 );
                                 // 清理锁
@@ -109,12 +117,17 @@ pub fn run() {
                                 match mgr.restart() {
                                     Ok(()) => {
                                         project_log::append_log(
-                                            &log_path, "应用", "INFO", "Worker 已自动重启",
+                                            &log_path,
+                                            "应用",
+                                            "INFO",
+                                            "Worker 已自动重启",
                                         );
                                     }
                                     Err(e) => {
                                         project_log::append_log(
-                                            &log_path, "应用", "ERROR",
+                                            &log_path,
+                                            "应用",
+                                            "ERROR",
                                             &format!("Worker 自动重启失败：{}", e),
                                         );
                                     }
@@ -164,7 +177,6 @@ pub fn run() {
             commands::batch_get_asset_selected_images,
             commands::batch_get_asset_generating,
             commands::import_local_asset_image,
-            commands::retry_upload_asset_image,
             commands::list_project_asset_images,
             commands::copy_asset_image_from,
             commands::cancel_clip_script,
@@ -176,6 +188,7 @@ pub fn run() {
             commands::delete_storyboard,
             commands::insert_storyboard,
             commands::update_storyboard_params,
+            commands::generate_storyboard_video,
             commands::update_storyboard_duration,
             commands::import_video_file,
             commands::add_storyboard_video,

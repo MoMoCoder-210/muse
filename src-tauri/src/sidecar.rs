@@ -57,7 +57,12 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
                     if let Some(ref processor) = process_line {
                         processor(trimmed);
                     } else {
-                        crate::project_log::append_log(&log_path, default_source, default_level, trimmed);
+                        crate::project_log::append_log(
+                            &log_path,
+                            default_source,
+                            default_level,
+                            trimmed,
+                        );
                     }
                 }
                 Err(_) => break,
@@ -94,6 +99,16 @@ struct ClipScriptReadyPayload {
     error_message: Option<String>,
 }
 
+/// 分镜视频任务完成/失败负载
+#[derive(Clone, serde::Serialize)]
+struct StoryboardVideoReadyPayload {
+    project_id: String,
+    clip_id: String,
+    storyboard_id: String,
+    status: String,
+    error_message: Option<String>,
+}
+
 /// 解析 stdout 行内容
 ///
 /// 返回 Option<&str>：heartbeat 消息返回 Some("heartbeat")，调用方可据此更新心跳时间戳。
@@ -112,7 +127,12 @@ fn parse_stdout_line<'a>(
             "batch_progress" | "quota_exhausted" | "shutting_down" => {}
             "ready" => {
                 let wid = msg.get("workerId").and_then(|v| v.as_str()).unwrap_or("?");
-                crate::project_log::append_log(log_path, "主进程", "INFO", &format!("Worker 就绪，workerId={}", wid));
+                crate::project_log::append_log(
+                    log_path,
+                    "主进程",
+                    "INFO",
+                    &format!("Worker 就绪，workerId={}", wid),
+                );
             }
             "task_event" => {
                 if let Some(event) = msg.get("event") {
@@ -120,45 +140,180 @@ fn parse_stdout_line<'a>(
                     let task_id = event.get("taskId").and_then(|v| v.as_str()).unwrap_or("");
                     match event_type {
                         "task_started" => {
-                            let task_type = event.get("taskType").and_then(|v| v.as_str()).unwrap_or("");
-                            crate::project_log::append_log(log_path, "任务调度", "INFO", &format!("开始执行任务 taskId={} type={}", task_id, task_type));
+                            let task_type =
+                                event.get("taskType").and_then(|v| v.as_str()).unwrap_or("");
+                            crate::project_log::append_log(
+                                log_path,
+                                "任务调度",
+                                "INFO",
+                                &format!("开始执行任务 taskId={} type={}", task_id, task_type),
+                            );
                         }
                         "task_success" => {
-                            crate::project_log::append_log(log_path, "任务调度", "INFO", &format!("任务成功 taskId={}", task_id));
+                            crate::project_log::append_log(
+                                log_path,
+                                "任务调度",
+                                "INFO",
+                                &format!("任务成功 taskId={}", task_id),
+                            );
                         }
                         "task_failed" => {
-                            let err = event.get("errorMessage").and_then(|v| v.as_str()).unwrap_or("");
-                            crate::project_log::append_log(log_path, "任务调度", "ERROR", &format!("任务失败 taskId={} 错误={}", task_id, err));
+                            let err = event
+                                .get("errorMessage")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            crate::project_log::append_log(
+                                log_path,
+                                "任务调度",
+                                "ERROR",
+                                &format!("任务失败 taskId={} 错误={}", task_id, err),
+                            );
                         }
                         "asset_image_progress" => {
-                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let asset_type = event.get("assetType").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            if !clip_id.is_empty() && !asset_type.is_empty() && !name.is_empty() && !status.is_empty() {
-                                let payload = AssetImageProgressPayload { clip_id, asset_type, name, status };
+                            let clip_id = event
+                                .get("clipId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let asset_type = event
+                                .get("assetType")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let name = event
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let status = event
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if !clip_id.is_empty()
+                                && !asset_type.is_empty()
+                                && !name.is_empty()
+                                && !status.is_empty()
+                            {
+                                let payload = AssetImageProgressPayload {
+                                    clip_id,
+                                    asset_type,
+                                    name,
+                                    status,
+                                };
                                 let _ = app.emit("asset-image-progress", payload);
                             }
                         }
                         "asset_image_task_update" => {
-                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let asset_type = event.get("assetType").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let image_id = event.get("imageId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            if !clip_id.is_empty() && !asset_type.is_empty() && !name.is_empty() && !image_id.is_empty() && !status.is_empty() {
-                                let payload = AssetImageTaskUpdatePayload { clip_id, asset_type, name, image_id, status };
+                            let clip_id = event
+                                .get("clipId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let asset_type = event
+                                .get("assetType")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let name = event
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let image_id = event
+                                .get("imageId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let status = event
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if !clip_id.is_empty()
+                                && !asset_type.is_empty()
+                                && !name.is_empty()
+                                && !image_id.is_empty()
+                                && !status.is_empty()
+                            {
+                                let payload = AssetImageTaskUpdatePayload {
+                                    clip_id,
+                                    asset_type,
+                                    name,
+                                    image_id,
+                                    status,
+                                };
                                 let _ = app.emit("asset-image-task-update", payload);
                             }
                         }
                         "clip_script_ready" => {
-                            let project_id = event.get("projectId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let clip_id = event.get("clipId").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let error_message = event.get("errorMessage").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let project_id = event
+                                .get("projectId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let clip_id = event
+                                .get("clipId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let status = event
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let error_message = event
+                                .get("errorMessage")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             if !project_id.is_empty() && !clip_id.is_empty() && !status.is_empty() {
-                                let payload = ClipScriptReadyPayload { project_id, clip_id, status, error_message };
+                                let payload = ClipScriptReadyPayload {
+                                    project_id,
+                                    clip_id,
+                                    status,
+                                    error_message,
+                                };
                                 let _ = app.emit("clip-script-ready", payload);
+                            }
+                        }
+                        "storyboard_video_ready" => {
+                            let project_id = event
+                                .get("projectId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let clip_id = event
+                                .get("clipId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let storyboard_id = event
+                                .get("storyboardId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let status = event
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let error_message = event
+                                .get("errorMessage")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            if !project_id.is_empty()
+                                && !clip_id.is_empty()
+                                && !storyboard_id.is_empty()
+                                && !status.is_empty()
+                            {
+                                let payload = StoryboardVideoReadyPayload {
+                                    project_id,
+                                    clip_id,
+                                    storyboard_id,
+                                    status,
+                                    error_message,
+                                };
+                                let _ = app.emit("storyboard-video-ready", payload);
                             }
                         }
                         _ => {}
@@ -171,7 +326,10 @@ fn parse_stdout_line<'a>(
                 crate::project_log::append_log(log_path, "主进程", &level.to_uppercase(), message);
             }
             "error" => {
-                let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
+                let message = msg
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error");
                 crate::project_log::append_log(log_path, "主进程", "ERROR", message);
             }
             _ => {
@@ -242,8 +400,16 @@ impl SidecarManager {
     /// 3. 等待 ready 消息（包含 workerId + protocolVersion）
     /// 4. 验证 protocolVersion
     /// 5. 发送 start_recovery 命令
-    
-    pub fn start(&mut self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str, ffmpeg_path: &str, ffprobe_path: &str) -> Result<(), SidecarError> {
+
+    pub fn start(
+        &mut self,
+        db_path: &str,
+        workspace_path: &str,
+        config_path: &str,
+        log_path: &str,
+        ffmpeg_path: &str,
+        ffprobe_path: &str,
+    ) -> Result<(), SidecarError> {
         if self.child.is_some() {
             return Err(SidecarError::AlreadyRunning);
         }
@@ -258,14 +424,14 @@ impl SidecarManager {
 
         // 解析 worker 脚本路径
         // Tauri dev 模式下 current_dir() 是 src-tauri/，需要回退到项目根目录
-        let cwd = std::env::current_dir()
-            .map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+        let cwd = std::env::current_dir().map_err(|e| SidecarError::StartFailed(e.to_string()))?;
         let worker_path = {
             let primary = cwd.join("worker").join("dist").join("index.js");
             if primary.exists() {
                 primary
             } else {
-                let fallback = cwd.parent()
+                let fallback = cwd
+                    .parent()
                     .unwrap_or(&cwd)
                     .join("worker")
                     .join("dist")
@@ -283,7 +449,11 @@ impl SidecarManager {
             return Err(SidecarError::StartFailed(msg));
         }
 
-        self.log("子进程", "INFO", &format!("Worker 脚本路径：{}", worker_path.display()));
+        self.log(
+            "子进程",
+            "INFO",
+            &format!("Worker 脚本路径：{}", worker_path.display()),
+        );
 
         let mut child = Command::new("node")
             .arg(&worker_path)
@@ -302,33 +472,45 @@ impl SidecarManager {
 
         // 启动 stderr 读取线程 → 写入项目日志文件
         if let Some(stderr) = child.stderr.take() {
-            let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
+            let log_path_arc: Arc<std::path::PathBuf> =
+                Arc::new(std::path::PathBuf::from(log_path));
             let handle = spawn_log_reader(stderr, log_path_arc, "worker:stderr", "ERROR", None);
             self.log_handles.push(handle);
         }
 
         // 启动 stdout 读取线程 → 解析协议消息，非 JSON 行写入日志
         if let Some(stdout) = child.stdout.take() {
-            let log_path_arc: Arc<std::path::PathBuf> = Arc::new(std::path::PathBuf::from(log_path));
+            let log_path_arc: Arc<std::path::PathBuf> =
+                Arc::new(std::path::PathBuf::from(log_path));
             let log_path_clone = log_path_arc.clone();
             let hb = self.last_heartbeat.clone();
             let app = self.app.clone();
             let processor: LogLineProcessor = Box::new(move |text: &str| {
-                if let Some("heartbeat") = parse_stdout_line(&log_path_clone, &app, text).as_deref() {
+                if let Some("heartbeat") = parse_stdout_line(&log_path_clone, &app, text).as_deref()
+                {
                     // 收到心跳，更新时间戳
                     if let Ok(mut ts) = hb.lock() {
                         *ts = Some(Instant::now());
                     }
                 }
             });
-            let handle = spawn_log_reader(stdout, log_path_arc, "主进程(stdout)", "INFO", Some(processor));
+            let handle = spawn_log_reader(
+                stdout,
+                log_path_arc,
+                "主进程(stdout)",
+                "INFO",
+                Some(processor),
+            );
             self.log_handles.push(handle);
         }
 
         self.child = Some(child);
         // 初始化心跳时间戳
         {
-            let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ts = self
+                .last_heartbeat
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *ts = Some(Instant::now());
         }
 
@@ -351,7 +533,7 @@ impl SidecarManager {
     /// 2. worker 停止接收新任务
     /// 3. 等待进行中的任务完成或超时
     /// 4. 超时后强制 kill
-    
+
     pub fn shutdown(&mut self, timeout_ms: u64) -> Result<(), SidecarError> {
         let log_path = self.log_path.clone();
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
@@ -374,14 +556,24 @@ impl SidecarManager {
                 Ok(Some(_)) => break,
                 Ok(None) => {
                     if start.elapsed() > timeout {
-                        crate::project_log::append_log(Path::new(&log_path), "子进程", "WARN", "Worker 未按时关闭，强制终止");
+                        crate::project_log::append_log(
+                            Path::new(&log_path),
+                            "子进程",
+                            "WARN",
+                            "Worker 未按时关闭，强制终止",
+                        );
                         let _ = child.kill();
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => {
-                    crate::project_log::append_log(Path::new(&log_path), "子进程", "ERROR", &format!("Error waiting for worker: {}", e));
+                    crate::project_log::append_log(
+                        Path::new(&log_path),
+                        "子进程",
+                        "ERROR",
+                        &format!("Error waiting for worker: {}", e),
+                    );
                     let _ = child.kill();
                     break;
                 }
@@ -390,7 +582,10 @@ impl SidecarManager {
 
         self.child = None;
         {
-            let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ts = self
+                .last_heartbeat
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *ts = None;
         }
 
@@ -417,7 +612,7 @@ impl SidecarManager {
     /// - 5 分钟内最多重启 3 次
     /// - 超过后需要手动恢复
     /// - 稳定运行 5 分钟后计数器重置
-    
+
     pub fn restart(&mut self) -> Result<(), SidecarError> {
         // 检查重启计数
         if let Some(window_start) = self.restart_window_start {
@@ -429,7 +624,11 @@ impl SidecarManager {
         }
 
         if self.restart_count >= MAX_RESTART_COUNT {
-            self.log("子进程", "ERROR", &format!("超过最大重启次数（{}）", MAX_RESTART_COUNT));
+            self.log(
+                "子进程",
+                "ERROR",
+                &format!("超过最大重启次数（{}）", MAX_RESTART_COUNT),
+            );
             return Err(SidecarError::MaxRestartsExceeded);
         }
 
@@ -457,7 +656,14 @@ impl SidecarManager {
         self.worker_id = uuid::Uuid::new_v4().to_string();
         self.last_heartbeat = Arc::new(Mutex::new(None));
 
-        self.log("子进程", "INFO", &format!("重启 Worker（第 {}/{} 次）", self.restart_count, MAX_RESTART_COUNT));
+        self.log(
+            "子进程",
+            "INFO",
+            &format!(
+                "重启 Worker（第 {}/{} 次）",
+                self.restart_count, MAX_RESTART_COUNT
+            ),
+        );
 
         let db = self.db_path.clone();
         let workspace = self.workspace_path.clone();
@@ -477,7 +683,7 @@ impl SidecarManager {
     /// - 若从未成功启动过（`db_path` 为空）→ 返回 `NotRunning`，由调用方提示需重启应用。
     /// - 否则清理残留进程后以最新配置重新拉起。
     ///
-    
+
     pub fn force_restart(&mut self) -> Result<(), SidecarError> {
         if self.is_running() {
             return Ok(());
@@ -509,13 +715,16 @@ impl SidecarManager {
     /// 返回：
     /// - Ok：心跳正常
     /// - Err(Crashed)：心跳超时，需要重启
-    
+
     pub fn check_heartbeat(&mut self) -> Result<(), SidecarError> {
         if self.child.is_none() {
             return Err(SidecarError::NotRunning);
         }
 
-        let ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+        let ts = self
+            .last_heartbeat
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(last) = *ts {
             if last.elapsed() > Duration::from_secs(HEARTBEAT_TIMEOUT_SECS) {
                 return Err(SidecarError::Crashed("heartbeat timeout".to_string()));
@@ -526,16 +735,19 @@ impl SidecarManager {
     }
 
     /// 更新心跳时间戳。通常由 stdout 读取线程在收到 heartbeat 时自动调用，也可手动触发。
-    
+
     pub fn update_heartbeat(&mut self) {
-        let mut ts = self.last_heartbeat.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ts = self
+            .last_heartbeat
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *ts = Some(Instant::now());
     }
 
     /// 崩溃恢复：清理该 workerId 持有的所有逻辑锁。
     ///
     /// 在 worker 崩溃后立即调用，不等 30 分钟超时。
-    
+
     pub fn cleanup_locks(&self, db: &rusqlite::Connection) -> Result<(), SidecarError> {
         let pattern = format!("workerId:{}", self.worker_id);
         db.execute(
@@ -544,12 +756,16 @@ impl SidecarManager {
         )
         .map_err(|e| SidecarError::Crashed(format!("failed to cleanup locks: {}", e)))?;
 
-        self.log("子进程", "INFO", &format!("已清理 Worker {} 的锁", self.worker_id));
+        self.log(
+            "子进程",
+            "INFO",
+            &format!("已清理 Worker {} 的锁", self.worker_id),
+        );
         Ok(())
     }
 
     /// 发送 reload_config 命令给 worker
-    
+
     pub fn send_reload_config(&mut self) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -560,7 +776,7 @@ impl SidecarManager {
     }
 
     /// 发送 enqueue 命令，通知 Worker 立即调度任务。
-    
+
     pub fn send_enqueue(&mut self, task_id: &str, task_type: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -571,7 +787,7 @@ impl SidecarManager {
     }
 
     /// 发送 cancel 命令，通知 Worker 中止指定任务。
-    
+
     pub fn send_cancel(&mut self, task_id: &str) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
@@ -583,7 +799,11 @@ impl SidecarManager {
 
     /// 发送 upload_asset_image 命令，通知 Worker 将本地图片上传至方舟平台。
 
-    pub fn send_upload_asset_image(&mut self, image_id: &str, file_path: &str) -> Result<(), SidecarError> {
+    pub fn send_upload_asset_image(
+        &mut self,
+        image_id: &str,
+        file_path: &str,
+    ) -> Result<(), SidecarError> {
         let child = self.child.as_mut().ok_or(SidecarError::NotRunning)?;
         if let Some(stdin) = child.stdin.as_mut() {
             let cmd = serde_json::json!({
@@ -612,30 +832,38 @@ impl SidecarManager {
         Ok(())
     }
 
-  /// 统一写日志到项目日志文件（与 commands 一致，避免双日志门面）。
-  /// log_path 为空（尚未保存启动参数）时跳过，避免无谓写入。
-  fn log(&self, source: &str, level: &str, message: &str) {
-    if !self.log_path.is_empty() {
-      crate::project_log::append_log(
-        std::path::Path::new(&self.log_path),
-        source, level, message,
-      );
+    /// 统一写日志到项目日志文件（与 commands 一致，避免双日志门面）。
+    /// log_path 为空（尚未保存启动参数）时跳过，避免无谓写入。
+    fn log(&self, source: &str, level: &str, message: &str) {
+        if !self.log_path.is_empty() {
+            crate::project_log::append_log(
+                std::path::Path::new(&self.log_path),
+                source,
+                level,
+                message,
+            );
+        }
     }
-  }
 
-/// 获取当前 workerId
+    /// 获取当前 workerId
 
-  pub fn worker_id(&self) -> &str {
+    pub fn worker_id(&self) -> &str {
         &self.worker_id
     }
 
     /// 检查 worker 是否在运行
-    
+
     pub fn is_running(&self) -> bool {
         self.child.is_some()
     }
 
-    pub fn matches_runtime(&self, db_path: &str, workspace_path: &str, config_path: &str, log_path: &str) -> bool {
+    pub fn matches_runtime(
+        &self,
+        db_path: &str,
+        workspace_path: &str,
+        config_path: &str,
+        log_path: &str,
+    ) -> bool {
         self.child.is_some()
             && self.db_path == db_path
             && self.workspace_path == workspace_path
@@ -643,8 +871,6 @@ impl SidecarManager {
             && self.log_path == log_path
     }
 }
-
-
 
 // 需要 Mutex 包装以便在 Tauri State 中使用
 pub type SharedSidecarManager = Mutex<SidecarManager>;

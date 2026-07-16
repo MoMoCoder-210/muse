@@ -662,7 +662,6 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
               {ASSET_CATEGORIES.map((cat) => {
                 const resources = parsedResources![TYPE_TO_KEY[cat.type]] ?? [];
-                if (resources.length === 0) return null;
                 return (
                   <div key={cat.type} className="asset-category">
                     <div className="asset-category-header">
@@ -671,15 +670,6 @@ export function AssetPanel({ project }: AssetPanelProps) {
                         {cat.label}
                         <span className="asset-category-count">{resources.length}</span>
                       </h4>
-                      <button
-                        type="button"
-                        className="ghost-button btn-sm asset-add-btn"
-                        onClick={() => setAddAssetOpen(cat.type)}
-                        disabled={operating}
-                        title={`添加${cat.label}`}
-                      >
-                        + 添加
-                      </button>
                     </div>
                     <div className="asset-card-grid">
                       {buildAssetCards(selectedClipId, cat.type, resources).map((card) => (
@@ -698,6 +688,24 @@ export function AssetPanel({ project }: AssetPanelProps) {
                           disabled={operating}
                         />
                       ))}
+                      {/* 虚拟卡片：添加该类型资产 */}
+                      <button
+                        type="button"
+                        className="asset-card--add"
+                        onClick={() => setAddAssetOpen(cat.type)}
+                        disabled={operating}
+                        title={`添加${cat.label}`}
+                        aria-label={`添加${cat.label}`}
+                      >
+                        <div className="asset-card--add-frame">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                        </div>
+                        <div className="asset-card--add-info">
+                          <span>添加{cat.label}</span>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 );

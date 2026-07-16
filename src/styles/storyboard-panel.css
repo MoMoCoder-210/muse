@@ -425,6 +425,189 @@
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+/* ── PromptEditor（Tiptap） ── */
+.prompt-editor {
+  position: relative;
+  flex: 1; min-height: 0;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+  display: flex; flex-direction: column;
+}
+.prompt-editor:focus-within {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.prompt-editor.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* EditorContent → div.tiptap → ProseMirror，需全部撑满并允许滚动 */
+.prompt-editor > div,
+.prompt-editor .tiptap {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden; /* 让 ProseMirror 自己滚动 */
+}
+
+/* ProseMirror 编辑区：真正的滚动容器 */
+.prompt-editor .ProseMirror {
+  flex: 1; min-height: 0;
+  padding: var(--spacing-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xxs);
+  line-height: 1.6;
+  color: var(--text-muted);
+  outline: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-base) transparent;
+}
+.prompt-editor .ProseMirror::-webkit-scrollbar { width: 5px; }
+.prompt-editor .ProseMirror::-webkit-scrollbar-track { background: transparent; }
+.prompt-editor .ProseMirror::-webkit-scrollbar-thumb { background: var(--border-base); border-radius: var(--radius-full); }
+
+/* 占位符 */
+.prompt-editor .ProseMirror p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  opacity: 0.45;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* paragraph 间距 */
+.prompt-editor .ProseMirror p {
+  margin: 0;
+}
+
+/* ── @mention 胶囊 chip ── */
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 3px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--bg-selected);
+  border: 1px solid var(--border-accent-subtle);
+  color: var(--badge-text);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-family);
+  white-space: nowrap;
+  vertical-align: middle;
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+
+/* 角色：橙色系 */
+.prompt-chip[data-kind='character'] {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.32);
+  color: #fdba74;
+}
+.prompt-chip[data-kind='character'] .prompt-chip-dot { background: #f97316; }
+
+/* 场景：绿色系 */
+.prompt-chip[data-kind='scene'] {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.30);
+  color: #86efac;
+}
+.prompt-chip[data-kind='scene'] .prompt-chip-dot { background: #22c55e; }
+
+/* 物品：蓝色系 */
+.prompt-chip[data-kind='item'] {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.30);
+  color: #93c5fd;
+}
+.prompt-chip[data-kind='item'] .prompt-chip-dot { background: #3b82f6; }
+
+/* 有图片时显示缩略图。img 本身必须保持 14px，不能用 100% 覆盖整个胶囊。 */
+.prompt-chip [data-mention-thumb] {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 14px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* 无图片时显示彩色圆点 */
+.prompt-chip-dot,
+.prompt-chip [data-mention-dot] {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 资产名标签 */
+.prompt-chip-label,
+.prompt-chip [data-mention-label] {
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10em;
+}
+
+/* 角色圆点颜色跟随 data-kind */
+.prompt-chip[data-kind='character'] [data-mention-dot] { background: #f97316; }
+.prompt-chip[data-kind='scene']     [data-mention-dot] { background: #22c55e; }
+.prompt-chip[data-kind='item']      [data-mention-dot] { background: #3b82f6; }
+
+/* 段落块：每个 \n 分隔的段落 */
+.prompt-para {
+  display: block;
+}
+
+/* 前置公共描述段 */
+.prompt-para--preamble {
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-secondary);
+}
+
+/* 切镜段：每个 cNN,Ns, 块，用左侧色条区分但不产生额外内边距影响行高 */
+.prompt-para--cut {
+  display: block;
+  margin-bottom: 2px;
+  padding-left: var(--spacing-xs);
+  border-left: 2px solid var(--border-faint);
+}
+.prompt-para--cut:last-child {
+  margin-bottom: 0;
+}
+
+/* 切镜序号（c01,3s, 部分） */
+.prompt-cut-header {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--accent-primary);
+  font-weight: var(--font-weight-semibold);
+  opacity: 0.85;
+}
+
+/* 切镜内容 */
+.prompt-cut-body {
+  color: var(--text-muted);
+}
+
 /* 资产 */
 .sd-detail-assets { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
 

@@ -187,6 +187,16 @@ pub fn generate_clip_script(
         return Err("片段原文为空，无法拆解".to_string());
     }
 
+    // 查询项目风格（用于视频提示词风格拼接）
+    let style_mode: String = conn
+        .query_row(
+            "SELECT style_mode FROM projects WHERE id = ?1",
+            rusqlite::params![&project_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap_or(None)
+        .unwrap_or_default();
+
     // 确保 Worker 在线（插入任务前保证消费者存在）
     util::ensure_worker_running(&state, &app, &project_id)?;
 
@@ -196,6 +206,7 @@ pub fn generate_clip_script(
         "projectId": &project_id,
         "clipId": input.clip_id,
         "sourceText": &source_text,
+        "styleMode": &style_mode,
     })
     .to_string();
 
@@ -306,7 +317,13 @@ pub fn generate_asset_image(
     conn.execute(
         "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
          VALUES (?1, ?2, ?3, 'generate_asset_image', 'pending', ?4, ?5, 3)",
-        rusqlite::params![&task_id, &input.project_id, &input.clip_id, &lock_key, &input_json],
+        rusqlite::params![
+            &task_id,
+            &input.project_id,
+            &input.clip_id,
+            &lock_key,
+            &input_json
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -350,9 +367,7 @@ pub fn cancel_clip_script(
             .prepare("SELECT id FROM tasks WHERE lock_key = ?1 AND status = 'running'")
             .map_err(|e| e.to_string())?;
         let ids = stmt
-            .query_map(rusqlite::params![&lock_key], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_map(rusqlite::params![&lock_key], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?;
         ids.filter_map(|r| r.ok()).collect()
     };
@@ -396,10 +411,7 @@ pub fn cancel_clip_script(
         &log_path,
         "拆解",
         "INFO",
-        &format!(
-            "拆解已取消 clipId={}（{}个任务）",
-            input.clip_id, deleted
-        ),
+        &format!("拆解已取消 clipId={}（{}个任务）", input.clip_id, deleted),
     );
 
     Ok(())
@@ -452,10 +464,7 @@ pub fn get_clip_scripts(
 ///
 /// 读取当前 clip 的拆解结果，将新资产追加到对应分类，再写回。
 #[tauri::command]
-pub fn add_asset_to_clip(
-    input: AddAssetInput,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<(), String> {
     let conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
@@ -539,8 +548,8 @@ pub fn delete_asset_from_clip(
 
     let (script_id, resources_json) = row;
 
-    let mut parsed: serde_json::Value = serde_json::from_str(&resources_json)
-        .map_err(|e| format!("解析资源 JSON 失败：{}", e))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&resources_json).map_err(|e| format!("解析资源 JSON 失败：{}", e))?;
 
     let key = match input.asset_type.as_str() {
         "character" => "characters",
@@ -583,10 +592,7 @@ pub fn delete_asset_from_clip(
 ///
 /// 按 type + name 匹配并就地更新对应字段，再写回 extracted_resources_json。
 #[tauri::command]
-pub fn update_asset_in_clip(
-    input: UpdateAssetInput,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> Result<(), String> {
     let conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
@@ -619,12 +625,21 @@ pub fn update_asset_in_clip(
         for item in arr.iter_mut() {
             if item.get("name").and_then(|v| v.as_str()) == Some(input.name.as_str()) {
                 if let Some(obj) = item.as_object_mut() {
-                    obj.insert("prompt".to_string(), serde_json::Value::String(input.prompt.clone()));
-                    obj.insert("description".to_string(), serde_json::Value::String(input.description.clone()));
+                    obj.insert(
+                        "prompt".to_string(),
+                        serde_json::Value::String(input.prompt.clone()),
+                    );
+                    obj.insert(
+                        "description".to_string(),
+                        serde_json::Value::String(input.description.clone()),
+                    );
                     // 角色绑定声音：写回 extracted_resources_json 的角色对象，
                     // 使前端 AssetResource.voiceBinding 能直接读取。
                     if let Some(vb) = &input.voice_binding {
-                        obj.insert("voice_binding".to_string(), serde_json::from_str(vb).unwrap_or(serde_json::Value::Null));
+                        obj.insert(
+                            "voice_binding".to_string(),
+                            serde_json::from_str(vb).unwrap_or(serde_json::Value::Null),
+                        );
                     } else {
                         obj.remove("voice_binding");
                     }
@@ -646,7 +661,14 @@ pub fn update_asset_in_clip(
     conn.execute(
         "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?6
          WHERE clip_id = ?3 AND type = ?4 AND name = ?5",
-        rusqlite::params![&input.prompt, &input.description, &input.voice_binding, &input.clip_id, &input.asset_type, &input.name],
+        rusqlite::params![
+            &input.prompt,
+            &input.description,
+            &input.voice_binding,
+            &input.clip_id,
+            &input.asset_type,
+            &input.name
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -703,14 +725,15 @@ pub fn list_workspace_voice_files(
         )
         .map_err(|_| "未找到项目工作区".to_string())?;
 
-    let voices_dir = std::path::PathBuf::from(&workspace).join("audio").join("voices");
+    let voices_dir = std::path::PathBuf::from(&workspace)
+        .join("audio")
+        .join("voices");
     if !voices_dir.exists() {
         return Ok(vec![]);
     }
 
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(&voices_dir)
-        .map_err(|e| format!("读取音频目录失败：{}", e))?
+    for entry in std::fs::read_dir(&voices_dir).map_err(|e| format!("读取音频目录失败：{}", e))?
     {
         if let Ok(entry) = entry {
             let path = entry.path();
@@ -755,9 +778,10 @@ pub fn import_voice_file(
         )
         .map_err(|_| "未找到项目工作区".to_string())?;
 
-    let voices_dir = std::path::PathBuf::from(&workspace).join("audio").join("voices");
-    std::fs::create_dir_all(&voices_dir)
-        .map_err(|e| format!("创建音频目录失败：{}", e))?;
+    let voices_dir = std::path::PathBuf::from(&workspace)
+        .join("audio")
+        .join("voices");
+    std::fs::create_dir_all(&voices_dir).map_err(|e| format!("创建音频目录失败：{}", e))?;
 
     let fname = std::path::Path::new(&source_path)
         .file_name()
@@ -766,8 +790,7 @@ pub fn import_voice_file(
         .to_string();
     let dest = voices_dir.join(&fname);
 
-    std::fs::copy(&source_path, &dest)
-        .map_err(|e| format!("复制音频文件失败：{}", e))?;
+    std::fs::copy(&source_path, &dest).map_err(|e| format!("复制音频文件失败：{}", e))?;
 
     Ok(ImportVoiceResult {
         file_path: dest.to_string_lossy().to_string(),
@@ -792,21 +815,22 @@ pub fn get_asset_image_info(
 ) -> Result<AssetImageInfo, String> {
     let conn = util::open_app_conn(&app)?;
 
-    let row = conn
-        .query_row(
-            "SELECT a.generated_image_path, a.selected_image_id, a.status,
+    let row = conn.query_row(
+        "SELECT a.generated_image_path, a.selected_image_id, a.status,
                     (SELECT COUNT(*) FROM asset_images ai WHERE ai.asset_id = a.id) as image_count
              FROM assets a
              WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
              LIMIT 1",
-            rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
-            |row| Ok(AssetImageInfo {
+        rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
+        |row| {
+            Ok(AssetImageInfo {
                 generated_image_path: row.get(0)?,
                 selected_image_id: row.get(1)?,
                 status: row.get(2)?,
                 image_count: row.get(3)?,
-            }),
-        );
+            })
+        },
+    );
 
     match row {
         Ok(info) => Ok(info),
@@ -843,9 +867,6 @@ pub struct AssetImageTaskItem {
     /// ready（已生成）| pending | running | failed
     pub status: String,
     pub error_message: Option<String>,
-    /// 方舟上传状态：null（无需上传）| pending | uploaded | failed
-    pub ark_upload_status: Option<String>,
-    pub ark_upload_error: Option<String>,
     pub created_at: String,
 }
 
@@ -921,7 +942,7 @@ pub fn list_asset_image_tasks(
     if let Some(ref asset_id) = asset_row {
         let mut stmt = conn
             .prepare(
-                "SELECT id, image_path, size, style, is_selected, created_at, ark_upload_status, ark_upload_error
+                "SELECT id, image_path, size, style, is_selected, created_at
                  FROM asset_images WHERE asset_id = ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -936,8 +957,6 @@ pub fn list_asset_image_tasks(
                     is_selected: row.get::<_, i64>(4)? != 0,
                     status: "ready".to_string(),
                     error_message: None,
-                    ark_upload_status: row.get(6)?,
-                    ark_upload_error: row.get(7)?,
                     created_at: row.get(5)?,
                 })
             })
@@ -970,20 +989,19 @@ pub fn list_asset_image_tasks(
             .query_map(rusqlite::params![&lock_prefix], |row| {
                 let status: String = row.get(1)?;
                 let input_json_str: String = row.get(4)?;
-                let (size, style) = if let Ok(val) =
-                    serde_json::from_str::<serde_json::Value>(&input_json_str)
-                {
-                    (
-                        val.get("size")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        val.get("style")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                    )
-                } else {
-                    (None, None)
-                };
+                let (size, style) =
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&input_json_str) {
+                        (
+                            val.get("size")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            val.get("style")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                        )
+                    } else {
+                        (None, None)
+                    };
 
                 Ok(AssetImageTaskItem {
                     id: row.get(0)?,
@@ -993,8 +1011,6 @@ pub fn list_asset_image_tasks(
                     is_selected: false,
                     status,
                     error_message: row.get(2)?,
-                    ark_upload_status: None,
-                    ark_upload_error: None,
                     created_at: row.get(3)?,
                 })
             })
@@ -1355,7 +1371,10 @@ pub fn delete_asset_image(
                     &log_path,
                     "资产",
                     "INFO",
-                    &format!("方舟文件删除成功 imageId={} arkFileId={}", input.image_id, file_id),
+                    &format!(
+                        "方舟文件删除成功 imageId={} arkFileId={}",
+                        input.image_id, file_id
+                    ),
                 );
             }
             Err(e) => {
@@ -1415,10 +1434,7 @@ pub fn import_local_asset_image(
     }
 
     // 确定扩展名（默认 png）
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png");
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
     let ext = if ext.is_empty() { "png" } else { ext };
 
     // 2. 查片段所属项目 + 工作区路径
@@ -1437,7 +1453,9 @@ pub fn import_local_asset_image(
     // 3. 构造目标目录和文件名
     let safe_name = sanitize_file_name(&input.name);
     let type_dir = format!("{}s", input.asset_type); // characters / scenes / items
-    let save_dir = PathBuf::from(&workspace_path).join("assets").join(&type_dir);
+    let save_dir = PathBuf::from(&workspace_path)
+        .join("assets")
+        .join(&type_dir);
     fs::create_dir_all(&save_dir).map_err(|e| format!("创建目录失败：{}", e))?;
 
     let timestamp = chrono::Local::now().timestamp_millis();
@@ -1527,37 +1545,6 @@ pub fn import_local_asset_image(
             input.clip_id, input.asset_type, input.name, image_id, target_path_str, is_selected
         ),
     );
-
-    // 10. 同步上传到方舟平台（阻塞当前线程，但不阻塞 UI）
-    let upload_result = util::upload_ark_file_sync(&app, &target_path_str);
-    match upload_result {
-        Ok(file_id) => {
-            // 上传成功，更新数据库
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
-                rusqlite::params![&file_id, &image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "INFO",
-                &format!("方舟文件上传成功 imageId={} arkFileId={}", image_id, file_id),
-            );
-        }
-        Err(err) => {
-            // 上传失败，记录错误状态
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
-                rusqlite::params![&err, &image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "WARN",
-                &format!("方舟文件上传失败 imageId={}: {}", image_id, err),
-            );
-        }
-    }
 
     Ok(ImportLocalAssetImageResult {
         image_id,
@@ -1687,10 +1674,7 @@ pub fn copy_asset_image_from(
         .map_err(|e| format!("目标片段不存在：{}", e))?;
 
     // 3. 构造目标文件路径
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png");
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
     let ext = if ext.is_empty() { "png" } else { ext };
 
     let safe_name = sanitize_file_name(&input.target_name);
@@ -1778,7 +1762,8 @@ pub fn copy_asset_image_from(
                 "WARN",
                 &format!(
                     "事务回滚后清理残留文件失败 path={} error={}",
-                    target_path.display(), remove_err
+                    target_path.display(),
+                    remove_err
                 ),
             );
         }
@@ -1795,102 +1780,9 @@ pub fn copy_asset_image_from(
         ),
     );
 
-    // 10. 同步上传到方舟平台
-    let upload_result = util::upload_ark_file_sync(&app, &target_path_str);
-    match upload_result {
-        Ok(file_id) => {
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
-                rusqlite::params![&file_id, &new_image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "INFO",
-                &format!("复制图片方舟上传成功 imageId={} arkFileId={}", new_image_id, file_id),
-            );
-        }
-        Err(err) => {
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
-                rusqlite::params![&err, &new_image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "WARN",
-                &format!("复制图片方舟上传失败 imageId={}: {}", new_image_id, err),
-            );
-        }
-    }
-
     Ok(CopyAssetImageFromResult {
         image_id: new_image_id,
         image_path: target_path_str,
         is_selected,
     })
-}
-
-/// 重试上传失败的资产图片
-///
-/// 当 ark_upload_status = 'failed' 时，重新上传到方舟平台。
-#[tauri::command]
-pub fn retry_upload_asset_image(
-    image_id: String,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
-    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
-
-    let conn = util::open_app_conn(&app)?;
-
-    // 查询图片路径和当前状态
-    let (image_path, current_status): (String, Option<String>) = conn
-        .query_row(
-            "SELECT image_path, ark_upload_status FROM asset_images WHERE id = ?1",
-            rusqlite::params![&image_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .map_err(|e| format!("图片记录不存在：{}", e))?;
-
-    // 只有 failed 状态才允许重试
-    if current_status.as_deref() != Some("failed") {
-        return Err("该图片上传状态不是失败，无法重试".to_string());
-    }
-
-    // 先标记为 pending
-    let _ = conn.execute(
-        "UPDATE asset_images SET ark_upload_status = 'pending', ark_upload_error = NULL WHERE id = ?1",
-        rusqlite::params![&image_id],
-    );
-
-    // 同步上传
-    match util::upload_ark_file_sync(&app, &image_path) {
-        Ok(file_id) => {
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_file_id = ?1, ark_upload_status = 'uploaded', ark_upload_error = NULL WHERE id = ?2",
-                rusqlite::params![&file_id, &image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "INFO",
-                &format!("方舟文件重传成功 imageId={} arkFileId={}", image_id, file_id),
-            );
-            Ok(())
-        }
-        Err(err) => {
-            let _ = conn.execute(
-                "UPDATE asset_images SET ark_upload_status = 'failed', ark_upload_error = ?1 WHERE id = ?2",
-                rusqlite::params![&err, &image_id],
-            );
-            crate::project_log::append_log(
-                &log_path,
-                "资产",
-                "WARN",
-                &format!("方舟文件重传失败 imageId={}: {}", image_id, err),
-            );
-            Err(format!("上传失败：{}", err))
-        }
-    }
 }

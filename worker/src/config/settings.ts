@@ -60,13 +60,11 @@ export class SettingsManager {
   }
 
   getAssetConfig(): AssetModelConfig {
-    const ch = getActiveChannel(this.cache.asset);
-    // 素材复用视频模型密钥与地址（直接解析 video 渠道，避免与 getVideoConfig 互相递归）
+    // 方舟 Files API 使用固定官方端点；参考图上传统一复用视频渠道的 API Key。
     const videoCh = getActiveChannel(this.cache.video);
     const video = videoCh ? resolveVideoConfig(videoCh, this.cache.videoParams) : null;
     return {
-      apiKey: (video?.apiKey && video.apiKey.trim() ? video.apiKey : (ch?.apiKey ?? "")),
-      baseUrl: (video?.baseUrl || ch?.baseUrl || "").replace(/\/+$/, ""),
+      apiKey: video?.apiKey ?? "",
       timeoutMs: this.cache.assetParams.timeoutMs,
     };
   }

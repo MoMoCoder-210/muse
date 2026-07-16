@@ -18,79 +18,112 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
     let source = input.as_object();
 
     // text 渠道（含 apiFormat）
-    root.insert("text".to_string(), sanitize_channel_list(
-        source.and_then(|obj| obj.get("text")),
-        &default["text"],
-        &[("apiKey", ""), ("baseUrl", "")],
-        &[("id", "m1"), ("modelId", "")],
-    ));
+    root.insert(
+        "text".to_string(),
+        sanitize_channel_list(
+            source.and_then(|obj| obj.get("text")),
+            &default["text"],
+            &[("apiKey", ""), ("baseUrl", "")],
+            &[("id", "m1"), ("modelId", "")],
+        ),
+    );
     // text 全局参数
-    root.insert("textParams".to_string(), sanitize_section(
-        source.and_then(|obj| obj.get("textParams")),
-        &default["textParams"],
-        &["timeoutMs", "maxTokens", "temperature"],
-    ));
+    root.insert(
+        "textParams".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("textParams")),
+            &default["textParams"],
+            &["timeoutMs", "maxTokens", "temperature"],
+        ),
+    );
 
     // image 渠道
-    root.insert("image".to_string(), sanitize_channel_list(
-        source.and_then(|obj| obj.get("image")),
-        &default["image"],
-        &[("apiKey", ""), ("baseUrl", "")],
-        &[("id", "m1"), ("modelId", "")],
-    ));
+    root.insert(
+        "image".to_string(),
+        sanitize_channel_list(
+            source.and_then(|obj| obj.get("image")),
+            &default["image"],
+            &[("apiKey", ""), ("baseUrl", "")],
+            &[("id", "m1"), ("modelId", "")],
+        ),
+    );
     // image 参数
-    root.insert("imageParams".to_string(), sanitize_section(
-        source.and_then(|obj| obj.get("imageParams")),
-        &default["imageParams"],
-        &["timeoutMs"],
-    ));
+    root.insert(
+        "imageParams".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("imageParams")),
+            &default["imageParams"],
+            &["timeoutMs"],
+        ),
+    );
 
     // voice 渠道（OpenSpeech V3：apiKey / resourceId / baseUrl / sampleRate，无 models）
-    root.insert("voice".to_string(), sanitize_channel_list(
-        source.and_then(|obj| obj.get("voice")),
-        &default["voice"],
-        &[
-            ("apiKey", ""),
-            ("resourceId", ""),
-            ("baseUrl", "https://openspeech.bytedance.com/api/v3/tts/unidirectional"),
-            ("sampleRate", "24000"),
-        ],
-        &[],
-    ));
+    root.insert(
+        "voice".to_string(),
+        sanitize_channel_list(
+            source.and_then(|obj| obj.get("voice")),
+            &default["voice"],
+            &[
+                ("apiKey", ""),
+                ("resourceId", ""),
+                (
+                    "baseUrl",
+                    "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+                ),
+                ("sampleRate", "24000"),
+            ],
+            &[],
+        ),
+    );
     // voice 参数
-    root.insert("voiceParams".to_string(), sanitize_section(
-        source.and_then(|obj| obj.get("voiceParams")),
-        &default["voiceParams"],
-        &["timeoutMs", "speed"],
-    ));
+    root.insert(
+        "voiceParams".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("voiceParams")),
+            &default["voiceParams"],
+            &["timeoutMs", "speed"],
+        ),
+    );
 
     // asset 渠道（无 models）
-    root.insert("asset".to_string(), sanitize_channel_list(
-        source.and_then(|obj| obj.get("asset")),
-        &default["asset"],
-        &[("apiKey", ""), ("baseUrl", "")],
-        &[],
-    ));
+    root.insert(
+        "asset".to_string(),
+        sanitize_channel_list(
+            source.and_then(|obj| obj.get("asset")),
+            &default["asset"],
+            &[("apiKey", ""), ("baseUrl", "")],
+            &[],
+        ),
+    );
     // asset 参数
-    root.insert("assetParams".to_string(), sanitize_section(
-        source.and_then(|obj| obj.get("assetParams")),
-        &default["assetParams"],
-        &["timeoutMs"],
-    ));
+    root.insert(
+        "assetParams".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("assetParams")),
+            &default["assetParams"],
+            &["timeoutMs"],
+        ),
+    );
 
     // video 渠道
-    root.insert("video".to_string(), sanitize_channel_list(
-        source.and_then(|obj| obj.get("video")),
-        &default["video"],
-        &[("apiKey", ""), ("baseUrl", "")],
-        &[("id", "m1"), ("modelId", "")],
-    ));
+    root.insert(
+        "video".to_string(),
+        sanitize_channel_list(
+            source.and_then(|obj| obj.get("video")),
+            &default["video"],
+            &[("apiKey", ""), ("baseUrl", "")],
+            &[("id", "m1"), ("modelId", "")],
+        ),
+    );
     // video 参数
-    root.insert("videoParams".to_string(), sanitize_section(
-        source.and_then(|obj| obj.get("videoParams")),
-        &default["videoParams"],
-        &["timeoutMs"],
-    ));
+    root.insert(
+        "videoParams".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("videoParams")),
+            &default["videoParams"],
+            &["timeoutMs"],
+        ),
+    );
 
     Value::Object(root)
 }
@@ -100,7 +133,9 @@ fn sanitize_section(source: Option<&Value>, default_section: &Value, keys: &[&st
     let source_obj = source.and_then(Value::as_object);
     let mut section = Map::new();
     for key in keys {
-        let value = source_obj.and_then(|obj| obj.get(*key)).cloned()
+        let value = source_obj
+            .and_then(|obj| obj.get(*key))
+            .cloned()
             .unwrap_or_else(|| default_section.get(*key).cloned().unwrap_or(Value::Null));
         section.insert((*key).to_string(), value);
     }
@@ -122,18 +157,29 @@ fn sanitize_channel_list(
     // 新格式：{ channels: [...], activeId: "..." }
     if let Some(obj) = src.as_object() {
         if let Some(arr) = obj.get("channels").and_then(|v| v.as_array()) {
-            let sanitized: Vec<Value> = arr.iter()
+            let sanitized: Vec<Value> = arr
+                .iter()
                 .map(|ch| sanitize_channel(Some(ch), default_section, channel_fields, model_fields))
                 .collect();
-            let active_id = obj.get("activeId")
+            let active_id = obj
+                .get("activeId")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default")
                 .to_string();
 
             let mut result = Map::new();
-            result.insert("channels".to_string(),
-                if sanitized.is_empty() { Value::Array(vec![default_channel(default_section, channel_fields, model_fields)]) }
-                else { Value::Array(sanitized) });
+            result.insert(
+                "channels".to_string(),
+                if sanitized.is_empty() {
+                    Value::Array(vec![default_channel(
+                        default_section,
+                        channel_fields,
+                        model_fields,
+                    )])
+                } else {
+                    Value::Array(sanitized)
+                },
+            );
             result.insert("activeId".to_string(), Value::String(active_id));
             return Value::Object(result);
         }
@@ -167,7 +213,8 @@ fn sanitize_channel(
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
-    let default_ch = default_section.get("channels")
+    let default_ch = default_section
+        .get("channels")
         .and_then(Value::as_array)
         .and_then(|a| a.first())
         .cloned()
@@ -176,18 +223,26 @@ fn sanitize_channel(
     let mut ch = Map::new();
 
     // 渠道 ID 和名称
-    let id = src.and_then(|o| o.get("id")).and_then(|v| v.as_str())
+    let id = src
+        .and_then(|o| o.get("id"))
+        .and_then(|v| v.as_str())
         .or_else(|| default_ch.get("id").and_then(|v| v.as_str()))
-        .unwrap_or("default").to_string();
-    let name = src.and_then(|o| o.get("name")).and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+    let name = src
+        .and_then(|o| o.get("name"))
+        .and_then(|v| v.as_str())
         .or_else(|| default_ch.get("name").and_then(|v| v.as_str()))
-        .unwrap_or("默认").to_string();
+        .unwrap_or("默认")
+        .to_string();
     ch.insert("id".to_string(), Value::String(id));
     ch.insert("name".to_string(), Value::String(name));
 
     // 渠道字段
     for (key, _default) in channel_fields {
-        let val = src.and_then(|o| o.get(*key)).cloned()
+        let val = src
+            .and_then(|o| o.get(*key))
+            .cloned()
             .or_else(|| default_ch.get(*key).cloned())
             .unwrap_or(Value::String(String::new()));
         ch.insert((*key).to_string(), val);
@@ -195,29 +250,45 @@ fn sanitize_channel(
 
     // 模型列表
     if !model_fields.is_empty() {
-        let models = src.and_then(|o| o.get("models")).and_then(|v| v.as_array())
+        let models = src
+            .and_then(|o| o.get("models"))
+            .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().map(|m| {
-                    let m_src = m.as_object();
-                    let mut mm = Map::new();
-                    for (mk, _md) in model_fields {
-                        let mv = m_src.and_then(|o| o.get(*mk)).cloned()
-                            .or_else(|| default_ch.get("models").and_then(Value::as_array).and_then(|a| a.first()).and_then(|o| o.get(*mk)).cloned())
-                            .unwrap_or(Value::String(String::new()));
-                        mm.insert((*mk).to_string(), mv);
-                    }
-                    // 保留用户在视频渠道配置的模型分辨率（数组），无则省略
-                    if let Some(res) = m_src.and_then(|o| o.get("resolutions")).and_then(|v| v.as_array()) {
-                        mm.insert("resolutions".to_string(), Value::Array(res.clone()));
-                    }
-                    Value::Object(mm)
-                }).collect::<Vec<_>>()
-            }).unwrap_or_else(|| {
-                vec![default_model_entry(default_section, model_fields)]
-            });
+                arr.iter()
+                    .map(|m| {
+                        let m_src = m.as_object();
+                        let mut mm = Map::new();
+                        for (mk, _md) in model_fields {
+                            let mv = m_src
+                                .and_then(|o| o.get(*mk))
+                                .cloned()
+                                .or_else(|| {
+                                    default_ch
+                                        .get("models")
+                                        .and_then(Value::as_array)
+                                        .and_then(|a| a.first())
+                                        .and_then(|o| o.get(*mk))
+                                        .cloned()
+                                })
+                                .unwrap_or(Value::String(String::new()));
+                            mm.insert((*mk).to_string(), mv);
+                        }
+                        // 保留用户在视频渠道配置的模型分辨率（数组），无则省略
+                        if let Some(res) = m_src
+                            .and_then(|o| o.get("resolutions"))
+                            .and_then(|v| v.as_array())
+                        {
+                            mm.insert("resolutions".to_string(), Value::Array(res.clone()));
+                        }
+                        Value::Object(mm)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| vec![default_model_entry(default_section, model_fields)]);
         ch.insert("models".to_string(), Value::Array(models));
 
-        let active_model = src.and_then(|o| o.get("activeModelId"))
+        let active_model = src
+            .and_then(|o| o.get("activeModelId"))
             .and_then(|v| v.as_str())
             .or_else(|| default_ch.get("activeModelId").and_then(|v| v.as_str()))
             .unwrap_or("m1")
@@ -234,7 +305,8 @@ fn default_channel(
     channel_fields: &[(&str, &str)],
     model_fields: &[(&str, &str)],
 ) -> Value {
-    let default_ch = default_section.get("channels")
+    let default_ch = default_section
+        .get("channels")
         .and_then(Value::as_array)
         .and_then(|a| a.first())
         .cloned()
@@ -244,24 +316,39 @@ fn default_channel(
     ch.insert("name".to_string(), json_str(&default_ch, "name", "默认"));
 
     for (key, _default) in channel_fields {
-        let val = default_ch.get(*key).cloned().unwrap_or(Value::String(String::new()));
+        let val = default_ch
+            .get(*key)
+            .cloned()
+            .unwrap_or(Value::String(String::new()));
         ch.insert((*key).to_string(), val);
     }
 
     if !model_fields.is_empty() {
-        ch.insert("models".to_string(), Value::Array(vec![default_model_entry(default_section, model_fields)]));
-        ch.insert("activeModelId".to_string(), json_str(&default_ch, "activeModelId", "m1"));
+        ch.insert(
+            "models".to_string(),
+            Value::Array(vec![default_model_entry(default_section, model_fields)]),
+        );
+        ch.insert(
+            "activeModelId".to_string(),
+            json_str(&default_ch, "activeModelId", "m1"),
+        );
     }
 
     Value::Object(ch)
 }
 
 fn json_str(v: &Value, key: &str, fallback: &str) -> Value {
-    Value::String(v.get(key).and_then(|x| x.as_str()).unwrap_or(fallback).to_string())
+    Value::String(
+        v.get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or(fallback)
+            .to_string(),
+    )
 }
 
 fn default_model_entry(default_section: &Value, fields: &[(&str, &str)]) -> Value {
-    let default_model = default_section.get("channels")
+    let default_model = default_section
+        .get("channels")
         .and_then(Value::as_array)
         .and_then(|a| a.first())
         .and_then(|c| c.get("models"))
@@ -271,7 +358,10 @@ fn default_model_entry(default_section: &Value, fields: &[(&str, &str)]) -> Valu
         .unwrap_or_else(|| Value::Object(Map::new()));
     let mut m = Map::new();
     for (key, _default) in fields {
-        let val = default_model.get(*key).cloned().unwrap_or(Value::String(String::new()));
+        let val = default_model
+            .get(*key)
+            .cloned()
+            .unwrap_or(Value::String(String::new()));
         m.insert((*key).to_string(), val);
     }
     Value::Object(m)
@@ -362,8 +452,13 @@ pub(crate) fn ensure_worker_running(
     project_id: &str,
 ) -> Result<(), String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
-    let config_path = app_data_dir.join("settings.json").to_string_lossy().to_string();
-    let db_path = crate::app_paths::app_db_path(app)?.to_string_lossy().to_string();
+    let config_path = app_data_dir
+        .join("settings.json")
+        .to_string_lossy()
+        .to_string();
+    let db_path = crate::app_paths::app_db_path(app)?
+        .to_string_lossy()
+        .to_string();
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let log_path_str = log_path.to_string_lossy().to_string();
 
@@ -376,14 +471,13 @@ pub(crate) fn ensure_worker_running(
 
     // Worker 未运行 → 启动（使用全局默认 workspace）
     crate::project_log::append_log(
-        &log_path, "项目", "INFO",
+        &log_path,
+        "项目",
+        "INFO",
         &format!("Worker 未运行，启动中（由 projectId={} 触发）", project_id),
     );
 
-    let default_workspace = app_data_dir
-        .join("workspace")
-        .to_string_lossy()
-        .to_string();
+    let default_workspace = app_data_dir.join("workspace").to_string_lossy().to_string();
     std::fs::create_dir_all(&default_workspace).map_err(|e| e.to_string())?;
 
     let ffmpeg_path = crate::app_paths::ffmpeg_path(app)
@@ -394,7 +488,14 @@ pub(crate) fn ensure_worker_running(
         .unwrap_or_default();
 
     manager
-        .start(&db_path, &default_workspace, &config_path, &log_path_str, &ffmpeg_path, &ffprobe_path)
+        .start(
+            &db_path,
+            &default_workspace,
+            &config_path,
+            &log_path_str,
+            &ffmpeg_path,
+            &ffprobe_path,
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -432,134 +533,71 @@ struct ArkConfig {
 fn load_ark_config(app: &tauri::AppHandle) -> Result<ArkConfig, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let settings_path = app_data_dir.join("settings.json");
-    let settings_content = std::fs::read_to_string(&settings_path)
-        .map_err(|e| format!("读取设置文件失败：{}", e))?;
-    let settings: Value = serde_json::from_str(&settings_content)
-        .map_err(|e| format!("解析设置文件失败：{}", e))?;
+    let settings_content =
+        std::fs::read_to_string(&settings_path).map_err(|e| format!("读取设置文件失败：{}", e))?;
+    let settings: Value =
+        serde_json::from_str(&settings_content).map_err(|e| format!("解析设置文件失败：{}", e))?;
     let settings = sanitize_settings(settings);
 
-    let asset = settings.get("asset").and_then(|v| v.as_object())
+    let asset = settings
+        .get("asset")
+        .and_then(|v| v.as_object())
         .ok_or("设置中缺少 asset 配置节")?;
-    let channels = asset.get("channels").and_then(|v| v.as_array())
+    let channels = asset
+        .get("channels")
+        .and_then(|v| v.as_array())
         .ok_or("asset 配置缺少 channels")?;
-    let active_id = asset.get("activeId").and_then(|v| v.as_str()).unwrap_or("default");
+    let active_id = asset
+        .get("activeId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
 
-    let active = channels.iter()
+    let active = channels
+        .iter()
         .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(active_id))
         .or_else(|| channels.first())
         .and_then(|v| v.as_object())
         .ok_or("asset 配置缺少可用渠道")?;
 
-    let api_key = active.get("apiKey").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let base_url = active.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let api_key = active
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let base_url = active
+        .get("baseUrl")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     // timeoutMs 从 assetParams 统一读取
-    let timeout_ms = settings.get("assetParams")
+    let timeout_ms = settings
+        .get("assetParams")
         .and_then(|v| v.get("timeoutMs"))
         .and_then(|v| v.as_u64())
         .unwrap_or(300000);
 
-    if api_key.is_empty() { return Err("素材管理 API Key 未配置".to_string()); }
-    if base_url.is_empty() { return Err("素材管理 Base URL 未配置".to_string()); }
-
-    Ok(ArkConfig { api_key, base_url, timeout_ms })
-}
-
-/// 同步上传本地图片到方舟平台，返回 file_id。
-pub(crate) fn upload_ark_file_sync(
-    app: &tauri::AppHandle,
-    file_path: &str,
-) -> Result<String, String> {
-    use std::fs;
-
-    let config = load_ark_config(app)?;
-
-    // 读取文件内容
-    let file_data = fs::read(file_path)
-        .map_err(|e| format!("读取文件失败：{}", e))?;
-    let file_name = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown.png");
-
-    // 推断 MIME 类型
-    let ext = std::path::Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png")
-        .to_lowercase();
-    let mime_type = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "bmp" => "image/bmp",
-        _ => "application/octet-stream",
-    };
-
-    // 构建 multipart/form-data
-    let boundary = format!("----MuseUpload{}", chrono::Utc::now().timestamp_millis());
-    let mut body = Vec::new();
-
-    // file 字段
-    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(format!("Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n", file_name).as_bytes());
-    body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes());
-    body.extend_from_slice(&file_data);
-    body.extend_from_slice(b"\r\n");
-
-    // purpose 字段
-    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"purpose\"\r\n\r\n");
-    body.extend_from_slice(b"user_data");
-    body.extend_from_slice(b"\r\n");
-
-    // 结束边界
-    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
-
-    let base_url = config.base_url.trim_end_matches('/');
-    let url = format!("{}/v3/files", base_url);
-
-    let timeout = std::time::Duration::from_millis(config.timeout_ms);
-    let agent = ureq::AgentBuilder::new()
-        .timeout_read(timeout)
-        .timeout_write(timeout)
-        .build();
-
-    let response = agent
-        .post(&url)
-        .set("Authorization", &format!("Bearer {}", config.api_key))
-        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-        .send_bytes(&body)
-        .map_err(|e| format!("方舟文件上传失败：{}", e))?;
-
-    if response.status() >= 400 {
-        return Err(format!("方舟文件上传失败：HTTP {}", response.status()));
+    if api_key.is_empty() {
+        return Err("素材管理 API Key 未配置".to_string());
+    }
+    if base_url.is_empty() {
+        return Err("素材管理 Base URL 未配置".to_string());
     }
 
-    let response_body: Value = response.into_json()
-        .map_err(|e| format!("解析响应失败：{}", e))?;
-
-    let file_id = response_body.get("id")
-        .and_then(|v| v.as_str())
-        .ok_or("响应中缺少 file id")?
-        .to_string();
-
-    Ok(file_id)
+    Ok(ArkConfig {
+        api_key,
+        base_url,
+        timeout_ms,
+    })
 }
 
 /// 同步从方舟平台删除文件（直接 HTTP DELETE，不经过 Worker）
-pub(crate) fn delete_ark_file_sync(
-    app: &tauri::AppHandle,
-    file_id: &str,
-) -> Result<(), String> {
+pub(crate) fn delete_ark_file_sync(app: &tauri::AppHandle, file_id: &str) -> Result<(), String> {
     let config = load_ark_config(app)?;
 
     let base_url = config.base_url.trim_end_matches('/');
-    let encoded_id = percent_encoding::utf8_percent_encode(
-        file_id,
-        percent_encoding::NON_ALPHANUMERIC,
-    );
+    let encoded_id =
+        percent_encoding::utf8_percent_encode(file_id, percent_encoding::NON_ALPHANUMERIC);
     let url = format!("{}/v3/files/{}", base_url, encoded_id);
 
     let timeout = std::time::Duration::from_millis(config.timeout_ms);
@@ -580,5 +618,3 @@ pub(crate) fn delete_ark_file_sync(
 
     Ok(())
 }
-
-

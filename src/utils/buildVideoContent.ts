@@ -3,12 +3,22 @@
  *
  * 从提示词文本中解析 @mention 引用标记，生成豆包 Seedance 2.0 API 所需的 content 数组格式。
  *
- * 提示词中使用语法：
- *   (@图片N)  — 引用第 N 张参考图片，如 "老兵A(@图片1)站在门前"
- *   (@音频N)  — 引用第 N 个参考音频（预留，当前仅支持图片）
+ * ── 官方 Volcengine API 格式 ──────────────────────────────────────────────
+ * POST https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
  *
- * 输出的 content 数组结构与 API 完全对齐：
- *   [{ type:"text", text: string }, ...{ role:"reference_image", image_url:{url}, index:N, text:string, type:"image_url" }]
+ * content 数组结构（多模态参考模式）：
+ *   [
+ *     { type: "text", text: "提示词，用「图片1」「图片2」在文字中自然引用" },
+ *     { type: "image_url", image_url: { url: "..." }, role: "reference_image" },
+ *     { type: "image_url", image_url: { url: "..." }, role: "reference_image" },
+ *     { type: "audio_url", audio_url: { url: "..." }, role: "reference_audio" },
+ *   ]
+ *
+ * 注意：
+ * - 官方格式 **无 index 字段**，模型按数组顺序自动编号（第1个 reference_image = 图片1）
+ * - 本项目在提示词中使用 (@图片N) 语法标注引用，buildContentArray 解析后
+ *   按序号顺序输出 reference_image/reference_audio 条目，确保顺序与文本一致
+ * - 上传图片需先通过 asset:// 协议或公网 URL，本地路径须在调用侧转换
  *
  * 使用方式：
  *   const { content, ratio, duration } = buildVideoContent(prompt, mentionMap, videoParams);
@@ -46,22 +56,18 @@ export interface ContentTextItem {
   text: string;
 }
 
-/** content 数组中的参考图元素 */
+/** content 数组中的参考图元素（官方格式：无 index/text 字段，顺序即编号） */
 export interface ContentImageItem {
-  role: "reference_image";
-  image_url: { url: string };
-  index: number;
-  text: string;
   type: "image_url";
+  image_url: { url: string };
+  role: "reference_image";
 }
 
-/** content 数组中的参考音频元素（预留） */
+/** content 数组中的参考音频元素（官方格式：无 index/text 字段，顺序即编号） */
 export interface ContentAudioItem {
-  role: "reference_audio";
-  audio_url: { url: string };
-  index: number;
-  text: string;
   type: "audio_url";
+  audio_url: { url: string };
+  role: "reference_audio";
 }
 
 export type ContentItem = ContentTextItem | ContentImageItem | ContentAudioItem;
@@ -108,64 +114,52 @@ export function parseMentionIndexes(prompt: string): Array<{ index: number; type
 }
 
 /**
- * 根据已知的序号映射（N → 资产详情），将 prompt 编译为 API 所需的 content 数组。
+ * 将稳定的 mention_map 编译为参考图数组。
  *
- * @param prompt      包含 (@图片N) 标记的提示词文本
- * @param mentionMap  序号 → 资产详情的映射 Map<number, { assetId, name, imagePath }>
- * @param urlResolver 将本地图片路径转为 API 可访问 URL 的函数（默认为 identity）
- * @param _videoParams 视频参数（ratio/duration/resolution 在调用侧传入 API body）
- * @returns           可序列化为 API body 的 content 数组
+ * Seedance 根据 content 内 reference_image 的位置编号，因此数组必须按 N 升序且 1..N
+ * 连续。我们保留已删除胶囊的映射项以填补编号，避免保存的 `(@图片N)` 与 API 图片序号漂移。
+ */
+function orderedReferenceAssets(
+  mentionMap: Map<number, { assetId: string; name: string; imagePath: string | null }>,
+): Array<{ index: number; assetId: string; name: string; imagePath: string | null }> {
+  const entries = [...mentionMap.entries()]
+    .filter(([index]) => Number.isInteger(index) && index > 0)
+    .map(([index, asset]) => ({ index, ...asset }))
+    .sort((a, b) => a.index - b.index);
+
+  for (let position = 0; position < entries.length; position++) {
+    const expected = position + 1;
+    if (entries[position].index !== expected) {
+      throw new Error(`图片引用编号不连续：缺少 @图片${expected}，无法保证视频请求引用正确`);
+    }
+  }
+  return entries;
+}
+
+/** 内部方法：按稳定 N 构建内容，而非按提示词首次出现顺序构建。 */
+function buildContentArrayFromMap(
+  prompt: string,
+  mentionMap: Map<number, { assetId: string; name: string; imagePath: string | null }>,
+  urlResolver: (info: { assetId: string; imagePath: string | null }) => string,
+): ContentItem[] {
+  const refs: ContentImageItem[] = orderedReferenceAssets(mentionMap).map((asset) => ({
+    type: "image_url",
+    image_url: { url: urlResolver({ assetId: asset.assetId, imagePath: asset.imagePath }) },
+    role: "reference_image",
+  }));
+  return [{ type: "text", text: prompt }, ...refs];
+}
+
+/**
+ * 根据稳定编号映射将 prompt 编译为 API content。
+ * 即使同一资产在正文出现多次，也只提交一次参考图；编号由 mention_map 的 N 决定。
  */
 export function buildContentArray(
   prompt: string,
   mentionMap: Map<number, { assetId: string; name: string; imagePath: string | null }>,
-  urlResolver: (info: { assetId: string; imagePath: string | null }) => string = ({ imagePath }) =>
-    imagePath ?? "",
+  urlResolver: (info: { assetId: string; imagePath: string | null }) => string = ({ imagePath }) => imagePath ?? "",
 ): ContentItem[] {
-  const indexes = parseMentionIndexes(prompt);
-  return buildContentArrayFromIndexes(prompt, indexes, mentionMap, urlResolver);
-}
-
-/** 内部方法：使用预解析的索引构建 content 数组，避免重复解析 */
-function buildContentArrayFromIndexes(
-  prompt: string,
-  indexes: ReturnType<typeof parseMentionIndexes>,
-  mentionMap: Map<number, { assetId: string; name: string; imagePath: string | null }>,
-  urlResolver: (info: { assetId: string; imagePath: string | null }) => string,
-): ContentItem[] {
-  const visited = new Set<number>();
-
-  const refs: ContentItem[] = [];
-  // 按 prompt 中出现顺序收集 reference 条目（去重）
-  for (const { index, type } of indexes) {
-    if (visited.has(index)) continue;
-    visited.add(index);
-    const asset = mentionMap.get(index);
-    if (!asset) continue; // 无对应资产则跳过
-    const url = urlResolver({ assetId: asset.assetId, imagePath: asset.imagePath });
-
-    if (type === "image") {
-      refs.push({
-        role: "reference_image",
-        image_url: { url },
-        index,
-        text: asset.name,
-        type: "image_url",
-      });
-    } else {
-      refs.push({
-        role: "reference_audio",
-        audio_url: { url },
-        index,
-        text: asset.name,
-        type: "audio_url",
-      });
-    }
-  }
-
-  // content[0] = prompt 文本
-  const textItem: ContentTextItem = { type: "text", text: prompt };
-  return [textItem, ...refs];
+  return buildContentArrayFromMap(prompt, mentionMap, urlResolver);
 }
 
 /**
@@ -182,23 +176,18 @@ export function buildVideoContent(
   videoParams: VideoGenParams,
   urlResolver?: (info: { assetId: string; imagePath: string | null }) => string,
 ): BuildResult {
-  const indexes = parseMentionIndexes(prompt);
-  const content = buildContentArrayFromIndexes(
+  const content = buildContentArrayFromMap(
     prompt,
-    indexes,
     mentionMap,
     urlResolver ?? (({ imagePath }) => imagePath ?? ""),
   );
-  const mentions = indexes.map(({ index, type }) => {
-    const asset = mentionMap.get(index);
-    return {
-      assetId: asset?.assetId ?? "",
-      name: asset?.name ?? `@${type}${index}`,
-      type: type === "image" ? "image" : "audio",
-      imagePath: asset?.imagePath ?? null,
-      index,
-    };
-  });
+  const mentions = orderedReferenceAssets(mentionMap).map((asset) => ({
+    assetId: asset.assetId,
+    name: asset.name,
+    type: "image",
+    imagePath: asset.imagePath,
+    index: asset.index,
+  }));
 
   return {
     content,

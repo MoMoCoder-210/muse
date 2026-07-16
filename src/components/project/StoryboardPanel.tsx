@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { ProjectInfo, Clip, Storyboard, StoryboardAssetInfo, AssetType } from "../../types/project";
+import type {
+  ProjectInfo, Clip, Storyboard, StoryboardAssetInfo, AssetType, PromptDoc,
+} from "../../types/project";
 import {
   listClips, listStoryboards, listClipAssets,
   updateStoryboardAssets, createStoryboard, deleteStoryboard, insertStoryboard,
   updateStoryboardParams, updateStoryboardDuration, getSettings,
+  generateStoryboardVideo,
   importVideoFile, addStoryboardVideo, selectStoryboardVideo, listStoryboardVideos,
   deleteStoryboardVideo,
 } from "../../services/tauri";
@@ -16,6 +20,12 @@ import { DeleteStoryboardConfirm } from "./DeleteStoryboardConfirm";
 import { StoryboardConfirm } from "./StoryboardConfirm";
 import { MentionDropdown } from "./MentionDropdown";
 import type { AssetMention } from "./MentionDropdown";
+import { PromptEditor } from "./PromptEditor";
+import type { PromptEditorHandle, PromptEditorChange } from "./PromptEditor";
+import {
+  createAssetTag, hydratePromptDoc, isPromptDoc,
+  plainTextToPromptDoc, promptDocToPlainText, type PromptMention,
+} from "../../utils/promptDocument";
 import {
   VIDEO_DURATION_MIN, VIDEO_DURATION_MAX, VIDEO_ASPECT_OPTIONS,
   VIDEO_DEFAULT_MODEL, VIDEO_DEFAULT_DURATION, VIDEO_DEFAULT_RESOLUTION, VIDEO_DEFAULT_ASPECT,
@@ -42,7 +52,81 @@ type ClipData = { storyboards: Storyboard[]; assets: StoryboardAssetInfo[]; load
 
 const parseIds = (j: string): Set<string> => { try { return new Set(JSON.parse(j) as string[]); } catch { return new Set(); } };
 
+/**
+ * Derive the reference map from the mention atoms that remain in the prompt.
+ * Reindexing keeps Seedance's positional reference array aligned after a chip is removed.
+ */
+function normalizePromptReferences(
+  doc: PromptDoc,
+  mentionMap: Map<number, AssetMention>,
+): { promptDoc: PromptDoc; prompt: string; mentions: AssetMention[] } {
+  const activeIndexes = new Set<number>();
+  const collectIndexes = (node: PromptDoc) => {
+    if (node.type === "mention") {
+      const index = Number(node.attrs?.index);
+      if (Number.isInteger(index) && index > 0) activeIndexes.add(index);
+    }
+    node.content?.forEach(collectIndexes);
+  };
+  collectIndexes(doc);
 
+  const activeMentions = [...activeIndexes]
+    .sort((a, b) => a - b)
+    .map((index) => {
+      const mention = mentionMap.get(index);
+      if (!mention) {
+        throw new Error(`@图片${index} 没有对应资产，请删除该引用后重新插入`);
+      }
+      return mention;
+    });
+  const newIndexByOldIndex = new Map(activeMentions.map((mention, position) => [mention.index, position + 1]));
+  const mentions = activeMentions.map((mention, position) => ({
+    ...mention,
+    index: position + 1,
+    assetTag: createAssetTag(mention.name, position + 1),
+  }));
+  const mentionByIndex = new Map(mentions.map((mention) => [mention.index, mention]));
+
+  const rewriteIndexes = (node: PromptDoc): PromptDoc => {
+    const content = node.content?.map(rewriteIndexes);
+    if (node.type !== "mention") return { ...node, ...(content ? { content } : {}) };
+
+    const oldIndex = Number(node.attrs?.index);
+    const index = newIndexByOldIndex.get(oldIndex);
+    const mention = index ? mentionByIndex.get(index) : undefined;
+    if (!mention) throw new Error("提示词中存在无效图片引用，请删除后重新插入");
+
+    return {
+      ...node,
+      attrs: {
+        ...node.attrs,
+        id: mention.assetId,
+        index,
+        kind: "图片",
+        label: mention.name,
+        assetId: mention.assetId,
+        assetType: mention.type,
+        imagePath: mention.imagePath,
+        assetTag: mention.assetTag,
+      },
+      ...(content ? { content } : {}),
+    };
+  };
+
+  const promptDoc = rewriteIndexes(doc);
+  const prompt = promptDocToPlainText(promptDoc);
+  const tagIndexes = [...new Set(
+    [...prompt.matchAll(/\(@图片(\d+)\)/g)].map((match) => Number(match[1])),
+  )].sort((a, b) => a - b);
+  const mentionIndexes = mentions.map((mention) => mention.index);
+  const tagsMatchMentions = tagIndexes.length === mentionIndexes.length
+    && tagIndexes.every((index, position) => index === mentionIndexes[position]);
+  if (!tagsMatchMentions) {
+    throw new Error("提示词中的图片引用必须与资产胶囊一一对应，请删除手工输入的无效 @图片N 后重试");
+  }
+
+  return { promptDoc, prompt, mentions };
+}
 
 export function StoryboardPanel({ project }: Props) {
   const { toast } = useToast();
@@ -521,6 +605,23 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   }, [sb.id]);
   useEffect(() => { loadVideos(); }, [loadVideos, videoVer]);
 
+  // Worker 完成或最终失败后由 sidecar 转发事件，立即刷新当前分镜的视频批次。
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{
+      storyboard_id: string;
+      status: "success" | "failed";
+      error_message?: string | null;
+    }>("storyboard-video-ready", ({ payload }) => {
+      if (payload.storyboard_id !== sb.id) return;
+      setVideoVer((version) => version + 1);
+      void onVideoRefresh(sb.id);
+      if (payload.status === "success") toast("视频生成完成", "success");
+      else toast(`视频生成失败：${payload.error_message || "未知错误"}`, "error");
+    }).then((dispose) => { unlisten = dispose; });
+    return () => { unlisten?.(); };
+  }, [onVideoRefresh, sb.id, toast]);
+
   // 最终视频变更时同步播放到该视频
   useEffect(() => { setViewingVideoId(sb.selected_video_id || null); }, [sb.selected_video_id]);
   // 切换分镜后重置观看状态
@@ -614,63 +715,205 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   // ── 视频参数状态（从 sb.video_param_json 初始化，时长回退到数据库存储时长） ──
   const [params, setParams] = useState<VideoParams>(() => parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
   const [prompt, setPrompt] = useState(sb.video_prompt || "");
+  // promptDoc 是编辑器的唯一主数据；prompt 是从它派生并提交给 Worker/API 的纯文本。
+  const [promptDoc, setPromptDoc] = useState<PromptDoc>(() => plainTextToPromptDoc(sb.video_prompt || "", []));
   const paramsRef = useRef(params); paramsRef.current = params;
   const promptRef = useRef(prompt); promptRef.current = prompt;
+  const promptDocRef = useRef(promptDoc); promptDocRef.current = promptDoc;
   const sbIdRef = useRef(sb.id); sbIdRef.current = sb.id;
-
-  // 格式化显示：c01/c02... 前换行（兼容前面有空格或无空格）
-  const formatPrompt = (raw: string) => raw.replace(/\s*(c\d{2,},\d+s,)/g, "\n\n$1").trim();
-  const displayPrompt = useMemo(() => formatPrompt(prompt), [prompt]);
-
-  // 切换分镜、或设置里模型列表就绪时重置参数
-  useEffect(() => {
-    setParams(parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
-    setPrompt(sb.video_prompt || "");
-  }, [sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
-
-  // 失焦保存（保存原始文本，去掉显示用的换行；同时持久化 mentionMap）
-  const saveParams = useCallback(async () => {
-    try {
-      const raw = promptRef.current.replace(/\n\n(c\d{2,},\d+s,)/g, " $1");
-      // 将 mentionMap 序列化到 video_param_json 中
-      const mapEntries: Array<{ n: number; assetId: string; name: string; imagePath: string | null }> = [];
-      mentionMapRef.current.forEach((v, k) => {
-        mapEntries.push({ n: k, assetId: v.assetId, name: v.name, type: v.type, imagePath: v.imagePath });
-      });
-      const paramsJson = { ...paramsRef.current, mention_map: mapEntries };
-      await updateStoryboardParams({
-        storyboard_id: sbIdRef.current,
-        video_param_json: JSON.stringify(paramsJson),
-        video_prompt: raw || null,
-      });
-    } catch {
-      // 静默失败，失焦保存不需要 toast
-    }
+  // 同一分镜的迁移、失焦保存与点击生成保存必须串行，避免旧迁移请求晚到覆盖新编辑。
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // 一个旧 JSON 版本最多迁移一次；资产缩略图刷新不能重新排队旧文本覆盖用户编辑。
+  const migratedPromptDocKeysRef = useRef(new Set<string>());
+  const queueStoryboardSave = useCallback((input: {
+    storyboard_id: string;
+    video_param_json: string | null;
+    video_prompt: string | null;
+  }) => {
+    const write = saveQueueRef.current.then(() => updateStoryboardParams(input));
+    // 队列本身吞掉错误以继续处理后续用户保存；调用方仍会收到本次 write 的失败。
+    saveQueueRef.current = write.catch(() => undefined);
+    return write;
   }, []);
 
-  // 从已保存的 video_param_json 中还原 mentionMap
+  // 切换分镜：一次性恢复稳定的 mention_map 与 prompt_doc。
+  // 旧数据缺失 mention_map，或曾被保存为“只有文本的 prompt_doc”时，严格按完整
+  // `资产名(@图片N)` 恢复；名称不唯一时宁可保留文本，也绝不猜错资产。
   useEffect(() => {
+    let rawParams: Record<string, unknown> = {};
     try {
-      const json = JSON.parse(sb.video_param_json || "{}");
-      const entries = json.mention_map;
-      if (Array.isArray(entries)) {
-        const map = new Map<number, AssetMention>();
-        for (const e of entries) {
-          map.set(e.n as number, {
-            assetId: e.assetId as string,
-            name: e.name as string,
-            type: (e.type as string) || "",
-            imagePath: e.imagePath as string | null,
-          });
-        }
-        mentionMapRef.current = map;
-      } else {
-        mentionMapRef.current = new Map();
-      }
-    } catch {
-      mentionMapRef.current = new Map();
+      const parsed: unknown = JSON.parse(sb.video_param_json || "{}");
+      if (parsed && typeof parsed === "object") rawParams = parsed as Record<string, unknown>;
+    } catch { /* 使用默认参数与空映射 */ }
+
+    const currentAssetById = new Map(assets.map((asset) => [asset.asset_id, asset]));
+    let mentions: AssetMention[] = [];
+    for (const rawMention of Array.isArray(rawParams.mention_map) ? rawParams.mention_map : []) {
+      if (!rawMention || typeof rawMention !== "object") continue;
+      const value = rawMention as Partial<PromptMention>;
+      const index = Number(value.n);
+      const name = typeof value.name === "string" ? value.name : "";
+      const assetId = typeof value.assetId === "string" ? value.assetId : "";
+      if (!Number.isInteger(index) || index < 1 || !name || !assetId) continue;
+      const currentAsset = currentAssetById.get(assetId);
+      mentions.push({
+        assetId,
+        name,
+        type: typeof value.type === "string" ? value.type : (currentAsset?.type ?? ""),
+        imagePath: currentAsset?.selected_image_path ?? (typeof value.imagePath === "string" ? value.imagePath : null),
+        index,
+        assetTag: typeof value.assetTag === "string" && value.assetTag
+          ? value.assetTag
+          : createAssetTag(name, index),
+      });
     }
-  }, [sb.video_param_json]);
+
+    const storedDoc = rawParams.prompt_doc;
+    const sourcePrompt = sb.video_prompt || (isPromptDoc(storedDoc) ? promptDocToPlainText(storedDoc) : "");
+    const mappedMentionCount = mentions.length;
+    const mentionByIndex = new Map(mentions.map((mention) => [mention.index, mention]));
+    const assetsByName = new Map<string, StoryboardAssetInfo[]>();
+    for (const asset of assets) {
+      const name = asset.name.trim();
+      if (!name) continue;
+      const entries = assetsByName.get(name) ?? [];
+      entries.push(asset);
+      assetsByName.set(name, entries);
+    }
+
+    // 只恢复名称唯一的资产。直接用精确的完整 assetTag 正则匹配，不做左边界字符类检查——
+    // 左边界检查会把 CJK 上下文词（如"在"）误判为名称字符而跳过合法位置（同 findAssetTag 修复）。
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const [name, matchingAssets] of assetsByName) {
+      if (matchingAssets.length !== 1) continue;
+
+      const tagPattern = new RegExp(`${escapeRegex(name)}\\(@图片(\\d+)\\)`, "gu");
+      let tagMatch: RegExpExecArray | null;
+      while ((tagMatch = tagPattern.exec(sourcePrompt)) !== null) {
+        const index = Number(tagMatch[1]);
+        if (!Number.isInteger(index) || index < 1 || mentionByIndex.has(index)) continue;
+
+        const asset = matchingAssets[0];
+        mentionByIndex.set(index, {
+          assetId: asset.asset_id,
+          name: asset.name,
+          type: asset.type,
+          imagePath: asset.selected_image_path,
+          index,
+          assetTag: createAssetTag(asset.name, index),
+        });
+      }
+    }
+
+    mentions = [...mentionByIndex.values()].sort((a, b) => a.index - b.index);
+    const recoveredMissingMapping = mentions.length > mappedMentionCount;
+
+    // 重建条件：
+    // 1. 没有合法的 storedDoc
+    // 2. 有 mentions 但 storedDoc 里的 mention 节点数量少于恢复到的 mentions 数量
+    //    （涵盖：之前正则扫描失败存了纯文本 doc、或部分 mention 丢失的情况）
+    const storedMentionCount = (() => {
+      let count = 0;
+      const countMentions = (node: PromptDoc) => {
+        if (node.type === "mention") count++;
+        node.content?.forEach(countMentions);
+      };
+      if (isPromptDoc(storedDoc)) countMentions(storedDoc);
+      return count;
+    })();
+    const normalizedMentions: PromptMention[] = mentions.map((mention) => ({
+      n: mention.index,
+      assetId: mention.assetId,
+      name: mention.name,
+      type: mention.type,
+      imagePath: mention.imagePath,
+      assetTag: mention.assetTag,
+    }));
+
+    let needsPromptDocRebuild = !isPromptDoc(storedDoc)
+      || (mentions.length > 0 && storedMentionCount < mentions.length);
+
+    // hydrate 之后额外保底：若 sourcePrompt 中仍有 assetTag 未转为 mention 节点
+    // （如 LLM 追加的新行文），回退到全量 plainTextToPromptDoc 重建。
+    let nextDoc: PromptDoc = needsPromptDocRebuild
+      ? plainTextToPromptDoc(sourcePrompt, normalizedMentions)
+      : hydratePromptDoc(storedDoc as PromptDoc, normalizedMentions);
+
+    if (!needsPromptDocRebuild) {
+      // 保底：比较 hydrate 后的 mention 节点数 vs 全量解析应得的节点数。
+      // 若 prompt_doc 中将 assetTag 存为纯文本（如编辑中误覆盖），
+      // hydrate 无法恢复；全量 rebuild 可重新转为 mention 节点。
+      const expectedDoc = plainTextToPromptDoc(sourcePrompt, normalizedMentions);
+      const countMentions = (node: PromptDoc): number => {
+        let c = node.type === "mention" ? 1 : 0;
+        node.content?.forEach((child) => { c += countMentions(child as PromptDoc); });
+        return c;
+      };
+      const hydratedCount = countMentions(nextDoc);
+      const expectedCount = countMentions(expectedDoc);
+      if (hydratedCount < expectedCount) {
+        needsPromptDocRebuild = true;
+        nextDoc = expectedDoc;
+      }
+    }
+
+    const nextPrompt = promptDocToPlainText(nextDoc);
+
+    mentionMapRef.current = new Map(mentions.map((mention) => [mention.index, mention]));
+    setMentionItems(mentions);
+    setParams(parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
+    setPrompt(nextPrompt);
+    setPromptDoc(nextDoc);
+
+    // 修复旧行缺失映射、或先前错误保存为普通文本 AST 的情况，并将恢复结果持久化。
+    const migrationKey = `${sb.id}:${sb.video_param_json ?? ""}:${mentions.map((mention) => mention.assetTag).join("|")}`;
+    if ((needsPromptDocRebuild || recoveredMissingMapping) && !migratedPromptDocKeysRef.current.has(migrationKey)) {
+      migratedPromptDocKeysRef.current.add(migrationKey);
+      const migratedParams = {
+        ...rawParams,
+        ...parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels),
+        mention_map: normalizedMentions,
+        prompt_doc: nextDoc,
+      };
+      void queueStoryboardSave({
+        storyboard_id: sb.id,
+        video_param_json: JSON.stringify(migratedParams),
+        video_prompt: nextPrompt || null,
+      }).catch(() => { /* 下次编辑/失焦时重试 */ });
+    }
+  }, [assets, sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
+
+  // 失焦保存：只持久化当前提示词中实际存在的胶囊，并保持编号与文本标签连续一致。
+  const saveParams = useCallback(async () => {
+    try {
+      const doc = editorRef.current?.getPromptDoc() ?? promptDocRef.current;
+      const normalized = normalizePromptReferences(doc, mentionMapRef.current);
+      mentionMapRef.current = new Map(normalized.mentions.map((mention) => [mention.index, mention]));
+      setMentionItems(normalized.mentions);
+      setPromptDoc(normalized.promptDoc);
+      setPrompt(normalized.prompt);
+      const mapEntries = normalized.mentions.map((mention) => ({
+        n: mention.index,
+        assetId: mention.assetId,
+        name: mention.name,
+        type: mention.type,
+        imagePath: mention.imagePath,
+        assetTag: mention.assetTag,
+      }));
+      const paramsJson = {
+        ...paramsRef.current,
+        mention_map: mapEntries,
+        prompt_doc: normalized.promptDoc,
+      };
+      await queueStoryboardSave({
+        storyboard_id: sbIdRef.current,
+        video_param_json: JSON.stringify(paramsJson),
+        video_prompt: normalized.prompt || null,
+      });
+    } catch {
+      // 静默失败，后续失焦仍会重试。
+    }
+  }, []);
 
   const updateParam = useCallback(<K extends keyof VideoParams>(key: K, value: VideoParams[K]) => {
     setParams((prev) => {
@@ -692,117 +935,131 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   // ── @mention 状态 ────────────────────────────────
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionPos, setMentionPos] = useState<{ top: number; left: number } | null>(null);
+  const editorRef = useRef<PromptEditorHandle>(null);
   const mentionMapRef = useRef<Map<number, AssetMention>>(new Map());
+  // mentionItems：已分配 index 的资产列表，作为 state 传给 PromptEditor 触发重渲染
+  const [mentionItems, setMentionItems] = useState<AssetMention[]>([]);
 
-  // 从当前分镜关联的资产中提取可 @ 的图片资产
+  // 当前分镜可 @ 的资产。已分配项从 mention_map（或后端返回的 assetTag）取稳定编号；
+  // 新资产在用户选择时才分配 N，避免列表排序影响任何既有引用。
   const mentionAssets = useMemo<AssetMention[]>(() =>
-    assets
-      .filter((a) => a.selected_image_path)
-      .map((a) => ({
-        assetId: a.asset_id,
-        name: a.name,
-        type: a.type,
-        imagePath: a.selected_image_path,
-      })),
-    [assets]
+    assets.map((asset) => {
+      const assigned = mentionItems.find((mention) => mention.assetId === asset.asset_id);
+      const index = assigned?.index ?? asset.index ?? 0;
+      return {
+        assetId: asset.asset_id,
+        name: asset.name,
+        type: asset.type,
+        imagePath: asset.selected_image_path,
+        index,
+        assetTag: assigned?.assetTag ?? asset.assetTag ?? (index > 0 ? createAssetTag(asset.name, index) : ""),
+      };
+    }),
+    [assets, mentionItems],
   );
 
-  // 扫描 prompt 中已有的 (@图片N) 标记，找出最大序号
-  const existingMentionNums = useMemo(() => {
-    const re = /\(@图片(\d+)\)/g;
-    const nums: number[] = [];
-    let m: RegExpExecArray | null;
-    // 同时扫描 raw prompt 和 diplay 形式，防止漏掉
-    const scan = (text: string) => {
-      re.lastIndex = 0;
-      while ((m = re.exec(text)) !== null) nums.push(Number(m[1]));
-    };
-    scan(prompt);
-    scan(displayPrompt);
-    return nums;
-  }, [prompt, displayPrompt]);
-
+  // 新资产在当前映射的末尾分配编号；保存或生成时会按仍存在的胶囊重排为连续编号。
   const nextMentionIndex = useMemo(() => {
-    if (existingMentionNums.length === 0) return 1;
-    return Math.max(...existingMentionNums) + 1;
-  }, [existingMentionNums]);
+    const maxIndex = mentionItems.reduce((max, mention) => Math.max(max, mention.index), 0);
+    return maxIndex + 1;
+  }, [mentionItems]);
 
-  // 处理 textarea 输入
-  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value);
-  }, []);
-
-  // 敲 @ 键时触发弹窗（onKeyUp，此时 textarea 值已更新）
-  const handlePromptKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== "@") {
-      // 如果已打开弹窗但用户继续输入（过滤文字），实时更新过滤
-      if (mentionOpen) {
-        const ta = textareaRef.current;
-        if (ta) {
-          const pos = ta.selectionStart;
-          const before = ta.value.slice(0, pos);
-          const atm = before.match(/(?:^|[\s(（])@([^\s)）]*)$/);
-          if (atm) {
-            setMentionFilter(atm[1]);
-          } else {
-            setMentionOpen(false);
-          }
-        }
-      }
-      return;
-    }
-    // 用户敲了 @，检查上下文是否为合法触发
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const pos = ta.selectionStart;
-      if (!pos) return;
-      const before = ta.value.slice(0, pos);
-      // @ 前面必须是空格/行首/中文左括号，后面不能紧跟已存在的匹配
-      const atm = before.match(/(?:^|[\s(（])@([^\s)）]*)$/);
-      if (atm) {
-        setMentionOpen(true);
-        setMentionFilter(atm[1]);
-      }
-    });
-  }, [mentionOpen]);
-
-  // @ 选中资产后插入 (@图片N) 到光标位置
-  const handleMentionSelect = useCallback((asset: AssetMention) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const val = ta.value;
-    const pos = ta.selectionStart;
-    const before = val.slice(0, pos);
-    const after = val.slice(pos);
-
-    // 替换光标前最近的 @xxx 文本为 (@图片N)
-    const replaced = before.replace(/(?:^|[\s(（])@[^\s)）]*$/, (match) => {
-      // 保留非 @ 前缀（空格/中文括号等）
-      const prefix = /^[\s(（]/.test(match) ? match[0] : "";
-      const token = prefix + `(@图片${nextMentionIndex})`;
-      return token;
-    });
-
-    const newVal = replaced + after;
-    setPrompt(newVal);
-    mentionMapRef.current.set(nextMentionIndex, asset);
-    setMentionOpen(false);
-    setMentionFilter("");
-
-    // 聚焦并移动光标到插入位置之后
-    requestAnimationFrame(() => {
-      ta.focus();
-      const cursorPos = replaced.length;
-      ta.setSelectionRange(cursorPos, cursorPos);
-    });
-  }, [nextMentionIndex]);
+  // assetId → 已分配序号（供下拉展示并复用同一资产编号）。
+  const existingAssetIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const mention of mentionItems) map.set(mention.assetId, mention.index);
+    return map;
+  }, [mentionItems]);
 
   const closeMention = useCallback(() => {
     setMentionOpen(false);
     setMentionFilter("");
+    setMentionPos(null);
   }, []);
+
+  // Tiptap suggestion 回调：@ 触发时打开下拉。
+  const handleMentionStart = useCallback((query: string, pos: { top: number; left: number }) => {
+    setMentionFilter(query);
+    setMentionPos(pos);
+    setMentionOpen(true);
+  }, []);
+
+  const handleMentionUpdate = useCallback((query: string) => {
+    setMentionFilter(query);
+  }, []);
+
+  // 任何键入、粘贴或 @ 插入都由 PromptEditor 实时返回 AST 与其纯文本序列化。
+  const handlePromptChange = useCallback((change: PromptEditorChange) => {
+    setPromptDoc(change.promptDoc);
+    setPrompt(change.plainText);
+  }, []);
+
+  // 选中资产：通过 editorRef 插入 mention 节点（Tiptap 内部处理）。
+  // 同一资产可多次插入胶囊；限制的是每分镜关联的资产数量，而不是胶囊数量。
+  const handleMentionSelect = useCallback((asset: AssetMention) => {
+    let assignedIndex: number | undefined;
+    mentionMapRef.current.forEach((mention, index) => {
+      if (mention.assetId === asset.assetId) assignedIndex = index;
+    });
+
+    const index = assignedIndex ?? nextMentionIndex;
+
+    // 新资产先分配编号；保存或生成时会根据仍存在的胶囊清理并重排引用。
+    if (assignedIndex === undefined) {
+      const mention: AssetMention = {
+        ...asset,
+        index,
+        assetTag: createAssetTag(asset.name, index),
+      };
+      mentionMapRef.current.set(index, mention);
+      setMentionItems([...mentionMapRef.current.values()].sort((a, b) => a.index - b.index));
+    }
+
+    const assetTag = mentionMapRef.current.get(index)?.assetTag ?? createAssetTag(asset.name, index);
+    editorRef.current?.insertMention({ ...asset, index, assetTag }, index);
+    closeMention();
+  }, [nextMentionIndex, closeMention]);
+
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const handleGenerateVideo = useCallback(async () => {
+    try {
+      const doc = editorRef.current?.getPromptDoc() ?? promptDocRef.current;
+      const normalized = normalizePromptReferences(doc, mentionMapRef.current);
+      const raw = normalized.prompt.trim();
+      if (!raw) {
+        toast("提示词为空，无法生成视频", "error");
+        return;
+      }
+
+      mentionMapRef.current = new Map(normalized.mentions.map((mention) => [mention.index, mention]));
+      setMentionItems(normalized.mentions);
+      setPromptDoc(normalized.promptDoc);
+      setPrompt(normalized.prompt);
+      const mapEntries = normalized.mentions.map((mention) => ({
+        n: mention.index,
+        assetId: mention.assetId,
+        name: mention.name,
+        type: mention.type,
+        imagePath: mention.imagePath,
+        assetTag: mention.assetTag,
+      }));
+
+      setGeneratingVideo(true);
+      // 先提交当前光标位置的 AST，随后才入队，避免 Worker 读到旧的 video_prompt。
+      await queueStoryboardSave({
+        storyboard_id: sb.id,
+        video_param_json: JSON.stringify({ ...params, mention_map: mapEntries, prompt_doc: normalized.promptDoc }),
+        video_prompt: raw,
+      });
+      await generateStoryboardVideo({ storyboard_id: sb.id });
+      toast("视频生成任务已提交", "success");
+    } catch (error) {
+      toast(`视频生成失败：${String(error)}`, "error");
+    } finally {
+      setGeneratingVideo(false);
+    }
+  }, [params, sb.id, toast]);
 
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const handleUploadVideo = useCallback(async () => {
@@ -952,24 +1209,27 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         {/* 右侧：提示词 */}
         <div className="sd-detail-right">
           <div className="sd-detail-prompt">
-            <textarea
-              ref={textareaRef}
-              className="sd-detail-prompt-text"
-              value={displayPrompt}
+            <PromptEditor
+              ref={editorRef}
+              document={promptDoc}
+              resetKey={sb.id}
               onChange={handlePromptChange}
-              onKeyUp={handlePromptKeyUp}
               onBlur={saveParams}
               placeholder="暂无提示词 · 输入 @ 引用资产"
-              rows={4}
+              onMentionStart={handleMentionStart}
+              onMentionUpdate={handleMentionUpdate}
+              onMentionClose={closeMention}
+              disabled={busy}
             />
             <MentionDropdown
               assets={mentionAssets}
               isOpen={mentionOpen}
               filter={mentionFilter}
-              anchorEl={textareaRef.current}
+              position={mentionPos}
               onSelect={handleMentionSelect}
               onClose={closeMention}
               nextIndex={nextMentionIndex}
+              existingIndexMap={existingAssetIndexMap}
             />
           </div>
         </div>
@@ -1040,6 +1300,8 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
             <div className="sd-detail-assets">
               {CATS.map((cat) => {
                 const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
+                const totalLinkedCount = cIds.size + sIds.size + iIds.size;
+                const atLimit = totalLinkedCount >= 9;
                 return (
                   <div key={cat.type} className="sd-detail-asset-row">
                     <span className="sd-detail-asset-icon">{cat.icon}</span>
@@ -1075,7 +1337,12 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
                           </span>
                         );
                       })}
-                      <button className="sd-detail-chip sd-detail-chip--add" disabled={busy} onClick={() => setPickerCat(cat.type)} title={`关联${cat.label}`}>+</button>
+                      <button
+                        className="sd-detail-chip sd-detail-chip--add"
+                        disabled={busy || atLimit}
+                        onClick={() => setPickerCat(cat.type)}
+                        title={atLimit ? "每个分镜最多关联 9 个资产" : `关联${cat.label}`}
+                      >+</button>
                     </div>
                   </div>
                 );
@@ -1133,11 +1400,13 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
             </div>
             <button
               className="sd-generate-btn primary-button"
-              disabled
-              title={Object.keys(videoModels).length === 0 ? "请先在设置中配置视频模型" : "视频生成功能即将开放"}
+              type="button"
+              disabled={generatingVideo}
+              onClick={handleGenerateVideo}
+              title="按当前提示词和参考图片生成视频"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
-              生成视频
+              {generatingVideo ? "提交中…" : "生成视频"}
             </button>
           </div>
         </div>
@@ -1151,6 +1420,9 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         const linkedList = allOfType.filter((a) => linked(a));
         const freeList = allOfType.filter((a) => !linked(a));
         const hasSelection = pickerSelected.size > 0;
+        const totalLinked = cIds.size + sIds.size + iIds.size;
+        const remainingSlots = Math.max(0, 9 - totalLinked);
+        const overLimit = pickerSelected.size > remainingSlots;
 
         const closePicker = () => { setPickerCat(null); setPickerSelected(new Set()); };
         const togglePick = (id: string) => {
@@ -1162,6 +1434,14 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
           const sIds = new Set(parseIds(sb.scene_ids_json));
           const iIds = new Set(parseIds(sb.item_ids_json));
           const newIds = freeList.filter((a) => pickerSelected.has(a.asset_id));
+
+          // 超过每分镜最多 9 个资产的上限时阻止关联
+          const currentTotal = cIds.size + sIds.size + iIds.size;
+          if (currentTotal + newIds.length > 9) {
+            toast(`每个分镜最多关联 9 个资产（当前已关联 ${currentTotal} 个，本次选择了 ${newIds.length} 个）`, "error");
+            return;
+          }
+
           for (const a of newIds) {
             if (a.type === "character") cIds.add(a.asset_id);
             else if (a.type === "scene") sIds.add(a.asset_id);
@@ -1223,8 +1503,16 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
               {freeList.length > 0 && (
                 <div className="modal-actions">
                   <button type="button" className="secondary-button btn-sm" onClick={closePicker} disabled={busy}>取消</button>
-                  <button type="button" className="primary-button btn-sm" onClick={confirmPick} disabled={busy || !hasSelection}>
-                    确定{hasSelection ? ` (${pickerSelected.size})` : ""}
+                  <button
+                    type="button"
+                    className="primary-button btn-sm"
+                    onClick={confirmPick}
+                    disabled={busy || !hasSelection || overLimit}
+                    title={overLimit ? `最多可再关联 ${remainingSlots} 个资产（每分镜上限 9 个）` : undefined}
+                  >
+                    {overLimit
+                      ? `超出上限（最多再选 ${remainingSlots} 个）`
+                      : `确定${hasSelection ? ` (${pickerSelected.size})` : ""}`}
                   </button>
                 </div>
               )}

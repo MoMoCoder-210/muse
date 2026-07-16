@@ -60,10 +60,7 @@ pub struct CreateClipInput {
 
 /// 手动创建单个片段（无剧本源归属）
 #[tauri::command]
-pub fn create_clip(
-    input: CreateClipInput,
-    app: tauri::AppHandle,
-) -> Result<ClipInfo, String> {
+pub fn create_clip(input: CreateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
     let conn = util::open_app_conn(&app)?;
     let clip_id = uuid::Uuid::new_v4().to_string();
 
@@ -261,10 +258,7 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
                 &log_path,
                 "拆解",
                 "INFO",
-                &format!(
-                    "拆解任务已取消 clipId={}（共{}个任务）",
-                    id, task_count
-                ),
+                &format!("拆解任务已取消 clipId={}（共{}个任务）", id, task_count),
             );
         }
 
@@ -338,7 +332,8 @@ pub fn update_clip(
             rusqlite::params![&input.clip_id],
             |row| row.get::<_, i64>(0),
         )
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     // 使用参数化 SQL，避免动态拼接
     let title_val = input.title.as_deref().unwrap_or("");
@@ -414,10 +409,22 @@ pub fn update_clip(
             // 插入重拆任务 + 通知 Worker
             let task_id = uuid::Uuid::new_v4().to_string();
             let lock_key = format!("generate_clip_script:{}", clip_id);
+
+            // 查询项目风格（用于视频提示词风格拼接）
+            let style_mode: String = conn
+                .query_row(
+                    "SELECT style_mode FROM projects WHERE id = ?1",
+                    rusqlite::params![&project_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None)
+                .unwrap_or_default();
+
             let input_json = serde_json::json!({
                 "projectId": &project_id,
                 "clipId": &clip_id,
                 "sourceText": &source_text,
+                "styleMode": &style_mode,
             })
             .to_string();
 
@@ -479,10 +486,7 @@ pub struct DeleteAssetsInput {
 
 /// 删除资产
 #[tauri::command]
-pub fn delete_assets(
-    input: DeleteAssetsInput,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn delete_assets(input: DeleteAssetsInput, app: tauri::AppHandle) -> Result<(), String> {
     let conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
@@ -507,10 +511,7 @@ pub fn delete_assets(
 
 /// 在指定位置拆分片段
 #[tauri::command]
-pub fn split_clip(
-    input: SplitClipInput,
-    app: tauri::AppHandle,
-) -> Result<SplitClipResult, String> {
+pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitClipResult, String> {
     let mut conn = util::open_app_conn(&app)?;
 
     // 读取原片段
@@ -611,10 +612,7 @@ pub fn split_clip(
         "INFO",
         &format!(
             "片段已拆分 origin={} first={} second={} pos={}",
-            input.clip_id,
-            input.clip_id,
-            second_id,
-            input.split_position,
+            input.clip_id, input.clip_id, second_id, input.split_position,
         ),
     );
 

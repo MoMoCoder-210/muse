@@ -101,8 +101,11 @@ pub fn create_project(
         "defaultStyleMode": &style_mode
     });
     let manifest_path = workspace.join("manifest.json");
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
-        .map_err(|e| format!("Failed to write manifest.json: {}", e))?;
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .map_err(|e| format!("Failed to write manifest.json: {}", e))?;
     crate::project_log::append_log(
         &log_path,
         "项目",
@@ -186,7 +189,11 @@ pub fn start_worker(
 ) -> Result<String, String> {
     let project_id = project_id.ok_or_else(|| "project_id is required".to_string())?;
     util::ensure_worker_running(&state, &app, &project_id)?;
-    Ok(state.lock().map_err(|e| e.to_string())?.worker_id().to_string())
+    Ok(state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .worker_id()
+        .to_string())
 }
 
 /// 停止后台 Worker 进程
@@ -374,10 +381,20 @@ pub fn delete_project(
 
         // 记录已取消的任务
         if split_task_count > 0 {
-            crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("剧本拆解任务已取消（共{}个）", split_task_count));
+            crate::project_log::append_log(
+                &log_path,
+                "拆解",
+                "INFO",
+                &format!("剧本拆解任务已取消（共{}个）", split_task_count),
+            );
         }
         if clip_task_count > 0 {
-            crate::project_log::append_log(&log_path, "拆解", "INFO", &format!("片段拆解任务已取消（共{}个）", clip_task_count));
+            crate::project_log::append_log(
+                &log_path,
+                "拆解",
+                "INFO",
+                &format!("片段拆解任务已取消（共{}个）", clip_task_count),
+            );
         }
 
         Ok(())

@@ -133,8 +133,8 @@ fn probe_file(ffprobe: &Path, path: &str) -> Result<ProbeInfo, String> {
         ));
     }
 
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| format!("ffprobe 输出解析失败：{}", e))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe 输出解析失败：{}", e))?;
 
     let duration: f64 = v
         .get("format")
@@ -147,11 +147,8 @@ fn probe_file(ffprobe: &Path, path: &str) -> Result<ProbeInfo, String> {
 
     let has_audio = streams
         .map(|arr| {
-            arr.iter().any(|s| {
-                s.get("codec_type")
-                    .and_then(|c| c.as_str())
-                    == Some("audio")
-            })
+            arr.iter()
+                .any(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("audio"))
         })
         .unwrap_or(false);
 
@@ -252,8 +249,8 @@ pub fn concat_clip_videos(
         return Err("没有可拼接的视频片段".to_string());
     }
 
-    let ffmpeg = app_paths::ffmpeg_path(&app)
-        .ok_or_else(|| "未找到 ffmpeg，无法拼接".to_string())?;
+    let ffmpeg =
+        app_paths::ffmpeg_path(&app).ok_or_else(|| "未找到 ffmpeg，无法拼接".to_string())?;
     let ffprobe = app_paths::ffprobe_path(&app);
 
     // 校验文件存在 + 逐段探测：时长、是否含音轨、原生分辨率
@@ -335,10 +332,7 @@ pub fn concat_clip_videos(
             ));
         } else if any_audio {
             let d = seg_durations[i].max(0.1);
-            filter.push_str(&format!(
-                "anullsrc=r=48000:cl=stereo:d={:.3}[a{}];",
-                d, i
-            ));
+            filter.push_str(&format!("anullsrc=r=48000:cl=stereo:d={:.3}[a{}];", d, i));
         }
     }
     let mut concat = String::new();
@@ -464,10 +458,7 @@ pub fn concat_clip_videos(
         .map_err(|e| format!("等待 ffmpeg 结束失败：{}", e))?;
     if !status.success() {
         // 详细错误写入日志文件，与 lib.rs 使用相同的路径解析方式
-        let captured = log
-            .lock()
-            .map(|v| v.join("\n"))
-            .unwrap_or_default();
+        let captured = log.lock().map(|v| v.join("\n")).unwrap_or_default();
         let detail = if captured.trim().is_empty() {
             "(ffmpeg 无输出)".to_string()
         } else {
@@ -480,7 +471,11 @@ pub fn concat_clip_videos(
                 &log_path,
                 "视频拼接",
                 "ERROR",
-                &format!("ffmpeg 拼接失败（退出码 {:?}）：\n{}", status.code(), detail),
+                &format!(
+                    "ffmpeg 拼接失败（退出码 {:?}）：\n{}",
+                    status.code(),
+                    detail
+                ),
             );
         }
 
@@ -596,7 +591,10 @@ pub struct SaveConcatOutputInput {
 }
 
 #[tauri::command]
-pub fn save_concat_output(input: SaveConcatOutputInput, app: tauri::AppHandle) -> Result<String, String> {
+pub fn save_concat_output(
+    input: SaveConcatOutputInput,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
     let conn = util::open_app_conn(&app)?;
     let (project_id,): (String,) = conn
         .query_row(
@@ -687,7 +685,10 @@ pub fn delete_concat_output(
             &log_path,
             "视频拼接",
             "INFO",
-            &format!("已删除成片记录 id={} deleteFile={}", input.id, input.delete_file),
+            &format!(
+                "已删除成片记录 id={} deleteFile={}",
+                input.id, input.delete_file
+            ),
         );
     }
 
@@ -707,7 +708,10 @@ pub struct ConcatOutputRow {
 }
 
 #[tauri::command]
-pub fn list_concat_outputs(clip_id: String, app: tauri::AppHandle) -> Result<Vec<ConcatOutputRow>, String> {
+pub fn list_concat_outputs(
+    clip_id: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<ConcatOutputRow>, String> {
     let conn = util::open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(

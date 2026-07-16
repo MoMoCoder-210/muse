@@ -148,6 +148,37 @@ export type GenerateClipScriptInput = {
 export type StoryboardState = "pending" | "running" | "ready" | "failed" | "invalidated";
 
 /** 分镜数据（对应 storyboards 表） */
+export type StoryboardMention = {
+  /** 稳定的本分镜图片编号 N */
+  n: number;
+  assetId: string;
+  name: string;
+  type: AssetType | string;
+  /** 当前选定图片的本地路径；仅供前端预览，视频任务使用 ark_file_id */
+  imagePath?: string | null;
+  /** 完整、可精确匹配的标记：资产名(@图片N) */
+  assetTag: string;
+};
+
+export type PromptDocNode = {
+  type: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  content?: PromptDocNode[];
+};
+
+export type PromptDoc = PromptDocNode;
+
+/** video_param_json 在前端的扩展结构；模型参数与编辑模型共存。 */
+export type StoryboardVideoParams = {
+  model?: string;
+  duration?: number;
+  resolution?: string;
+  aspect_ratio?: string;
+  mention_map?: StoryboardMention[];
+  prompt_doc?: PromptDoc;
+};
+
 export type Storyboard = {
   id: string;
   project_id: string;
@@ -188,4 +219,8 @@ export type StoryboardAssetInfo = {
   prompt: string;
   /** 资产选定的图片路径（可能为 null） */
   selected_image_path: string | null;
+  /** 指定 storyboard 查询时由后端按该分镜 mention_map 注入；未引用为 null。 */
+  index?: number | null;
+  /** 完整引用文本：资产名(@图片N)，用于精确匹配为一个胶囊。 */
+  assetTag?: string | null;
 };

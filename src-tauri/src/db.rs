@@ -19,8 +19,7 @@ pub enum DbError {
 
 /// 初始化 SQLite 数据库连接。
 pub fn init_db(db_path: &Path) -> Result<Connection, DbError> {
-    let conn = Connection::open(db_path)
-        .map_err(|e| DbError::Connection(e.to_string()))?;
+    let conn = Connection::open(db_path).map_err(|e| DbError::Connection(e.to_string()))?;
 
     // 启用 WAL 模式
     conn.pragma_update(None, "journal_mode", "WAL")
@@ -191,7 +190,9 @@ fn parse_index_block(full: &str) -> Result<IndexDef, String> {
 
     // 索引名：在 "INDEX IF NOT EXISTS " 和随后的 " ON" 或 "(" 之间
     let after_kw = if trimmed.starts_with("CREATE UNIQUE INDEX IF NOT EXISTS ") {
-        trimmed.strip_prefix("CREATE UNIQUE INDEX IF NOT EXISTS ").unwrap()
+        trimmed
+            .strip_prefix("CREATE UNIQUE INDEX IF NOT EXISTS ")
+            .unwrap()
     } else {
         trimmed
             .strip_prefix("CREATE INDEX IF NOT EXISTS ")
@@ -255,17 +256,10 @@ pub fn sync_schema(conn: &Connection, schema_path: &Path) -> Result<(), DbError>
 
             for col in &table.columns {
                 if !existing.contains(&col.name) {
-                    let alter = format!(
-                        "ALTER TABLE {} ADD COLUMN {}",
-                        table.name, col.definition
-                    );
-                    conn.execute(&alter, [])
-                        .map_err(|e| {
-                            DbError::Sync(format!(
-                                "添加列 {}.{} 失败：{}",
-                                table.name, col.name, e
-                            ))
-                        })?;
+                    let alter = format!("ALTER TABLE {} ADD COLUMN {}", table.name, col.definition);
+                    conn.execute(&alter, []).map_err(|e| {
+                        DbError::Sync(format!("添加列 {}.{} 失败：{}", table.name, col.name, e))
+                    })?;
                     log::info!("[schema] 已添加列 {}.{}", table.name, col.name);
                 }
             }
@@ -295,12 +289,19 @@ pub fn sync_schema(conn: &Connection, schema_path: &Path) -> Result<(), DbError>
         }
     }
 
-    log::info!("[schema] 自检同步完成（{} 表 / {} 索引）", tables.len(), indexes.len());
+    log::info!(
+        "[schema] 自检同步完成（{} 表 / {} 索引）",
+        tables.len(),
+        indexes.len()
+    );
     Ok(())
 }
 
 /// 获取应用数据目录中的数据库路径
 #[allow(dead_code)]
 pub fn get_db_path(app_data_dir: &Path, project_id: &str) -> std::path::PathBuf {
-    app_data_dir.join("projects").join(project_id).join("project.sqlite")
+    app_data_dir
+        .join("projects")
+        .join(project_id)
+        .join("project.sqlite")
 }

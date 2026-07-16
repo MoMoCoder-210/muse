@@ -12,6 +12,7 @@ import type { WorkerCommand, WorkerMessage, TaskEvent } from "./types.js";
 import { splitScriptHandler } from "./handlers/split-script.js";
 import { generateClipScriptHandler } from "./handlers/generate-clip-script.js";
 import { generateAssetImageHandler } from "./handlers/generate-asset-image.js";
+import { generateVideoHandler } from "./handlers/generate-video.js";
 import { concatVideoHandler } from "./handlers/video-concat.js";
 import { SettingsManager } from "./config/settings.js";
 import { createClients } from "./clients/index.js";
@@ -258,8 +259,9 @@ async function main(): Promise<void> {
     taskRunner.registerHandler("split_script", splitScriptHandler);
     taskRunner.registerHandler("generate_clip_script", generateClipScriptHandler);
     taskRunner.registerHandler("generate_asset_image", generateAssetImageHandler);
+    taskRunner.registerHandler("generate_video", generateVideoHandler);
     taskRunner.registerHandler("concat_video", concatVideoHandler);
-    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script, generate_asset_image, concat_video");
+    logLine("主进程", "DEBUG", "已注册处理器：split_script, generate_clip_script, generate_asset_image, generate_video, concat_video");
 
     sendLog("info", `数据库初始化完成：${shortDb}`);
   } else {

@@ -130,7 +130,6 @@ export interface VoiceModelConfig {
 
 export interface AssetModelConfig {
   apiKey: string;
-  baseUrl: string;
   timeoutMs: number;
 }
 

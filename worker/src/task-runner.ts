@@ -283,6 +283,21 @@ export class TaskRunner {
       }
     };
 
+    const emitStoryboardVideoReady = (status: "success" | "failed", errorMessage?: string) => {
+      if (taskType !== "generate_video") return;
+      const input = ctx.taskInput as { projectId?: string; clipId?: string; storyboardId?: string } | undefined;
+      if (input?.projectId && input?.clipId && input?.storyboardId) {
+        this.emit({
+          type: "storyboard_video_ready",
+          projectId: input.projectId,
+          clipId: input.clipId,
+          storyboardId: input.storyboardId,
+          status,
+          errorMessage,
+        });
+      }
+    };
+
     log("任务调度", "INFO", `执行任务：id=${task.id} type=${taskType} apiType=${apiType} retry=${task.retry_count}/${task.max_retry}`);
 
     try {
@@ -298,6 +313,7 @@ export class TaskRunner {
       this.emit({ type: "task_success", taskId: task.id, outputJson });
       emitAssetProgress("success");
       emitClipScriptReady("success");
+      emitStoryboardVideoReady("success");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
@@ -332,6 +348,7 @@ export class TaskRunner {
           this.emit({ type: "task_failed", taskId: task.id, errorMessage });
           emitAssetProgress("failed");
           emitClipScriptReady("failed", errorMessage);
+          emitStoryboardVideoReady("failed", errorMessage);
         } catch (e) {
           log("任务调度", "ERROR", `标记任务失败写库失败：${e instanceof Error ? e.message : String(e)}`);
         }

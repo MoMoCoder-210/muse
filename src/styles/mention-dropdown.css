@@ -3,7 +3,7 @@
    ================================================================ */
 
 .mention-drop {
-  z-index: 100;
+  z-index: var(--z-dropdown);
   background: var(--bg-elevated);
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-md);
@@ -76,6 +76,12 @@
   padding: 1px var(--spacing-xs);
   border-radius: var(--radius-full);
   font-weight: var(--font-weight-semibold);
+}
+
+/* 已引用资产的 badge：用 muted 色区分，表示"复用已有序号" */
+.mention-item .mention-item-badge.is-existing {
+  color: var(--text-muted);
+  background: var(--bg-hover-subtle);
 }
 
 /* 缩略图 */

@@ -37,8 +37,7 @@ pub fn save_settings(
     let settings_path = app_data_dir.join("settings.json");
     let normalized_settings = util::sanitize_settings(settings);
 
-    let content =
-        serde_json::to_string_pretty(&normalized_settings).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&normalized_settings).map_err(|e| e.to_string())?;
     std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
@@ -56,7 +55,10 @@ pub fn save_settings(
                 &log_path,
                 "设置",
                 "WARN",
-                &format!("配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}", e),
+                &format!(
+                    "配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}",
+                    e
+                ),
             );
         }
     } else {
@@ -75,7 +77,10 @@ pub fn save_settings(
                     &log_path,
                     "设置",
                     "WARN",
-                    &format!("Worker 未运行且无法自动拉起（配置已保存，请重启应用生效）：{}", e),
+                    &format!(
+                        "Worker 未运行且无法自动拉起（配置已保存，请重启应用生效）：{}",
+                        e
+                    ),
                 );
             }
         }

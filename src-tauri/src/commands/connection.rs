@@ -28,10 +28,16 @@ pub fn test_connection(
     let base = base_url.trim();
 
     if base.is_empty() {
-        return Ok(TestConnectionResult { ok: false, message: "请先填写 Base URL".into() });
+        return Ok(TestConnectionResult {
+            ok: false,
+            message: "请先填写 Base URL".into(),
+        });
     }
     if key.is_empty() {
-        return Ok(TestConnectionResult { ok: false, message: "请先填写 API Key".into() });
+        return Ok(TestConnectionResult {
+            ok: false,
+            message: "请先填写 API Key".into(),
+        });
     }
 
     // 规范化：补全协议头
@@ -45,9 +51,8 @@ pub fn test_connection(
 
     eprintln!("[连接测试] 开始请求 {url}");
 
-    let timeout = std::time::Duration::from_millis(
-        timeout_ms.unwrap_or(10000).min(60000).max(1000),
-    );
+    let timeout =
+        std::time::Duration::from_millis(timeout_ms.unwrap_or(10000).min(60000).max(1000));
     let agent = ureq::AgentBuilder::new()
         .timeout_read(timeout)
         .timeout_write(timeout)
@@ -64,7 +69,10 @@ pub fn test_connection(
             let status = resp.status();
             if (200..300).contains(&status) {
                 eprintln!("[连接测试] 成功 (HTTP {status})");
-                Ok(TestConnectionResult { ok: true, message: "连接成功，鉴权通过".into() })
+                Ok(TestConnectionResult {
+                    ok: true,
+                    message: "连接成功，鉴权通过".into(),
+                })
             } else if status == 401 || status == 403 {
                 eprintln!("[连接测试] 鉴权失败 (HTTP {status})");
                 Ok(TestConnectionResult {
@@ -80,10 +88,16 @@ pub fn test_connection(
                 })
             } else if (500..600).contains(&status) {
                 eprintln!("[连接测试] 服务端错误 (HTTP {status})");
-                Ok(TestConnectionResult { ok: false, message: format!("服务端错误 (HTTP {})", status) })
+                Ok(TestConnectionResult {
+                    ok: false,
+                    message: format!("服务端错误 (HTTP {})", status),
+                })
             } else {
                 eprintln!("[连接测试] 被拒绝 (HTTP {status})");
-                Ok(TestConnectionResult { ok: false, message: format!("请求被拒绝 (HTTP {})", status) })
+                Ok(TestConnectionResult {
+                    ok: false,
+                    message: format!("请求被拒绝 (HTTP {})", status),
+                })
             }
         }
         Err(e) => {

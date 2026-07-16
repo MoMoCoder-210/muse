@@ -1592,6 +1592,60 @@
   gap: var(--spacing-md);
 }
 
+/* 虚拟卡片：添加资产入口，与普通卡片结构对齐（上图区 + 下文字区） */
+.asset-card--add {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1.5px dashed var(--border-base);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  padding: 0;
+  text-align: center;
+}
+
+/* 上方图片区，与 .asset-card-frame 等尺寸 */
+.asset-card--add-frame {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--chip-bg) 0%, var(--bg-canvas) 100%);
+  transition: background 140ms ease;
+}
+
+/* 下方文字区，与 .asset-card-info 等高 */
+.asset-card--add-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: inherit;
+}
+
+.asset-card--add:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.asset-card--add:hover:not(:disabled) .asset-card--add-frame {
+  background: rgba(var(--accent-primary-rgb), 0.07);
+}
+
+.asset-card--add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .asset-card {
   position: relative;
   display: flex;
@@ -1736,56 +1790,6 @@
   border-color: var(--danger-color);
 }
 
-.asset-gallery-thumb--upload-error {
-  border-color: var(--color-warning);
-  box-shadow: 0 0 0 1px var(--color-warning);
-}
-
-.asset-gallery-thumb--upload-pending {
-  border-color: var(--color-info);
-  opacity: 0.7;
-}
-
-/* 主图区域上传状态覆盖层 */
-.asset-gallery-upload-error {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--danger-bg);
-  color: var(--danger-color);
-  border: 1px solid var(--danger-color);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: help;
-}
-
-.asset-gallery-upload-retry {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--danger-color);
-  color: var(--color-white);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xxs);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.asset-gallery-upload-retry:hover:not(:disabled) {
-  background: var(--color-danger-dark);
-}
-
-.asset-gallery-upload-retry:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .asset-gallery-importing-overlay {
   position: absolute;
   inset: 0;
@@ -1798,23 +1802,6 @@
   color: var(--color-white);
   font-size: var(--font-size-sm);
   z-index: var(--z-badge);
-}
-
-.asset-gallery-upload-pending {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: rgba(var(--color-info-rgb), 0.1);
-  color: var(--color-info);
-  border: 1px solid var(--color-info);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
 }
 
 /* ── 大图预览 Lightbox ── */

@@ -19,13 +19,18 @@
     "gen:voices": "node scripts/gen-public-voices.mjs"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "@tanstack/react-query": "^5.66.0",
     "@tauri-apps/api": "^2.5.0",
-    "@tauri-apps/plugin-shell": "^2.2.0",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-fs": "^2.2.0",
-    "@tanstack/react-query": "^5.66.0",
+    "@tauri-apps/plugin-shell": "^2.2.0",
+    "@tiptap/extension-mention": "^3.28.0",
+    "@tiptap/pm": "^3.28.0",
+    "@tiptap/react": "^3.28.0",
+    "@tiptap/starter-kit": "^3.28.0",
+    "@tiptap/suggestion": "^3.28.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

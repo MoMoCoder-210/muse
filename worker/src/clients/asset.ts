@@ -10,6 +10,8 @@ import { basename, extname } from "path";
 import type { AssetModelConfig } from "../config/defaults.js";
 import { logRequest, logResponse, logFailure } from "../utils/client-logger.js";
 
+const ARK_FILES_API_URL = "https://ark.cn-beijing.volces.com/api/v3/files";
+
 /** 上传后方舟返回的文件对象 */
 export interface ArkFileObject {
   id: string;
@@ -43,9 +45,6 @@ export class AssetClient {
   ): Promise<ArkFileObject> {
     if (!this.config.apiKey) {
       throw new Error("AssetClient: apiKey is not configured");
-    }
-    if (!this.config.baseUrl) {
-      throw new Error("AssetClient: baseUrl is not configured");
     }
 
     const fileBuffer = await readFile(filePath);
@@ -90,8 +89,8 @@ export class AssetClient {
 
     const body = Buffer.concat(parts);
 
-    const baseUrl = this.config.baseUrl.replace(/\/+$/, "");
-    const url = `${baseUrl}/v3/files`;
+    // 方舟 Files API 不能复用模型渠道 URL：视频渠道通常已经包含 /v3。
+    const url = ARK_FILES_API_URL;
 
     logRequest("AssetClient", "POST", url, this.config.apiKey, {
       purpose,
@@ -156,12 +155,7 @@ export class AssetClient {
     if (!this.config.apiKey) {
       throw new Error("AssetClient: apiKey is not configured");
     }
-    if (!this.config.baseUrl) {
-      throw new Error("AssetClient: baseUrl is not configured");
-    }
-
-    const baseUrl = this.config.baseUrl.replace(/\/+$/, "");
-    const url = `${baseUrl}/v3/files/${encodeURIComponent(fileId)}`;
+    const url = `${ARK_FILES_API_URL}/${encodeURIComponent(fileId)}`;
 
     logRequest("AssetClient", "DELETE", url, this.config.apiKey, { fileId });
     const startedAt = Date.now();

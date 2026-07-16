@@ -49,7 +49,9 @@ export type TaskEvent =
   /** 单张资产生成图片状态更新（供 AssetDrawer 画廊即时刷新） */
   | { type: "asset_image_task_update"; clipId: string; assetType: string; name: string; imageId: string; status: "ready" | "failed" }
   /** 片段拆解任务完成/失败（供片段列表即时刷新） */
-  | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string };
+  | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string }
+  /** 分镜视频任务完成/失败（供分镜视频批次即时刷新） */
+  | { type: "storyboard_video_ready"; projectId: string; clipId: string; storyboardId: string; status: "success" | "failed"; errorMessage?: string };
 
 // ===== 批量进度事件 =====
 export interface BatchProgressEvent {

@@ -1,9 +1,10 @@
 // 分镜查询与关联资产管理
 
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 
 use super::util;
+use crate::sidecar::SharedSidecarManager;
 
 /// 分镜信息（前端展示用）
 #[derive(Debug, Serialize)]
@@ -42,6 +43,11 @@ pub struct StoryboardAssetInfo {
     pub description: String,
     pub prompt: String,
     pub selected_image_path: Option<String>,
+    /// 分镜专属的稳定图片编号；未被该分镜引用时为 null。
+    pub index: Option<i32>,
+    /// 完整引用文本（资产名(@图片N)）；前端用它精确水合为一个胶囊。
+    #[serde(rename = "assetTag")]
+    pub asset_tag: Option<String>,
 }
 
 /// 查询指定片段的分镜列表（按 seq_num 排序）
@@ -80,15 +86,27 @@ pub fn list_storyboards(
                 dialogue: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 visual_description: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
                 video_prompt: row.get::<_, Option<String>>(9)?.unwrap_or_default(),
-                character_ids_json: row.get::<_, Option<String>>(10)?.unwrap_or_else(|| "[]".to_string()),
-                scene_ids_json: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "[]".to_string()),
-                item_ids_json: row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "[]".to_string()),
+                character_ids_json: row
+                    .get::<_, Option<String>>(10)?
+                    .unwrap_or_else(|| "[]".to_string()),
+                scene_ids_json: row
+                    .get::<_, Option<String>>(11)?
+                    .unwrap_or_else(|| "[]".to_string()),
+                item_ids_json: row
+                    .get::<_, Option<String>>(12)?
+                    .unwrap_or_else(|| "[]".to_string()),
                 image_param_json: row.get(13)?,
                 video_param_json: row.get(14)?,
                 voice_param_json: row.get(15)?,
-                image_state: row.get::<_, Option<String>>(16)?.unwrap_or_else(|| "pending".to_string()),
-                voice_state: row.get::<_, Option<String>>(17)?.unwrap_or_else(|| "pending".to_string()),
-                video_state: row.get::<_, Option<String>>(18)?.unwrap_or_else(|| "pending".to_string()),
+                image_state: row
+                    .get::<_, Option<String>>(16)?
+                    .unwrap_or_else(|| "pending".to_string()),
+                voice_state: row
+                    .get::<_, Option<String>>(17)?
+                    .unwrap_or_else(|| "pending".to_string()),
+                video_state: row
+                    .get::<_, Option<String>>(18)?
+                    .unwrap_or_else(|| "pending".to_string()),
                 voice_path: row.get(19)?,
                 voice_duration: row.get(20)?,
                 video_duration: row.get(21)?,
@@ -104,13 +122,52 @@ pub fn list_storyboards(
     Ok(results)
 }
 
-/// 查询指定片段的所有资产（含绑定图片路径），供分镜详情展示
+/// 查询指定片段的资产；传入 storyboard_id 时，后端会按该分镜的 mention_map
+/// 为每一项补齐 index 与 assetTag（资产名(@图片N)）。
 #[tauri::command]
 pub fn list_clip_assets(
     clip_id: String,
+    storyboard_id: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<StoryboardAssetInfo>, String> {
     let conn = util::open_app_conn(&app)?;
+    let mut mention_by_asset = std::collections::HashMap::<String, (i32, String)>::new();
+
+    if let Some(id) = storyboard_id {
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT video_param_json FROM storyboards WHERE id = ?1 AND clip_id = ?2",
+                rusqlite::params![&id, &clip_id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        if let Some(raw) = raw {
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(entries) = payload
+                    .get("mention_map")
+                    .and_then(|value| value.as_array())
+                {
+                    for entry in entries {
+                        let asset_id = entry.get("assetId").and_then(|value| value.as_str());
+                        let n = entry.get("n").and_then(|value| value.as_i64());
+                        let name = entry.get("name").and_then(|value| value.as_str());
+                        if let (Some(asset_id), Some(n), Some(name)) = (asset_id, n, name) {
+                            if n < 1 || n > i32::MAX as i64 {
+                                continue;
+                            }
+                            let tag = entry
+                                .get("assetTag")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("{}(@图片{})", name, n));
+                            mention_by_asset.insert(asset_id.to_string(), (n as i32, tag));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let mut stmt = conn
         .prepare(
@@ -124,13 +181,17 @@ pub fn list_clip_assets(
 
     let rows = stmt
         .query_map(rusqlite::params![&clip_id], |row| {
+            let asset_id: String = row.get(0)?;
+            let mention = mention_by_asset.get(&asset_id);
             Ok(StoryboardAssetInfo {
-                asset_id: row.get(0)?,
+                asset_id,
                 r#type: row.get(1)?,
                 name: row.get(2)?,
                 description: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
                 prompt: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 selected_image_path: row.get(5)?,
+                index: mention.map(|(index, _)| *index),
+                asset_tag: mention.map(|(_, asset_tag)| asset_tag.clone()),
             })
         })
         .map_err(|e| e.to_string())?;
@@ -189,17 +250,35 @@ pub fn update_storyboard_assets(
 
         for asset_id in &input.character_ids {
             let link_id = uuid::Uuid::new_v4().to_string();
-            insert.execute(rusqlite::params![&link_id, &input.storyboard_id, asset_id, "character"])
+            insert
+                .execute(rusqlite::params![
+                    &link_id,
+                    &input.storyboard_id,
+                    asset_id,
+                    "character"
+                ])
                 .map_err(|e| e.to_string())?;
         }
         for asset_id in &input.scene_ids {
             let link_id = uuid::Uuid::new_v4().to_string();
-            insert.execute(rusqlite::params![&link_id, &input.storyboard_id, asset_id, "scene"])
+            insert
+                .execute(rusqlite::params![
+                    &link_id,
+                    &input.storyboard_id,
+                    asset_id,
+                    "scene"
+                ])
                 .map_err(|e| e.to_string())?;
         }
         for asset_id in &input.item_ids {
             let link_id = uuid::Uuid::new_v4().to_string();
-            insert.execute(rusqlite::params![&link_id, &input.storyboard_id, asset_id, "item"])
+            insert
+                .execute(rusqlite::params![
+                    &link_id,
+                    &input.storyboard_id,
+                    asset_id,
+                    "item"
+                ])
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -259,7 +338,15 @@ pub fn create_storyboard(
     tx.execute(
         "INSERT INTO storyboards (id, project_id, clip_id, sbid, seq_num, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![&id, &input.project_id, &input.clip_id, &sbid, next_seq, &now, &now],
+        rusqlite::params![
+            &id,
+            &input.project_id,
+            &input.clip_id,
+            &sbid,
+            next_seq,
+            &now,
+            &now
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -360,7 +447,10 @@ pub fn delete_storyboard(
         &log_path,
         "分镜",
         "INFO",
-        &format!("已删除分镜 storyboardId={} clipId={} seq={}", input.storyboard_id, clip_id, deleted_seq),
+        &format!(
+            "已删除分镜 storyboardId={} clipId={} seq={}",
+            input.storyboard_id, clip_id, deleted_seq
+        ),
     );
 
     Ok(())
@@ -420,7 +510,15 @@ pub fn insert_storyboard(
     tx.execute(
         "INSERT INTO storyboards (id, project_id, clip_id, sbid, seq_num, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![&id, &input.project_id, &input.clip_id, &sbid, new_seq, &now, &now],
+        rusqlite::params![
+            &id,
+            &input.project_id,
+            &input.clip_id,
+            &sbid,
+            new_seq,
+            &now,
+            &now
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -472,6 +570,100 @@ pub struct UpdateStoryboardParamsInput {
     /// JSON 字符串：{ model, duration, resolution, aspect_ratio }
     pub video_param_json: Option<String>,
     pub video_prompt: Option<String>,
+}
+
+/// 请求生成一个分镜视频。
+///
+/// 提示词与 mention_map 已在分镜上持久化，Worker 会在执行时再次从数据库读取，
+/// 从而保证任务提交使用的是用户最后一次保存的 AST 序列化文本与稳定图片编号。
+#[derive(Debug, Deserialize)]
+pub struct GenerateStoryboardVideoInput {
+    pub storyboard_id: String,
+}
+
+#[tauri::command]
+pub fn generate_storyboard_video(
+    input: GenerateStoryboardVideoInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
+) -> Result<serde_json::Value, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let mut conn = util::open_app_conn(&app)?;
+
+    let (project_id, clip_id, prompt): (String, String, String) = conn
+        .query_row(
+            "SELECT project_id, clip_id, video_prompt FROM storyboards WHERE id = ?1",
+            rusqlite::params![&input.storyboard_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            },
+        )
+        .map_err(|_| "分镜不存在".to_string())?;
+    if prompt.trim().is_empty() {
+        return Err("提示词为空，无法生成视频".to_string());
+    }
+
+    let lock_key = format!("generate_video:{}", input.storyboard_id);
+    let duplicated: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running'))",
+            rusqlite::params![&lock_key],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if duplicated {
+        return Err("该分镜已有进行中的视频生成任务".to_string());
+    }
+
+    // 任务消费者必须先就绪，避免页面显示已提交但 Worker 永远不处理。
+    util::ensure_worker_running(&state, &app, &project_id)?;
+
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let input_json = serde_json::json!({
+        "projectId": &project_id,
+        "clipId": &clip_id,
+        "storyboardId": &input.storyboard_id,
+    })
+    .to_string();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO tasks (id, project_id, clip_id, storyboard_id, type, status, lock_key, input_json, max_retry)
+         VALUES (?1, ?2, ?3, ?4, 'generate_video', 'pending', ?5, ?6, 2)",
+        rusqlite::params![&task_id, &project_id, &clip_id, &input.storyboard_id, &lock_key, &input_json],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE storyboards SET video_state = 'pending', updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![&input.storyboard_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "视频生成",
+        "INFO",
+        &format!(
+            "视频任务已入队 storyboardId={} taskId={}",
+            input.storyboard_id, task_id
+        ),
+    );
+    if let Err(error) = util::send_enqueue_to_worker(&state, &task_id, "generate_video") {
+        crate::project_log::append_log(
+            &log_path,
+            "视频生成",
+            "WARN",
+            &format!("发送 enqueue 通知失败（Worker 仍会轮询任务）：{}", error),
+        );
+    }
+
+    Ok(serde_json::json!({ "task_id": task_id }))
 }
 
 /// 更新分镜的视频生成参数和提示词（失焦保存）
@@ -556,8 +748,7 @@ pub fn import_video_file(
         .map_err(|_| "未找到项目工作区".to_string())?;
 
     let video_dir = std::path::PathBuf::from(&workspace).join("video");
-    std::fs::create_dir_all(&video_dir)
-        .map_err(|e| format!("创建视频目录失败：{}", e))?;
+    std::fs::create_dir_all(&video_dir).map_err(|e| format!("创建视频目录失败：{}", e))?;
 
     // 原始文件名仅用于界面展示，磁盘存储使用唯一名，避免同名视频互相覆盖
     let display_name = std::path::Path::new(&source_path)
@@ -575,8 +766,7 @@ pub fn import_video_file(
     let unique_name = format!("{}{}", uuid::Uuid::new_v4().to_string(), ext);
     let dest = video_dir.join(&unique_name);
 
-    std::fs::copy(&source_path, &dest)
-        .map_err(|e| format!("复制视频文件失败：{}", e))?;
+    std::fs::copy(&source_path, &dest).map_err(|e| format!("复制视频文件失败：{}", e))?;
 
     Ok(ImportVideoResult {
         file_path: dest.to_string_lossy().to_string(),
@@ -708,7 +898,9 @@ pub struct DeleteStoryboardVideoInput {
     pub delete_file: bool,
 }
 
-fn default_delete_file() -> bool { true }
+fn default_delete_file() -> bool {
+    true
+}
 
 /// 删除分镜视频（数据库记录，可选同时删除文件）
 #[tauri::command]
@@ -724,7 +916,8 @@ pub fn delete_storyboard_video(
             "SELECT file_path FROM storyboard_videos WHERE id = ?1 AND storyboard_id = ?2",
             rusqlite::params![&input.video_id, &input.storyboard_id],
             |row| row.get::<_, String>(0),
-        ).ok()
+        )
+        .ok()
     } else {
         None
     };

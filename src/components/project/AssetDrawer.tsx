@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
-import { listAssetImageTasks, selectAssetImage, deleteAssetImage, retryUploadAssetImage, updateAssetInClip } from "../../services/tauri";
+import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import type { AssetCardData } from "./AssetCard";
 import { AssetImageGallery, type GalleryImage } from "./AssetImageGallery";
@@ -202,8 +202,6 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
           is_selected: t.is_selected,
           status: t.status as GalleryImage["status"],
           error_message: t.error_message ?? undefined,
-          ark_upload_status: t.ark_upload_status as GalleryImage["ark_upload_status"],
-          ark_upload_error: t.ark_upload_error ?? undefined,
         }));
 
         setGalleryImages(galleryItems);
@@ -279,18 +277,6 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
       toast("删除图片失败，请重试", "error");
     }
   }, [current, toast]);
-
-  // 重试上传
-  const handleRetryUpload = useCallback(async (imageId: string) => {
-    try {
-      await retryUploadAssetImage(imageId);
-      toast("上传成功", "success");
-      setPollKey((k) => k + 1);
-    } catch (err) {
-      toast(`上传失败：${String(err)}`, "error");
-      setPollKey((k) => k + 1);
-    }
-  }, [toast]);
 
   // 打开项目内资产选择器
   const handleOpenPicker = useCallback(() => {
@@ -449,7 +435,6 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
               }
             } : undefined}
             onSelectFromProject={onCopyFromProject ? handleOpenPicker : undefined}
-            onRetryUpload={handleRetryUpload}
             importing={importing}
             disabled={disabled}
           />

@@ -150,7 +150,7 @@ export function markTaskFailed(
  */
 export function transitionEntityStatus(
   db: DatabaseType,
-  task: { type: string; clip_id: string | null; input_json: string },
+  task: { type: string; clip_id: string | null; storyboard_id?: string | null; input_json: string },
   newStatus: "running" | "running-pending" | "success" | "failed",
   errorMessage?: string
 ): void {
@@ -217,6 +217,24 @@ export function transitionEntityStatus(
         db.prepare(
           `UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = ${now} WHERE clip_id = ?`
         ).run(errorMessage ?? "任务最终失败", cid);
+        break;
+    }
+  } else if (task.type === "generate_video") {
+    const input = JSON.parse(task.input_json || "{}") as { storyboardId?: string };
+    const storyboardId = task.storyboard_id ?? input.storyboardId;
+    if (!storyboardId) return;
+    switch (newStatus) {
+      case "running":
+        db.prepare(`UPDATE storyboards SET video_state = 'running', updated_at = ${now} WHERE id = ?`).run(storyboardId);
+        break;
+      case "running-pending":
+        db.prepare(`UPDATE storyboards SET video_state = 'pending', updated_at = ${now} WHERE id = ?`).run(storyboardId);
+        break;
+      case "failed":
+        db.prepare(`UPDATE storyboards SET video_state = 'failed', updated_at = ${now} WHERE id = ?`).run(storyboardId);
+        break;
+      case "success":
+        // Handler 在同一事务内写入 generated video 和 ready 状态；这里不覆盖。
         break;
     }
   }

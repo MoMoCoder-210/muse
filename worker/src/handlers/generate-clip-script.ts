@@ -12,6 +12,229 @@ import { l, lw, le, stripCodeFences, createPromptLoader } from "../utils/utils.j
 
 const getPrompt = createPromptLoader("disassemble.md");
 
+// ─── 视频风格提示词映射 ────────────────────────────────────────────
+// 与前端 src/config/muse.ts VIDEO_STYLE_PROMPT_MAP 保持同步
+
+const VIDEO_STYLE_PROMPT_MAP: Record<string, { prefix: string; suffix: string }> = {
+  国漫: {
+    prefix: "国漫动画风格，流畅手绘线条，鲜艳色彩，电影感光影。",
+    suffix: "画面风格：国漫动画，流畅线条，鲜艳色彩，电影感光影，2K高清。",
+  },
+  动漫: {
+    prefix: "动漫风格，精致手绘，细腻色彩，电影感光影。",
+    suffix: "画面风格：动漫，精致手绘，细腻色彩，电影感光影，2K高清。",
+  },
+  日漫: {
+    prefix: "日本动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    suffix: "画面风格：日本动漫，赛璐璞上色，精致线条，电影感光影，2K高清。",
+  },
+  韩漫: {
+    prefix: "韩国动漫风格，简洁线条，柔和色调，电影感光影。",
+    suffix: "画面风格：韩国动漫，简洁线条，柔和色调，电影感光影，2K高清。",
+  },
+  二次元: {
+    prefix: "二次元日系动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    suffix: "画面风格：二次元日系动漫，赛璐璞上色，精致线条，电影感光影，2K高清。",
+  },
+  真人: {
+    prefix: "真人电影风格，背景虚化，浅景深，电影感光影。",
+    suffix: "画面风格：真人电影，背景虚化，浅景深，电影感光影，2K高清。",
+  },
+};
+
+// ─── @mention 自动标注 ─────────────────────────────────────────────
+
+interface AnnotatedAsset {
+  name: string;
+  assetId: string;
+  type: "character" | "scene" | "item";
+}
+
+/**
+ * 对 animationPrompt 做自动 @mention 标注：
+ * - 按资产名长度降序扫描，避免短名先于长名命中
+ * - 首次出现：`名(@图片N)`；后续出现：复用同一 index
+ * - 跳过已在 `(@图片N)` 内的匹配（lookbehind 保护）
+ * - 返回：标注后的文本 + index→assetId 映射（供 video_param_json 持久化）
+ */
+function autoMentionPrompt(
+  prompt: string,
+  assets: AnnotatedAsset[],
+): { annotated: string; mentionMap: { n: number; assetId: string; name: string; type: string; assetTag: string }[] } {
+  if (!prompt.trim() || assets.length === 0) {
+    return { annotated: prompt, mentionMap: [] };
+  }
+
+  // 同名跨类型在纯文本中无法可靠消歧，保留分镜结构中第一个资产；其余按 assetId 分配。
+  const assetByName = new Map<string, AnnotatedAsset>();
+  for (const asset of assets) {
+    if (asset.name && !assetByName.has(asset.name)) assetByName.set(asset.name, asset);
+  }
+  const candidates = [...assetByName.values()].sort((a, b) => b.name.length - a.name.length);
+
+  const existingNums: number[] = [];
+  const existRe = /\(@图片(\d+)\)/g;
+  let existing: RegExpExecArray | null;
+  while ((existing = existRe.exec(prompt)) !== null) existingNums.push(Number(existing[1]));
+  let nextIndex = existingNums.length ? Math.max(...existingNums) + 1 : 1;
+
+  const indexByAssetId = new Map<string, number>();
+  const assetByIndex = new Map<number, AnnotatedAsset>();
+  let cursor = 0;
+  let annotated = "";
+
+  // 单次从左到右扫描原始文本。绝不在已经插入的 tag 上再次扫描，
+  // 所以“老兵”不会把“老兵A(@图片1)”再拆坏。
+  while (cursor < prompt.length) {
+    const matched = candidates.find((asset) => prompt.startsWith(asset.name, cursor));
+    if (!matched) {
+      annotated += prompt[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const afterName = prompt.slice(cursor + matched.name.length);
+    const existingTag = afterName.match(/^\(@图片(\d+)\)/);
+    let index: number;
+    if (existingTag) {
+      index = Number(existingTag[1]);
+      indexByAssetId.set(matched.assetId, index);
+      if (!assetByIndex.has(index)) assetByIndex.set(index, matched);
+      annotated += `${matched.name}(@图片${index})`;
+      cursor += matched.name.length + existingTag[0].length;
+      continue;
+    }
+
+    index = indexByAssetId.get(matched.assetId) ?? nextIndex++;
+    indexByAssetId.set(matched.assetId, index);
+    if (!assetByIndex.has(index)) assetByIndex.set(index, matched);
+    annotated += `${matched.name}(@图片${index})`;
+    cursor += matched.name.length;
+  }
+
+  const mentionMap = [...assetByIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([n, asset]) => ({
+      n,
+      assetId: asset.assetId,
+      name: asset.name,
+      type: asset.type,
+      assetTag: `${asset.name}(@图片${n})`,
+    }));
+
+  return { annotated, mentionMap };
+}
+
+/**
+ * 构建完整的 video_prompt：
+ * 1. 风格前缀（如有 styleMode）
+ * 2. 角色/场景/物品 声明行（参考示例格式）
+ * 3. animationPrompt（已 @mention 标注）
+ * 4. 风格后缀（如有 styleMode）
+ */
+/**
+ * 将完整 assetTag 精确转为可持久化的 Tiptap 文档。
+ * 这是 LLM 初始结果的唯一水合入口；前端随后直接恢复该 AST，不再重复猜测文本。
+ */
+function buildPromptDoc(
+  text: string,
+  mentionMap: Array<{ n: number; assetId: string; name: string; type: string; assetTag: string }>,
+): Record<string, unknown> {
+  const tags = [...mentionMap].sort((a, b) => b.assetTag.length - a.assetTag.length || a.n - b.n);
+  const buildParagraph = (source: string) => {
+    const content: Array<Record<string, unknown>> = [];
+    let remaining = source;
+    while (remaining) {
+      let earliest = -1;
+      let matched: typeof tags[number] | undefined;
+      for (const mention of tags) {
+        const position = remaining.indexOf(mention.assetTag);
+        if (position !== -1 && (earliest === -1 || position < earliest)) {
+          earliest = position;
+          matched = mention;
+        }
+      }
+      if (!matched || earliest === -1) {
+        content.push({ type: "text", text: remaining });
+        break;
+      }
+      if (earliest > 0) content.push({ type: "text", text: remaining.slice(0, earliest) });
+      content.push({
+        type: "mention",
+        attrs: {
+          id: matched.assetId,
+          index: matched.n,
+          kind: "图片",
+          label: matched.name,
+          assetId: matched.assetId,
+          assetType: matched.type,
+          imagePath: null,
+          assetTag: matched.assetTag,
+        },
+      });
+      remaining = remaining.slice(earliest + matched.assetTag.length);
+    }
+    return { type: "paragraph", content };
+  };
+
+  return { type: "doc", content: text.split("\n").map(buildParagraph) };
+}
+
+function buildVideoPrompt(
+  annotatedPrompt: string,
+  sbCharacters: AnnotatedAsset[],
+  sbScenes: AnnotatedAsset[],
+  sbItems: AnnotatedAsset[],
+  nameToIdx: Map<string, number>,
+  styleMode?: string,
+): string {
+  const parts: string[] = [];
+
+  // 1. 风格前缀
+  const styleEntry = styleMode ? VIDEO_STYLE_PROMPT_MAP[styleMode] : undefined;
+  if (styleEntry) {
+    parts.push(styleEntry.prefix);
+    parts.push("");
+  }
+
+  // 2. 资产声明行（只声明本分镜用到的资产）
+  if (sbCharacters.length > 0) {
+    const charDecl = sbCharacters
+      .filter((c) => nameToIdx.has(c.name))
+      .map((c) => `${c.name}(@图片${nameToIdx.get(c.name)})`)
+      .join("， ");
+    if (charDecl) parts.push(`角色： ${charDecl}。`);
+  }
+  if (sbScenes.length > 0) {
+    const sceneDecl = sbScenes
+      .filter((s) => nameToIdx.has(s.name))
+      .map((s) => `${s.name}(@图片${nameToIdx.get(s.name)})`)
+      .join("， ");
+    if (sceneDecl) parts.push(`场景： ${sceneDecl}。`);
+  }
+  if (sbItems.length > 0) {
+    const itemDecl = sbItems
+      .filter((it) => nameToIdx.has(it.name))
+      .map((it) => `${it.name}(@图片${nameToIdx.get(it.name)})`)
+      .join("， ");
+    if (itemDecl) parts.push(`物品： ${itemDecl}。`);
+  }
+
+  // 3. 正文（animationPrompt 已标注）
+  if (parts.length > 0 && (sbCharacters.length > 0 || sbScenes.length > 0 || sbItems.length > 0)) {
+    parts.push("");
+  }
+  parts.push(annotatedPrompt);
+
+  // 4. 风格后缀
+  if (styleEntry) {
+    parts.push("");
+    parts.push(styleEntry.suffix);
+  }
+
+  return parts.join("\n");
+}
+
 // ─── JSON 清洗 ─────────────────────────────────────────────────────
 
 // ─── 模型调用与解析 ─────────────────────────────────────────────────
@@ -170,8 +393,8 @@ function saveResults(
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
       visual_description, video_prompt, video_duration,
-      character_ids_json, scene_ids_json, item_ids_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      character_ids_json, scene_ids_json, item_ids_json, video_param_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const charById = idMap.get("character")!;
@@ -191,14 +414,66 @@ function saveResults(
       .map((it) => itemById.get(it.name))
       .filter(Boolean) as string[];
 
+    // ── 自动 @mention 标注 + 风格前缀拼接 ──────────────────────────
+    // 将本分镜涉及的所有资产（角色/场景/物品）整合为待标注列表
+    const sbAssets: AnnotatedAsset[] = [
+      ...sb.characters.map((c) => ({
+        name: c.name,
+        assetId: charById.get(c.name) ?? "",
+        type: "character" as const,
+      })),
+      ...sb.scenes.map((s) => ({
+        name: s.name,
+        assetId: sceneById.get(s.name) ?? "",
+        type: "scene" as const,
+      })),
+      ...sb.items.map((it) => ({
+        name: it.name,
+        assetId: itemById.get(it.name) ?? "",
+        type: "item" as const,
+      })),
+    ].filter((a) => a.assetId !== ""); // 只保留已入库的资产
+
+    const { annotated, mentionMap } = autoMentionPrompt(sb.animationPrompt, sbAssets);
+
+    // 构造 nameToIdx 供 buildVideoPrompt 的声明行使用
+    const nameToIdx = new Map<string, number>(mentionMap.map(({ name, n }) => [name, n]));
+
+    const sbCharAssets = sb.characters
+      .map((c) => ({ name: c.name, assetId: charById.get(c.name) ?? "", type: "character" as const }))
+      .filter((a) => a.assetId !== "");
+    const sbSceneAssets = sb.scenes
+      .map((s) => ({ name: s.name, assetId: sceneById.get(s.name) ?? "", type: "scene" as const }))
+      .filter((a) => a.assetId !== "");
+    const sbItemAssets = sb.items
+      .map((it) => ({ name: it.name, assetId: itemById.get(it.name) ?? "", type: "item" as const }))
+      .filter((a) => a.assetId !== "");
+
+    const videoPrompt = buildVideoPrompt(
+      annotated,
+      sbCharAssets,
+      sbSceneAssets,
+      sbItemAssets,
+      nameToIdx,
+      mode,
+    );
+
+    // `prompt_doc` 是前端编辑器的主数据；`video_prompt` 只是提交任务时使用的纯文本序列化。
+    // 首次存库时直接按完整 assetTag 构造 mention 节点，前端不需要再猜测或正则匹配。
+    const videoParamJson = JSON.stringify({
+      mention_map: mentionMap,
+      prompt_doc: buildPromptDoc(videoPrompt, mentionMap),
+    });
+
     insertSb.run(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
-      sb.description, sb.animationPrompt,
+      sb.description, videoPrompt,
       sb.duration ?? 15,
       JSON.stringify(charIds),
       JSON.stringify(sceneIds),
       JSON.stringify(itemIds),
+      videoParamJson,
     );
   }
 }
