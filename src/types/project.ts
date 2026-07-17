@@ -113,8 +113,8 @@ export type AssetType = "character" | "scene" | "item";
 
 /** 角色绑定的声音（公共音色或本地上传） */
 export type VoiceBinding =
-  | { source: "public"; voiceId: string; label: string }
-  | { source: "local"; filePath: string; label: string };
+  | { source: "public"; voiceId: string; label: string; arkFileId?: string }
+  | { source: "local"; filePath: string; label: string; arkFileId?: string };
 
 export type AssetResource = {
   type: AssetType;

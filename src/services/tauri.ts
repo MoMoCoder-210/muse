@@ -255,6 +255,11 @@ export async function importVoiceFile(clipId: string, sourcePath: string): Promi
   return invoke<ImportVoiceResult>("import_voice_file", { clipId, sourcePath });
 }
 
+/** 批量查询已缓存的公共音色（复用试听缓存逻辑，不触发合成） */
+export async function checkVoicesCached(voiceIds: string[]): Promise<string[]> {
+  return invoke<string[]>("check_voices_cached", { voiceIds });
+}
+
 /**
  * 获取资产图片信息
  *

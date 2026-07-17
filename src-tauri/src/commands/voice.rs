@@ -257,6 +257,22 @@ pub fn preview_public_voice(
     })
 }
 
+/// 批量查询已缓存的公共音色（复用 resolve_bundled_voice + TTS 缓存，不触发合成）
+#[tauri::command]
+pub fn check_voices_cached(app: AppHandle, voice_ids: Vec<String>) -> Result<Vec<String>, String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let mut cached = Vec::new();
+    for id in voice_ids {
+        if resolve_bundled_voice(&app, &id).is_some() {
+            cached.push(id);
+            continue;
+        }
+        let p = app_data_dir.join(VOICES_DIR).join(format!("{}.mp3", sanitize_voice_filename(&id)));
+        if p.exists() { cached.push(id); }
+    }
+    Ok(cached)
+}
+
 /// 调用 OpenSpeech V3 单向流式接口合成，返回 mp3 字节。文件落盘由调用方处理。
 fn synthesize_via_v3(
     url: &str,
@@ -491,14 +507,20 @@ fn resolve_bundled_voice(app: &AppHandle, voice_id: &str) -> Option<std::path::P
     candidates.into_iter().find(|p| p.exists())
 }
 
-/// 计算试听音频应写入的打包路径（resource_dir/resources/voices/<id>.mp3）
+/// 计算试听音频应写入的源目录路径（src-tauri/resources/voices/<id>.mp3）
+/// dev 时写入源树以便 git 提交和打包；prod 时写入 resource_dir。
 fn bundled_voice_save_path(app: &AppHandle, voice_id: &str) -> std::path::PathBuf {
     let fname = format!("{}.mp3", sanitize_voice_filename(voice_id));
+    // dev 优先：写到 src-tauri/resources/voices/（源树，git + 打包入口）
+    if let Ok(cwd) = std::env::current_dir() {
+        let dev_path = cwd.join("resources").join("voices").join(&fname);
+        if dev_path.parent().map_or(false, |p| p.exists()) {
+            return dev_path;
+        }
+    }
+    // prod 回退：写到 resource_dir（打包后的资源目录）
     if let Ok(res_dir) = app.path().resource_dir() {
         return res_dir.join("resources").join("voices").join(&fname);
     }
-    // 取不到 resource_dir 时的兜底（理论上不会发生）
-    std::path::PathBuf::from("resources")
-        .join("voices")
-        .join(&fname)
+    std::path::PathBuf::from("resources").join("voices").join(&fname)
 }

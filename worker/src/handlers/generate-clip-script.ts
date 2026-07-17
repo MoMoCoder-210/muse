@@ -290,7 +290,8 @@ async function callModelAndParse(
     return { storyboards, resources, rawOutput: result.content };
   } catch (parseError) {
     const reason = parseError instanceof Error ? parseError.message : String(parseError);
-    lw("拆解", `输出 JSON 解析失败（${reason}），执行修复重试`);
+    lw("拆解", `输出 JSON 解析失败（${reason}），原始内容: ${result.content}`);
+    lw("拆解", `执行修复重试`);
 
     const repairMessages: ChatMessage[] = [
       ...messages,

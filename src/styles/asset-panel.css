@@ -938,6 +938,24 @@
   color: var(--select-active-text);
   font-weight: var(--font-weight-medium);
 }
+/* 已缓存：淡色底 + 缓存图标 */
+.voice-capsule.is-cached {
+  background: rgba(var(--success-rgb, 82 196 26), 0.06);
+}
+.voice-capsule.is-cached .voice-capsule-body {
+  color: var(--text-primary);
+}
+.voice-capsule-cached {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  margin-left: 2px;
+  margin-right: 6px;
+  color: var(--color-success, #52c41a);
+}
+
 /* 试听中：播放键脉冲提示 */
 .voice-capsule.is-playing .voice-capsule-play {
   background: var(--accent-primary);

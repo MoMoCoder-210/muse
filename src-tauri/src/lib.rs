@@ -204,6 +204,7 @@ pub fn run() {
             commands::delete_concat_output,
             commands::list_concat_outputs,
             commands::preview_public_voice,
+            commands::check_voices_cached,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

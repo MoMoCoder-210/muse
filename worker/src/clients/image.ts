@@ -108,8 +108,8 @@ export class ImageClient {
 
       const elapsed = Date.now() - startedAt;
       logResponse("ImageClient", apiUrl, elapsed, {
-        url: url.slice(0, 120) + "…",
-        revised_prompt: (resultData as any)?.revised_prompt?.slice(0, 200),
+        url: url,
+        revised_prompt: (resultData as any)?.revised_prompt,
       });
 
       return { url, model: this.config.model };

@@ -14,14 +14,6 @@ export function maskKey(key: string): string {
   return key.slice(0, 6) + "****" + key.slice(-4);
 }
 
-/**
- * 截断文本，超过 maxLen 追加 "…" 后缀。
- */
-function truncate(text: string, maxLen: number): string {
-  if (maxLen <= 0 || text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + "…";
-}
-
 // ─── 对外 API ──────────────────────────────────────────────
 
 /**
@@ -41,7 +33,7 @@ export function logRequest(
   body: unknown,
 ): void {
   const masked = maskKey(apiKey);
-  const bodyStr = body !== null ? truncate(JSON.stringify(body), 2000) : "(无请求体)";
+  const bodyStr = body !== null ? JSON.stringify(body) : "(无请求体)";
   logLine(source, "INFO", `${method} ${url} | key=${masked} | ${bodyStr}`);
 }
 
@@ -59,7 +51,7 @@ export function logResponse(
   elapsed: number,
   body: unknown,
 ): void {
-  const bodyStr = truncate(JSON.stringify(body), 2000);
+  const bodyStr = JSON.stringify(body);
   logLine(source, "INFO", `${url} | 200 ${elapsed}ms | ${bodyStr}`);
 }
 
@@ -80,7 +72,7 @@ export function logStreamDone(
   meta?: Record<string, string | number>,
 ): void {
   const metaStr = meta ? " " + Object.entries(meta).map(([k, v]) => `${k}=${v}`).join(" ") : "";
-  const contentStr = truncate(content, 4000);
+  const contentStr = content;
   logLine(
     source,
     "INFO",

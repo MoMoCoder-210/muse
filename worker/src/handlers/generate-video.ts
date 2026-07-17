@@ -1,14 +1,17 @@
 import { randomUUID } from "crypto";
-import { mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
+import { tmpdir } from "os";
 import type { Database as DatabaseType } from "better-sqlite3";
 import type { TaskContext } from "../types.js";
 import type { VideoReference } from "../clients/video.js";
 import { l, lw } from "../utils/utils.js";
 
+const TTS_SAMPLE_TEXT = "你好，很高兴认识你。";
 const ARK_UPLOAD_MAX_ATTEMPTS = 3;
 const ARK_UPLOAD_RETRY_DELAY_MS = 1_000;
 const MAX_SEEDANCE_REFERENCE_IMAGES = 9;
+const MAX_SEEDANCE_REFERENCE_AUDIOS = 3;
 
 type StoredMention = {
   n: number;
@@ -30,6 +33,113 @@ type ArkReferenceFile = {
   imageId: string;
   fileId: string;
 };
+
+type VoiceBinding = {
+  source: "public" | "local";
+  filePath?: string;
+  voiceId?: string;
+  label?: string;
+  arkFileId?: string;
+};
+
+type VoiceEntry = { n: number; characterName: string; arkFileId?: string; label?: string };
+
+/**
+ * 解析 prompt 中的台词段，为有音色的角色注入 [@音频N] 并构建音频引用。
+ * 返回 { annotatedPrompt, voiceEntries }
+ */
+async function injectVoiceReferences(
+  db: DatabaseType,
+  ctx: TaskContext,
+  prompt: string,
+  mentions: StoredMention[],
+): Promise<{ annotatedPrompt: string; voiceEntries: VoiceEntry[] }> {
+  // 查每个 mention 的 voice_binding_json
+  const getVoiceBinding = db.prepare("SELECT voice_binding_json FROM assets WHERE id = ?");
+  const voicedChars = new Map<string, { voiceBinding: VoiceBinding; n: number }>();
+
+  for (const mention of mentions) {
+    const row = getVoiceBinding.get(mention.assetId) as { voice_binding_json: string | null } | undefined;
+    if (!row?.voice_binding_json) continue;
+    try {
+      const binding: VoiceBinding = JSON.parse(row.voice_binding_json);
+      if (binding.source === "local" || binding.source === "public") {
+        voicedChars.set(mention.name, { voiceBinding: binding, n: mention.n });
+      }
+    } catch { /* 忽略格式错误 */ }
+  }
+
+  // 上限校验
+  if (voicedChars.size > MAX_SEEDANCE_REFERENCE_AUDIOS) {
+    throw new Error(
+      `角色绑定音色最高仅支持${MAX_SEEDANCE_REFERENCE_AUDIOS}个，当前已绑定${voicedChars.size}个，请移除多余角色音色后重试`,
+    );
+  }
+
+  if (voicedChars.size === 0) return { annotatedPrompt: prompt, voiceEntries: [] };
+
+  // 上传音频到 Ark + 构建 VoiceEntry（缓存复用逻辑与 resolveReferences 一致）
+  const assetClient = ctx.clients?.asset;
+  const writeVoiceBinding = db.prepare("UPDATE assets SET voice_binding_json = ? WHERE id = ?");
+  const voiceEntries: VoiceEntry[] = [];
+  const uploadedFiles: ArkReferenceFile[] = [];
+
+  const getMentionAssetId = (name: string) => mentions.find((m) => m.name === name)?.assetId ?? "";
+
+  try {
+    for (const [name, { voiceBinding, n }] of voicedChars) {
+      let arkFileId: string | undefined;
+
+      if (voiceBinding.arkFileId) {
+        // 缓存命中（本地或已合成的公共音色）
+        arkFileId = voiceBinding.arkFileId;
+        l("视频生成", `角色音频复用缓存 name=${name} @音频${n} arkFileId=${arkFileId}`);
+      } else if (voiceBinding.source === "local" && voiceBinding.filePath) {
+        if (!assetClient) throw new Error("方舟文件上传客户端未初始化");
+        const uploaded = await assetClient.uploadImage(voiceBinding.filePath);
+        arkFileId = uploaded.id;
+        l("视频生成", `角色音频上传成功 name=${name} @音频${n} arkFileId=${arkFileId}`);
+      } else if (voiceBinding.source === "public" && voiceBinding.voiceId) {
+        // 公共音色：TTS 合成 → 上传 Ark
+        const voiceClient = ctx.clients?.voice;
+        if (!voiceClient) { lw("视频生成", `语音客户端未初始化，跳过公共音色 name=${name}`); }
+        else {
+          if (!assetClient) throw new Error("方舟文件上传客户端未初始化");
+          const tmpPath = join(tmpdir(), `tts_${randomUUID()}.mp3`);
+          const ttsResult = await voiceClient.synthesize(TTS_SAMPLE_TEXT, tmpPath, { voice: voiceBinding.voiceId });
+          l("视频生成", `TTS 合成成功 name=${name} voiceId=${voiceBinding.voiceId} size=${ttsResult.sizeBytes}`);
+          const uploaded = await assetClient.uploadImage(ttsResult.filePath);
+          arkFileId = uploaded.id;
+          l("视频生成", `TTS 音频上传成功 name=${name} @音频${n} arkFileId=${arkFileId}`);
+        }
+      }
+
+      if (arkFileId) {
+        const assetId = getMentionAssetId(name);
+        if (assetId) {
+          const updatedBinding = { ...voiceBinding, arkFileId };
+          writeVoiceBinding.run(JSON.stringify(updatedBinding), assetId);
+        }
+        uploadedFiles.push({ imageId: getMentionAssetId(name), fileId: arkFileId });
+      }
+
+      voiceEntries.push({ n, characterName: name, arkFileId, label: voiceBinding.label });
+    }
+
+    // 为 prompt 中的台词段注入 [@音频N]
+    // 用 mention_map 序号匹配 `(@图片N)说：<`，比人名正则更可靠
+    let annotatedPrompt = prompt;
+    for (const entry of voiceEntries) {
+      const speakRe = new RegExp(`\\(@图片${entry.n}\\)说：<`, "g");
+      annotatedPrompt = annotatedPrompt.replace(speakRe, `(@图片${entry.n})说：<[@音频${entry.n}]`);
+    }
+
+    return { annotatedPrompt, voiceEntries };
+  } catch (error) {
+    await cleanupArkFiles(ctx, uploadedFiles);
+    throw error;
+  }
+}
 
 type ResolvedReferences = {
   references: VideoReference[];
@@ -210,10 +320,15 @@ async function cleanupArkFiles(ctx: TaskContext, arkFiles: ArkReferenceFile[]): 
   if (!assetClient || arkFiles.length === 0) return;
 
   const imageIdsByFileId = new Map<string, string[]>();
+  const assetIdsByFileId = new Map<string, string[]>(); // 音色文件：assetId
   for (const { imageId, fileId } of arkFiles) {
-    const imageIds = imageIdsByFileId.get(fileId) ?? [];
-    imageIds.push(imageId);
-    imageIdsByFileId.set(fileId, imageIds);
+    if (imageId) {
+      // imageId 非空时是 asset_images.id（图片）或 assets.id（音色）
+      // 优先按 asset_images 匹配；不匹配则视为音色 asset
+      const list = imageIdsByFileId.get(fileId) ?? [];
+      list.push(imageId);
+      imageIdsByFileId.set(fileId, list);
+    }
   }
 
   for (const [fileId, imageIds] of imageIdsByFileId) {
@@ -224,14 +339,21 @@ async function cleanupArkFiles(ctx: TaskContext, arkFiles: ArkReferenceFile[]): 
         SET ark_file_id = NULL, ark_upload_status = 'pending', ark_upload_error = NULL
         WHERE id = ? AND ark_file_id = ?
       `);
+      const clearVoiceCache = ctx.db.prepare(`
+        UPDATE assets
+        SET voice_binding_json = json_remove(voice_binding_json, '$.arkFileId')
+        WHERE id = ? AND voice_binding_json LIKE ?
+      `);
       const tx = ctx.db.transaction(() => {
-        for (const imageId of imageIds) clearCache.run(imageId, fileId);
+        for (const id of imageIds) {
+          clearCache.run(id, fileId);
+          clearVoiceCache.run(id, `%${fileId}%`);
+        }
       });
       tx();
       l("视频生成", `已删除方舟参考文件 fileId=${fileId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // 视频已成功落盘；保留 file_id 以便下次视频任务复用并再次尝试清理。
       lw("视频生成", `方舟参考文件删除失败 fileId=${fileId}：${message}`);
     }
   }
@@ -261,7 +383,15 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
 
   const params = parseParams(storyboard.video_param_json);
   const mentions = stableMentions(params.mention_map, prompt);
-  const { references, arkFiles } = await resolveReferences(ctx.db, ctx, mentions);
+  const { annotatedPrompt, voiceEntries } = await injectVoiceReferences(ctx.db, ctx, prompt, mentions);
+  const { references: imageRefs, arkFiles } = await resolveReferences(ctx.db, ctx, mentions);
+
+  // 音频引用拼入 content 数组（按 n 排序，保证 @音频N 编号一致）
+  const voiceRefs: VideoReference[] = voiceEntries
+    .filter((e) => e.arkFileId)
+    .sort((a, b) => a.n - b.n)
+    .map((e) => ({ type: "audio_url", url: e.arkFileId! }));
+  const references = [...imageRefs, ...voiceRefs];
 
   const project = ctx.db.prepare("SELECT workspace_path FROM projects WHERE id = ?").get(input.projectId) as {
     workspace_path: string;
@@ -273,8 +403,8 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
   const fileName = `sb_${String(storyboard.seq_num).padStart(3, "0")}_${Date.now()}.mp4`;
   const filePath = join(outputDir, fileName);
 
-  l("视频生成", `提交 storyboardId=${input.storyboardId} refs=${references.length} prompt=${prompt.length}字符`);
-  const result = await videoClient.generate(prompt, references, filePath, {
+  l("视频生成", `提交 storyboardId=${input.storyboardId} refs=${references.length} voices=${voiceEntries.length} prompt=${annotatedPrompt.length}字符`);
+  const result = await videoClient.generate(annotatedPrompt, references, filePath, {
     model: params.model,
     ratio: params.aspect_ratio as "21:9" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | undefined,
     duration: params.duration,

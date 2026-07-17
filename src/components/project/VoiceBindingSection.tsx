@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useToast } from "../../hooks/useToast";
-import { importVoiceFile, listWorkspaceVoiceFiles, previewPublicVoice } from "../../services/tauri";
+import { importVoiceFile, listWorkspaceVoiceFiles, previewPublicVoice, checkVoicesCached } from "../../services/tauri";
 import type { VoiceFileEntry } from "../../services/tauri";
 import {
   AGE_GROUPS,
@@ -36,7 +36,17 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [localFiles, setLocalFiles] = useState<VoiceFileEntry[]>([]);
+  const [cachedVoiceIds, setCachedVoiceIds] = useState<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // 批量查询已缓存的公共音色
+  const refreshCache = useCallback(async () => {
+    try {
+      const ids = await checkVoicesCached(PUBLIC_VOICES.map((v) => v.id));
+      setCachedVoiceIds(new Set(ids));
+    } catch { /* 静默 */ }
+  }, []);
+  useEffect(() => { refreshCache(); }, [refreshCache]);
 
   // 加载项目工作区已导入的本地音频
   const loadLocalFiles = useCallback(async () => {
@@ -78,13 +88,14 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
     setPlayingId(null);
   };
 
-  // 试听公共音色
+  // 试听公共音色（首次试听生成缓存后即时刷新缓存标识）
   const handlePreview = async (voiceId: string) => {
     if (playingId === voiceId) { stopAudio(); return; }
     stopAudio();
     setPreviewLoading(voiceId);
     try {
       const res = await previewPublicVoice(voiceId);
+      if (!res.cached) refreshCache();
       const url = convertFileSrc(res.sample_path);
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -130,6 +141,7 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
 
   const isBoundPublic = (id: string) => value?.source === "public" && value.voiceId === id;
   const isBoundLocal = (path: string) => value?.source === "local" && value.filePath === path;
+  const isCached = (id: string) => cachedVoiceIds.has(id);
 
   const currentBinding = value && (
     <div className="voice-binding-current">
@@ -229,16 +241,18 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
                 <div className="voice-capsules">
                   {a.voices.map((v) => {
                     const bound = isBoundPublic(v.id);
+                    const cached = isCached(v.id);
                     const loading = previewLoading === v.id;
                     const playing = playingId === v.id;
                     return (
-                      <div key={v.id} className={`voice-capsule${bound ? " is-bound" : ""}${playing ? " is-playing" : ""}`}>
+                      <div key={v.id} className={`voice-capsule${bound ? " is-bound" : ""}${cached ? " is-cached" : ""}${playing ? " is-playing" : ""}`}>
                         <button type="button" className="voice-capsule-play" title={playing ? "停止" : "试听"}
                           disabled={disabled || loading} onClick={() => handlePreview(v.id)}
                         >{loading ? "…" : playing ? "⏸" : "▶"}</button>
                         <button type="button" className="voice-capsule-body" title={bound ? "已绑定" : `绑定 ${v.name}`}
                           disabled={disabled || bound} onClick={() => handleBindPublic(v)}
                         >{v.name}</button>
+                        {cached && <span className="voice-capsule-cached" title="本地已有缓存"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg></span>}
                       </div>
                     );
                   })}

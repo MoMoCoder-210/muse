@@ -95,7 +95,7 @@ export class VoiceClient {
     const format = options.format ?? "mp3";
     const voice = options.voice ?? DEFAULT_VOICE;
     const resourceId = cfg.resourceId.trim();
-    const sampleRate = cfg.sampleRate ?? 24000;
+    const sampleRate = Number(cfg.sampleRate) || 24000;
     const baseUrl = cfg.baseUrl.trim().replace(/\/+$/, "");
 
     const reqBody = {

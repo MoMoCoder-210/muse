@@ -593,7 +593,7 @@ pub fn delete_asset_from_clip(
 /// 按 type + name 匹配并就地更新对应字段，再写回 extracted_resources_json。
 #[tauri::command]
 pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
 
@@ -636,12 +636,14 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
                     // 角色绑定声音：写回 extracted_resources_json 的角色对象，
                     // 使前端 AssetResource.voiceBinding 能直接读取。
                     if let Some(vb) = &input.voice_binding {
+                        obj.remove("voice_binding"); // 清理旧命名
                         obj.insert(
-                            "voice_binding".to_string(),
+                            "voiceBinding".to_string(),
                             serde_json::from_str(vb).unwrap_or(serde_json::Value::Null),
                         );
                     } else {
                         obj.remove("voice_binding");
+                        obj.remove("voiceBinding");
                     }
                     found = true;
                 }
@@ -656,11 +658,11 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
 
     let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
 
-    // 同步绑定层：assets 表的 prompt/description 仅首次生图时写入一次，编辑后不会自动更新，
-    // 会导致「从项目复制」选择器展示过期 prompt。按 clip_id + type + name 对齐更新。
-    conn.execute(
-        "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?6
-         WHERE clip_id = ?3 AND type = ?4 AND name = ?5",
+    // 事务：同步更新 assets 表和 clip_scripts 表，避免半成功状态
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?3
+         WHERE clip_id = ?4 AND type = ?5 AND name = ?6",
         rusqlite::params![
             &input.prompt,
             &input.description,
@@ -672,11 +674,12 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
     )
     .map_err(|e| e.to_string())?;
 
-    conn.execute(
+    tx.execute(
         "UPDATE clip_scripts SET extracted_resources_json = ?, updated_at = datetime('now') WHERE id = ?",
         rusqlite::params![&updated_json, &script_id],
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     crate::project_log::append_log(
         &log_path,
