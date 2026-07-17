@@ -7,7 +7,7 @@
  * - 尚未引用的资产显示将分配的新序号
  * - 定位跟随光标（由父组件通过 getCaretCoords 计算后传入 position）
  */
-import { useEffect, useRef, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import "../../styles/mention-dropdown.css";
 
@@ -64,7 +64,7 @@ export function MentionDropdown({
   existingIndexMap,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const selectedRef = useRef<number>(0);
+  const [selectedIdx, setSelectedIdx] = useState(0);
 
   // 按类型分组 + 按 filter 过滤
   const groups = useMemo(() => {
@@ -105,35 +105,34 @@ export function MentionDropdown({
     [groups]
   );
 
-  // filter 变化时重置高亮项
-  useEffect(() => { selectedRef.current = 0; }, [filter]);
+  // filter 变化或列表变化时重置高亮项
+  useEffect(() => { setSelectedIdx(0); }, [filter, items.length]);
+
+  // 统一设置高亮项（确保不越界 + 滚动可视）
+  const setSelected = useCallback((idx: number) => {
+    if (items.length === 0) return;
+    const next = Math.max(0, Math.min(idx, items.length - 1));
+    setSelectedIdx(next);
+    ref.current?.querySelector<HTMLElement>(`[data-midx="${next}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [items.length]);
 
   // 键盘导航（全局捕获，父组件在 onKeyDown 中已 preventDefault）
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isOpen) return;
       if (e.key === "ArrowDown") {
-        selectedRef.current = Math.min(selectedRef.current + 1, items.length - 1);
-        ref.current?.querySelector<HTMLElement>(`[data-midx="${selectedRef.current}"]`)?.scrollIntoView({ block: "nearest" });
-        // 强制重渲染高亮（selectedRef 是 ref，不触发 re-render，用一个轻量技巧）
-        ref.current?.querySelectorAll<HTMLElement>(".mention-item").forEach((el, i) => {
-          el.classList.toggle("on", i === selectedRef.current);
-        });
+        setSelected(selectedIdx + 1);
       } else if (e.key === "ArrowUp") {
-        selectedRef.current = Math.max(selectedRef.current - 1, 0);
-        ref.current?.querySelector<HTMLElement>(`[data-midx="${selectedRef.current}"]`)?.scrollIntoView({ block: "nearest" });
-        ref.current?.querySelectorAll<HTMLElement>(".mention-item").forEach((el, i) => {
-          el.classList.toggle("on", i === selectedRef.current);
-        });
+        setSelected(selectedIdx - 1);
       } else if (e.key === "Enter") {
-        if (items[selectedRef.current]) {
-          onSelect(items[selectedRef.current].asset);
+        if (items[selectedIdx]) {
+          onSelect(items[selectedIdx].asset);
         }
       } else if (e.key === "Escape") {
         onClose();
       }
     },
-    [isOpen, items, onClose, onSelect]
+    [isOpen, items, selectedIdx, setSelected, onClose, onSelect]
   );
 
   useEffect(() => {
@@ -210,18 +209,13 @@ export function MentionDropdown({
             <button
               key={g.asset.assetId}
               data-midx={mi}
-              className={`mention-item${mi === 0 ? " on" : ""}`}
+              className={`mention-item${mi === selectedIdx ? " on" : ""}`}
               onMouseDown={(e) => {
                 // mousedown 而非 click，防止 textarea onBlur 先触发导致弹窗消失
                 e.preventDefault();
                 onSelect(g.asset);
               }}
-              onMouseEnter={() => {
-                selectedRef.current = mi;
-                ref.current?.querySelectorAll<HTMLElement>(".mention-item").forEach((el, i) => {
-                  el.classList.toggle("on", i === mi);
-                });
-              }}
+              onMouseEnter={() => setSelected(mi)}
             >
               <span className="mention-item-thumb">
                 {g.asset.imagePath ? (

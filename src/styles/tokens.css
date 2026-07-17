@@ -77,6 +77,17 @@
   --accent-primary-rgb:   37, 99, 235;
   --border-accent-rgb:    96, 165, 250;
 
+  /* ── 资产类型颜色（角色/场景/物品） ── */
+  --asset-character:        #fdba74;
+  --asset-character-rgb:    253, 186, 116;
+  --asset-character-dot:    #f97316;
+  --asset-scene:            #86efac;
+  --asset-scene-rgb:        134, 239, 172;
+  --asset-scene-dot:        #22c55e;
+  --asset-item:             #93c5fd;
+  --asset-item-rgb:         147, 197, 253;
+  --asset-item-dot:         #3b82f6;
+
   /* ── 按钮 ── */
   --btn-primary-bg:         var(--accent-primary);
   --btn-primary-bg-end:     var(--accent-secondary);
@@ -173,6 +184,9 @@
   --toast-error-bg:       rgba(var(--color-danger-rgb), 0.18);
   --toast-error-color:    var(--color-danger);
 
+  --overlay-strong:       rgba(0, 0, 0, 0.85);
+  --overlay-medium:      rgba(0, 0, 0, 0.55);
+
   /* 杂项 */
   --modal-close-btn-color:  rgba(226, 232, 240, 0.82);
   --color-white:            #ffffff;
@@ -203,6 +217,10 @@
   --font-size-xl:         20px;
   --font-size-section:    30px;
   --font-size-icon:       24px;
+  --font-size-icon-lg:    28px;
+  --font-size-icon-xl:    36px;
+  --font-size-icon-xxl:   40px;
+  --font-size-icon-hero:  64px;
   --font-size-hero:       clamp(48px, 8vw, 78px);
   --line-height-base:     1.5;
   --line-height-tight:    0.95;
@@ -211,18 +229,4 @@
   --font-weight-normal:   400;
   --font-weight-medium:   500;
   --font-weight-semibold: 600;
-
-  /*
-     间距刻度：
-       xs     4px
-       sm     8px
-       md    12px
-       lg    16px
-       xl    20px
-       2xl   24px
-       3xl   32px
-
-     字号刻度：xxs=11 xs=13 sm=13 control=14 base=15 md=16 lg=18 xl=20 section=30 icon=24 hero=clamp
-     用不到的异常尺寸请新建语义 token 而非硬编码。
-  */
 }

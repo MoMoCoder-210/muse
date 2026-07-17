@@ -83,7 +83,7 @@
   position: relative;
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
-  background: #000;
+  background: rgba(0, 0, 0, 1);
   overflow: hidden;
 }
 .sd-player-video {
@@ -98,14 +98,14 @@
   display: flex; align-items: center; gap: 6px;
   height: 36px;
   padding: 0 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  background: var(--overlay-medium);
+  color: var(--color-white);
 }
 .sd-player-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0;
   border: none; background: transparent;
-  color: #fff; cursor: pointer; flex-shrink: 0; border-radius: 4px;
+  color: var(--color-white); cursor: pointer; flex-shrink: 0; border-radius: 4px;
   transition: background 120ms ease;
 }
 .sd-player-btn:hover { background: rgba(255, 255, 255, 0.15); }
@@ -139,7 +139,7 @@
   position: absolute; top: 50%;
   width: 13px; height: 13px; margin-left: -6.5px;
   transform: translateY(-50%) scale(0);
-  background: #fff; border-radius: 50%;
+  background: var(--color-white); border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   transition: transform 120ms ease;
   pointer-events: none;
@@ -163,7 +163,7 @@
 .sd-player-vol-slider::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 12px; height: 12px; border-radius: 50%;
-  background: #fff; border: none; cursor: pointer;
+  background: var(--color-white); border: none; cursor: pointer;
 }
 .sd-player-volume:hover .sd-player-vol-slider {
   width: 64px; opacity: 1; margin-left: 4px;
@@ -232,7 +232,7 @@
 .sd-video-thumb-label {
   position: absolute; bottom: 1px; left: 1px;
   font-size: var(--font-size-xxs); font-weight: var(--font-weight-semibold); color: var(--color-white);
-  background: rgba(0, 0, 0, 0.55); padding: 0 var(--spacing-xs);
+  background: var(--overlay-medium); padding: 0 var(--spacing-xs);
   border-radius: var(--radius-sm); line-height: 1.3;
 }
 .sd-video-thumb-select {
@@ -240,7 +240,7 @@
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0;
   border: none; border-radius: 0 0 var(--radius-sm) 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-medium);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer; opacity: 0;
   transition: opacity 120ms ease, background 120ms ease;
@@ -253,7 +253,7 @@
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0;
   border: none; border-radius: 0 0 0 var(--radius-sm);
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-medium);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer; opacity: 0;
   transition: opacity 120ms ease, background 120ms ease;
@@ -513,27 +513,27 @@
 
 /* 角色：橙色系 */
 .prompt-chip[data-kind='character'] {
-  background: rgba(249, 115, 22, 0.12);
-  border-color: rgba(249, 115, 22, 0.32);
-  color: #fdba74;
+  background: rgba(var(--asset-character-rgb), 0.12);
+  border-color: rgba(var(--asset-character-rgb), 0.32);
+  color: var(--asset-character);
 }
-.prompt-chip[data-kind='character'] .prompt-chip-dot { background: #f97316; }
+.prompt-chip[data-kind='character'] .prompt-chip-dot { background: var(--asset-character-dot); }
 
 /* 场景：绿色系 */
 .prompt-chip[data-kind='scene'] {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.30);
-  color: #86efac;
+  background: rgba(var(--asset-scene-rgb), 0.12);
+  border-color: rgba(var(--asset-scene-rgb), 0.30);
+  color: var(--asset-scene);
 }
-.prompt-chip[data-kind='scene'] .prompt-chip-dot { background: #22c55e; }
+.prompt-chip[data-kind='scene'] .prompt-chip-dot { background: var(--asset-scene-dot); }
 
 /* 物品：蓝色系 */
 .prompt-chip[data-kind='item'] {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.30);
-  color: #93c5fd;
+  background: rgba(var(--asset-item-rgb), 0.12);
+  border-color: rgba(var(--asset-item-rgb), 0.30);
+  color: var(--asset-item);
 }
-.prompt-chip[data-kind='item'] .prompt-chip-dot { background: #3b82f6; }
+.prompt-chip[data-kind='item'] .prompt-chip-dot { background: var(--asset-item-dot); }
 
 /* 有图片时显示缩略图。img 本身必须保持 14px，不能用 100% 覆盖整个胶囊。 */
 .prompt-chip [data-mention-thumb] {
@@ -568,9 +568,9 @@
 }
 
 /* 角色圆点颜色跟随 data-kind */
-.prompt-chip[data-kind='character'] [data-mention-dot] { background: #f97316; }
-.prompt-chip[data-kind='scene']     [data-mention-dot] { background: #22c55e; }
-.prompt-chip[data-kind='item']      [data-mention-dot] { background: #3b82f6; }
+.prompt-chip[data-kind='character'] [data-mention-dot] { background: var(--asset-character-dot); }
+.prompt-chip[data-kind='scene']     [data-mention-dot] { background: var(--asset-scene-dot); }
+.prompt-chip[data-kind='item']      [data-mention-dot] { background: var(--asset-item-dot); }
 
 /* 段落块：每个 \n 分隔的段落 */
 .prompt-para {
@@ -694,18 +694,18 @@
 
 /* 未生成图片：红色胶囊 + X 图标（组合选择器提升优先级，确保覆盖 .on） */
 .sd-detail-chip.sd-detail-chip--nogen {
-  background: rgba(229, 72, 77, 0.12);
-  border-color: rgba(229, 72, 77, 0.35);
-  color: #fca5a5;
+  background: rgba(var(--color-danger-rgb), 0.12);
+  border-color: rgba(var(--color-danger-rgb), 0.35);
+  color: var(--color-danger-light);
 }
 .sd-detail-chip.sd-detail-chip--nogen:hover:not(:disabled) {
-  border-color: rgba(229, 72, 77, 0.55);
+  border-color: rgba(var(--color-danger-rgb), 0.55);
 }
 .sd-detail-chip-img--empty {
   display: flex; align-items: center; justify-content: center;
-  background: rgba(229, 72, 77, 0.2);
-  border: 1px solid rgba(229, 72, 77, 0.5);
-  color: #fca5a5;
+  background: rgba(var(--color-danger-rgb), 0.2);
+  border: 1px solid rgba(var(--color-danger-rgb), 0.5);
+  color: var(--color-danger-light);
 }
 .sd-detail-chip-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -714,7 +714,7 @@
   position: fixed; inset: 0;
   z-index: var(--z-lightbox);
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--overlay-strong);
   backdrop-filter: blur(8px);
   animation: sd-preview-in 180ms ease;
   cursor: pointer;
@@ -731,8 +731,8 @@
   display: flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; padding: 0;
   border: none; border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff; font-size: 28px; line-height: 1;
+  background: var(--overlay-medium);
+  color: var(--color-white); font-size: var(--font-size-icon-lg); line-height: 1;
   cursor: pointer; backdrop-filter: blur(6px);
   transition: background 150ms ease, transform 150ms ease;
 }

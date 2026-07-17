@@ -778,8 +778,8 @@
   transition: color 0.15s, border-color 0.15s;
 }
 .voice-binding-unbind:hover:not(:disabled) {
-  color: var(--danger, #f87171);
-  border-color: var(--danger, #f87171);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 /* 来源切换（分段控件） */
@@ -901,7 +901,7 @@
   background: rgba(var(--accent-primary-rgb), 0.18);
   color: var(--accent-primary);
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--font-size-xxs);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -909,7 +909,7 @@
 }
 .voice-capsule-play:hover:not(:disabled) {
   background: var(--accent-primary);
-  color: #fff;
+  color: var(--color-white);
 }
 /* 胶囊主体（点击绑定） */
 .voice-capsule-body {
@@ -953,13 +953,13 @@
   width: 16px; height: 16px;
   margin-left: 2px;
   margin-right: 6px;
-  color: var(--color-success, #52c41a);
+  color: var(--color-success);
 }
 
 /* 试听中：播放键脉冲提示 */
 .voice-capsule.is-playing .voice-capsule-play {
   background: var(--accent-primary);
-  color: #fff;
+  color: var(--color-white);
   animation: voice-pulse 1s ease-in-out infinite;
 }
 @keyframes voice-pulse {
@@ -1117,7 +1117,7 @@
 }
 
 .asset-detail-placeholder {
-  font-size: 64px;
+  font-size: var(--font-size-icon-hero);
   opacity: 0.35;
   filter: grayscale(0.3);
 }
@@ -1205,7 +1205,7 @@
 }
 
 .asset-gallery-placeholder {
-  font-size: 64px;
+  font-size: var(--font-size-icon-hero);
   opacity: 0.35;
   filter: grayscale(0.3);
 }
@@ -1225,7 +1225,7 @@
 }
 
 .asset-gallery-status-icon {
-  font-size: 28px;
+  font-size: var(--font-size-icon-lg);
   line-height: 1;
 }
 
@@ -1265,7 +1265,7 @@
   padding: 3px 8px 3px 6px;
   border-radius: var(--radius-full);
   background: var(--accent-primary);
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   z-index: var(--z-badge);
@@ -1294,7 +1294,7 @@
 
 .asset-gallery-nav:hover {
   background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  color: var(--color-white);
 }
 
 .asset-gallery-nav--prev { left: 6px; }
@@ -1309,7 +1309,7 @@
   padding: 2px 10px;
   border-radius: var(--radius-full);
   background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--font-size-xs);
   z-index: var(--z-above);
   backdrop-filter: blur(4px);
@@ -1550,13 +1550,13 @@
 
 .asset-card-btn:hover {
   background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  color: var(--color-white);
   transform: translateY(-1px);
 }
 
 .asset-card-btn--delete:hover {
-  background: rgba(220, 38, 38, 0.82);
-  color: #fff;
+  background: rgba(var(--color-danger-rgb), 0.82);
+  color: var(--color-white);
   transform: translateY(-1px);
 }
 
@@ -1574,8 +1574,8 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1;
-  color: #fff;
-  background: rgba(245, 158, 11, 0.92);
+  color: var(--color-white);
+  background: rgba(var(--color-warning-rgb), 0.92);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(4px);
   pointer-events: none;
@@ -1590,7 +1590,7 @@
   width: 11px;
   height: 11px;
   border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
+  border-top-color: var(--color-white);
   border-radius: 50%;
   animation: asset-card-spin 0.7s linear infinite;
 }
@@ -1705,7 +1705,7 @@
 }
 
 .asset-card-placeholder {
-  font-size: 36px;
+  font-size: var(--font-size-icon-xl);
   opacity: 0.35;
   filter: grayscale(0.3);
   transition: opacity 160ms ease, transform 160ms ease;
@@ -1758,11 +1758,11 @@
 }
 .asset-card-voice:hover:not(:disabled) {
   background: rgba(var(--accent-primary-rgb), 0.8);
-  color: #fff;
+  color: var(--color-white);
 }
 .asset-card-voice.is-bound {
   background: rgba(var(--accent-primary-rgb), 0.72);
-  color: #fff;
+  color: var(--color-white);
 }
 
 /* 资产卡片已绑定图片缩略图 */
@@ -1872,7 +1872,7 @@
   border: none;
   border-radius: var(--radius-full);
   background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  color: var(--color-white);
   cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
@@ -1897,7 +1897,7 @@
   border: none;
   border-radius: var(--radius-lg);
   background: rgba(0, 0, 0, 0.5);
-  color: #fff;
+  color: var(--color-white);
   cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
@@ -2077,7 +2077,7 @@
 }
 
 .asset-picker-empty-icon {
-  font-size: 40px;
+  font-size: var(--font-size-icon-xxl);
   opacity: 0.35;
   filter: grayscale(0.3);
 }

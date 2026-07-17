@@ -239,15 +239,3 @@ export function hydratePromptDoc(doc: PromptDoc, mentions: PromptMention[]): Pro
   return copyNode(doc);
 }
 
-export function collectMentionIndexes(doc: PromptDoc): number[] {
-  const indexes = new Set<number>();
-  const visit = (node: PromptDocNode) => {
-    if (node.type === "mention") {
-      const index = Number(node.attrs?.index);
-      if (Number.isInteger(index) && index > 0) indexes.add(index);
-    }
-    node.content?.forEach(visit);
-  };
-  visit(doc);
-  return [...indexes].sort((a, b) => a - b);
-}
