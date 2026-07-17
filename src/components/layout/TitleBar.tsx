@@ -27,7 +27,7 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
 
   useEffect(() => {
     if (!isTauri) return;
-    getCurrentWindow().isMaximized().then(setIsMax).catch(console.error);
+    getCurrentWindow().isMaximized().then(setIsMax).catch((e) => console.error("[TitleBar] 读取最大化状态失败:", e));
   }, []);
 
   // 检测 FFmpeg 状态（壳级常驻，不需要用户打开设置页）
@@ -39,7 +39,7 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
 
   const minimize = () => {
     if (!isTauri) return;
-    getCurrentWindow().minimize().catch(console.error);
+    getCurrentWindow().minimize().catch((e) => console.error("[TitleBar] 最小化窗口失败:", e));
   };
   const toggleMax = () => {
     if (!isTauri) return;
@@ -48,11 +48,11 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
       .toggleMaximize()
       .then(() => win.isMaximized())
       .then(setIsMax)
-      .catch(console.error);
+      .catch((e) => console.error("[TitleBar] 切换最大化失败:", e));
   };
   const close = () => {
     if (!isTauri) return;
-    getCurrentWindow().close().catch(console.error);
+    getCurrentWindow().close().catch((e) => console.error("[TitleBar] 关闭窗口失败:", e));
   };
 
   // 手动接管拖拽：在标题栏按下左键且非按钮区时启动窗口拖拽，
@@ -61,7 +61,7 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
     if (!isTauri) return;
     if (e.button !== 0) return; // 仅响应左键
     if ((e.target as HTMLElement).closest(".tb-actions")) return; // 工具栏按钮区不拖拽
-    getCurrentWindow().startDragging().catch(console.error);
+    getCurrentWindow().startDragging().catch((e) => console.error("[TitleBar] 开始拖拽失败:", e));
   };
 
   const onTitleDoubleClick = (e: React.MouseEvent) => {
@@ -111,9 +111,10 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
           title="帮助"
           aria-label="打开帮助"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <circle cx="12" cy="12" r="9" />
-            <text x="12" y="16.5" textAnchor="middle" fontSize="12" fontWeight="700" fill="currentColor" stroke="none">?</text>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         </button>
 

@@ -79,11 +79,18 @@ export function SettingsPage({ onClose }: Props) {
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   const [loading, setLoading] = useState(true);
   const [appVersion, setAppVersion] = useState("unknown");
+  const [closing, setClosing] = useState(false);
+
+  const closeWithAnimation = useCallback(() => {
+    setClosing(true);
+    // 取 overlay(240ms) 与 panel(260ms) 中较长的 + 缓冲
+    setTimeout(() => onClose(), 270);
+  }, [onClose]);
 
   useEffect(() => {
     getSettings().then(setSettings).catch(() => toast("读取设置失败", "error")).finally(() => setLoading(false));
     getAppVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
-  }, []);
+  }, [toast]);
 
   const updateState = useCallback((next: AppSettings) => {
     settingsRef.current = next;
@@ -238,12 +245,20 @@ export function SettingsPage({ onClose }: Props) {
   // ── 主体 ──────────────────────────────────────────
 
   return (
-    <div className="sk-overlay" role="dialog" aria-modal="true" aria-label="应用设置">
-      <div className="sk-panel">
+    <div
+        className={`sk-overlay${closing ? " sk-overlay--closing" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="应用设置"
+        onClick={(e) => {
+          if ((e.target as HTMLElement).classList.contains("sk-overlay")) closeWithAnimation();
+        }}
+      >
+      <div className={`sk-panel${closing ? " sk-panel--closing" : ""}`}>
         {/* 头部 */}
         <div className="sk-header">
           <h2 className="sk-title">设置</h2>
-          <button type="button" className="sk-close" aria-label="关闭设置" onClick={onClose}>
+          <button type="button" className="sk-close" aria-label="关闭设置" onClick={closeWithAnimation}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>

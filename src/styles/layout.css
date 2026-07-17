@@ -1,4 +1,8 @@
-/* 应用壳与页面级布局 */
+/* ─────────────────────────────────────────────────────────
+   应用壳与页面级布局 — Apple 风格
+   ───────────────────────────────────────────────────────── */
+
+/* ── 壳 ──────────────────────────────────────────── */
 
 .app-shell {
   position: relative;
@@ -11,23 +15,26 @@
 }
 
 /* ── 自定义窗口标题栏 ─────────────────────────── */
+
 .app-titlebar {
   position: relative;
-  z-index: var(--z-sticky);
+  z-index: var(--z-titlebar);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 38px;
-  padding: 0 6px 0 12px;
-  background: var(--bg-surface-modal);
-  border-bottom: 1px solid var(--border-subtle);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  height: var(--titlebar-height);
+  padding: 0 8px 0 16px;
+  /* Apple 毛玻璃 */
+  background: rgba(30, 30, 32, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   user-select: none;
   -webkit-user-select: none;
 }
 
+/* 品牌区 */
 .tb-brand {
   display: inline-flex;
   align-items: center;
@@ -35,7 +42,7 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 .tb-logo {
   color: var(--accent-primary);
@@ -43,24 +50,29 @@
   line-height: 1;
 }
 
+/* 弹性填充 */
+.tb-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 操作按钮区 */
 .tb-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
-.tb-spacer {
-  flex: 1;
-  min-width: 0;
-}
+
+/* 基础按钮 */
 .tb-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -75,15 +87,22 @@
   height: 16px;
 }
 
+/* 窗口控制按钮组 */
 .tb-window-controls {
   display: inline-flex;
   align-items: center;
-  margin-left: 6px;
+  margin-left: 4px;
 }
 .tb-btn--win {
   width: 40px;
-  height: 32px;
+  height: 34px;
   border-radius: 0;
+}
+.tb-btn--win:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+.tb-btn--win:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .tb-btn--win svg {
   width: 12px;
@@ -94,12 +113,12 @@
   color: var(--color-white);
 }
 
-/* ── FFmpeg 状态指示器（简约圆点，hover 显示详情） ──── */
+/* FFmpeg 状态指示器 */
 .tb-status-dot-indicator {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin: 0 6px;
+  width: 7px;
+  height: 7px;
+  margin: 0 8px;
   border-radius: var(--radius-full);
   flex: none;
   background: var(--border-base);
@@ -108,11 +127,11 @@
 }
 .tb-status-dot-indicator.is-ok {
   background: var(--color-success);
-  box-shadow: 0 0 6px rgba(var(--color-success-rgb), 0.6);
+  box-shadow: 0 0 6px rgba(var(--color-success-rgb), 0.5);
 }
 .tb-status-dot-indicator.is-error {
   background: var(--color-warning);
-  box-shadow: 0 0 4px rgba(var(--color-warning-rgb), 0.5);
+  box-shadow: 0 0 4px rgba(var(--color-warning-rgb), 0.4);
 }
 .tb-status-dot-indicator.is-loading {
   background: var(--text-muted);
@@ -123,13 +142,15 @@
   50% { opacity: 1; }
 }
 
-/* 内容区填充剩余空间 */
+/* ── 内容区 ──────────────────────────────────────── */
+
 .home-screen,
 .projects-screen {
   flex: 1;
   min-height: 0;
 }
 
+/* 动态背景画布 */
 .backdrop-canvas {
   position: fixed;
   inset: 0;
@@ -147,7 +168,8 @@
   height: 100%;
 }
 
-/* 首页 */
+/* ── 首页 — Apple 极简风格 ───────────────────────── */
+
 .home-screen {
   display: grid;
   place-items: center;
@@ -155,15 +177,78 @@
 }
 
 .home-card {
-  width: min(540px, 100%);
+  width: min(480px, 100%);
   text-align: center;
-  padding: 42px 38px;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border-base);
-  background: var(--bg-surface);
-  backdrop-filter: blur(20px);
-  box-shadow: var(--shadow-card);
+  padding: 48px 40px;
+  border-radius: var(--radius-2xl);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(30, 30, 32, 0.48);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.05),
+    0 24px 80px rgba(0, 0, 0, 0.5);
+  transition: transform 200ms ease, box-shadow 200ms ease;
 }
+
+.home-card h1 {
+  margin: 0 0 12px;
+  font-size: var(--font-size-hero);
+  line-height: var(--line-height-tight);
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.home-card p {
+  margin: 0 auto;
+  max-width: 28ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+}
+
+.home-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-3xl);
+}
+
+.home-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* ── 项目管理页双栏 ───────────────────────────────── */
+
+.projects-screen {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+  padding: 12px 18px 18px;
+  transition: grid-template-columns 260ms cubic-bezier(0.25, 0, 0.25, 1);
+}
+
+.projects-screen:not(.projects-screen--sidebar-open) {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+.sidebar-drawer {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 0;
+  min-width: 0;
+  overflow: visible;
+  position: relative;
+}
+
+/* ── 通用工具类 ───────────────────────────────────── */
 
 .brand-badge,
 .workspace-kicker,
@@ -177,60 +262,4 @@
   color: var(--badge-text);
   font-size: var(--font-size-xs);
   letter-spacing: 0;
-}
-
-.home-card h1 {
-  margin: 18px 0 10px;
-  font-size: var(--font-size-hero);
-  line-height: var(--line-height-tight);
-  letter-spacing: 0;
-}
-
-.home-card p {
-  margin: 0 auto;
-  max-width: 28ch;
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-}
-
-.home-actions {
-  display: flex;
-  justify-content: center;
-  gap: var(--spacing-md);
-  margin-top: 28px;
-}
-
-.home-meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 14px;
-  margin-top: 18px;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-}
-
-/* 项目管理页双栏 */
-.projects-screen {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 18px;
-  padding: 12px 18px 18px;
-  transition: grid-template-columns 260ms cubic-bezier(0.25, 0, 0.25, 1);
-}
-
-/* 侧边栏收起 */
-.projects-screen:not(.projects-screen--sidebar-open) {
-  grid-template-columns: 0px minmax(0, 1fr);
-}
-
-/* 抽屉容器 */
-.sidebar-drawer {
-  display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 0;
-  min-width: 0;
-  overflow: visible;
-  position: relative;
 }
