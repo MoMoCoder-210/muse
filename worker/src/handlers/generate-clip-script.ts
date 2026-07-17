@@ -84,8 +84,19 @@ function autoMentionPrompt(
   let annotated = "";
 
   // 单次从左到右扫描原始文本。绝不在已经插入的 tag 上再次扫描，
-  // 所以“老兵”不会把“老兵A(@图片1)”再拆坏。
+  // 所以"老兵"不会把"老兵A(@图片1)"再拆坏。
+  // 台词区域（<…>）内不匹配资产名：台词是对白本身，不是提示词描述。
   while (cursor < prompt.length) {
+    const ch = prompt[cursor];
+    // 跳过台词区域：进入 < 时不匹配任何资产，直到遇到 >
+    if (ch === "<") {
+      let end = prompt.indexOf(">", cursor + 1);
+      if (end === -1) end = prompt.length;
+      annotated += prompt.slice(cursor, end + 1);
+      cursor = end + 1;
+      continue;
+    }
+
     const matched = candidates.find((asset) => prompt.startsWith(asset.name, cursor));
     if (!matched) {
       annotated += prompt[cursor];
@@ -181,11 +192,10 @@ function buildPromptDoc(
 }
 
 function buildVideoPrompt(
-  annotatedPrompt: string,
+  rawPrompt: string,
   sbCharacters: AnnotatedAsset[],
   sbScenes: AnnotatedAsset[],
   sbItems: AnnotatedAsset[],
-  nameToIdx: Map<string, number>,
   styleMode?: string,
 ): string {
   const parts: string[] = [];
@@ -197,34 +207,25 @@ function buildVideoPrompt(
     parts.push("");
   }
 
-  // 2. 资产声明行（只声明本分镜用到的资产）
+  // 2. 资产声明行（仅列名称，不标注 @图片N——前端动态注解）
   if (sbCharacters.length > 0) {
-    const charDecl = sbCharacters
-      .filter((c) => nameToIdx.has(c.name))
-      .map((c) => `${c.name}(@图片${nameToIdx.get(c.name)})`)
-      .join("， ");
-    if (charDecl) parts.push(`角色： ${charDecl}。`);
+    const charDecl = sbCharacters.map((c) => c.name).join("， ");
+    parts.push(`角色： ${charDecl}。`);
   }
   if (sbScenes.length > 0) {
-    const sceneDecl = sbScenes
-      .filter((s) => nameToIdx.has(s.name))
-      .map((s) => `${s.name}(@图片${nameToIdx.get(s.name)})`)
-      .join("， ");
-    if (sceneDecl) parts.push(`场景： ${sceneDecl}。`);
+    const sceneDecl = sbScenes.map((s) => s.name).join("， ");
+    parts.push(`场景： ${sceneDecl}。`);
   }
   if (sbItems.length > 0) {
-    const itemDecl = sbItems
-      .filter((it) => nameToIdx.has(it.name))
-      .map((it) => `${it.name}(@图片${nameToIdx.get(it.name)})`)
-      .join("， ");
-    if (itemDecl) parts.push(`物品： ${itemDecl}。`);
+    const itemDecl = sbItems.map((it) => it.name).join("， ");
+    parts.push(`物品： ${itemDecl}。`);
   }
 
-  // 3. 正文（animationPrompt 已标注）
+  // 3. 正文
   if (parts.length > 0 && (sbCharacters.length > 0 || sbScenes.length > 0 || sbItems.length > 0)) {
     parts.push("");
   }
-  parts.push(annotatedPrompt);
+  parts.push(rawPrompt);
 
   // 4. 风格后缀
   if (styleEntry) {
@@ -414,8 +415,8 @@ function saveResults(
       .map((it) => itemById.get(it.name))
       .filter(Boolean) as string[];
 
-    // ── 自动 @mention 标注 + 风格前缀拼接 ──────────────────────────
-    // 将本分镜涉及的所有资产（角色/场景/物品）整合为待标注列表
+    // ── 构建 mention_map（按分镜绑定资产顺序分配序号）──────────────
+    // 不再调用 autoMentionPrompt 污染原始提示词；前端加载时动态标注。
     const sbAssets: AnnotatedAsset[] = [
       ...sb.characters.map((c) => ({
         name: c.name,
@@ -432,12 +433,15 @@ function saveResults(
         assetId: itemById.get(it.name) ?? "",
         type: "item" as const,
       })),
-    ].filter((a) => a.assetId !== ""); // 只保留已入库的资产
+    ].filter((a) => a.assetId !== "");
 
-    const { annotated, mentionMap } = autoMentionPrompt(sb.animationPrompt, sbAssets);
-
-    // 构造 nameToIdx 供 buildVideoPrompt 的声明行使用
-    const nameToIdx = new Map<string, number>(mentionMap.map(({ name, n }) => [name, n]));
+    const mentionMap = sbAssets.map((a, idx) => ({
+      n: idx + 1,
+      assetId: a.assetId,
+      name: a.name,
+      type: a.type,
+      assetTag: `${a.name}(@图片${idx + 1})`,
+    }));
 
     const sbCharAssets = sb.characters
       .map((c) => ({ name: c.name, assetId: charById.get(c.name) ?? "", type: "character" as const }))
@@ -449,20 +453,17 @@ function saveResults(
       .map((it) => ({ name: it.name, assetId: itemById.get(it.name) ?? "", type: "item" as const }))
       .filter((a) => a.assetId !== "");
 
+    // 存原始提示词（不标注 @图片N），前端动态标注
     const videoPrompt = buildVideoPrompt(
-      annotated,
+      sb.animationPrompt,
       sbCharAssets,
       sbSceneAssets,
       sbItemAssets,
-      nameToIdx,
       mode,
     );
 
-    // `prompt_doc` 是前端编辑器的主数据；`video_prompt` 只是提交任务时使用的纯文本序列化。
-    // 首次存库时直接按完整 assetTag 构造 mention 节点，前端不需要再猜测或正则匹配。
     const videoParamJson = JSON.stringify({
       mention_map: mentionMap,
-      prompt_doc: buildPromptDoc(videoPrompt, mentionMap),
     });
 
     insertSb.run(

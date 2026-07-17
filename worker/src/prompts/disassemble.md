@@ -109,6 +109,8 @@ cNN,秒数s,[空间:xx][姿态:xx] 动作与表演描述
 
 ✅ 正确：`characters[].name = "老兵A"` → `animationPrompt` 中写 `老兵A`
 ❌ 错误：`characters[].name = "老兵A"` → `animationPrompt` 中写 `老兵` 或 `兵A`
+❌ 错误：`characters[].name = "同事乙"` → `animationPrompt` 中简写 `乙`
+❌ 错误：`characters[].name = "路人甲"` → `animationPrompt` 中只写 `路人` 或 `甲`
 
 ### 连贯性铁律
 

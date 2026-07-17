@@ -316,13 +316,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
     const appearance = assetOverrides[card.id]?.prompt ?? card.resource.prompt;
     const styleValue = resolveStyle(style);
     if (card.type === "character") {
-      return `[风格:${styleValue}] 角色设定图，纯白背景，无任何文字。画面左侧为一张大幅的脸部与半身特写，右侧排布三个全身视图（正面、侧面、背面），三视图比例协调、姿态清晰，4K高清。${appearance.replace(/^角色设定图[。，]\s*/i, "")}`;
+      return `[风格:${styleValue}] 角色设定图，纯白背景，无任何文字。画面左侧三分之一为脸部与半身特写，右侧排三分之二布三个全身视图（正面、侧面、背面），比例协调、姿态清晰，4K高清。${appearance.replace(/^角色设定图[。，]\s*/i, "")}`;
     }
     if (card.type === "item") {
       return `[风格:${styleValue}] 产品摄影，纯白背景，无任何文字，居中构图，无遮挡，展现清晰的材质与细节纹理，柔光均匀布光。精致质感，高精度渲染，4K高清。${appearance}`;
     }
     // scene
-    return `[风格:${styleValue}] 全景场景概念图，全景视角，注重空间层次与氛围营造，电影级构图，不能出现任何一个人物，4K高清。${appearance}`;
+    return `[风格:${styleValue}] 场景概念图，全景视角，注重空间层次与氛围营造，电影级构图，不能出现任何一个人物，4K高清。${appearance}`;
   }, [resolveStyle, assetOverrides]);
 
   // 抽屉内单个生成

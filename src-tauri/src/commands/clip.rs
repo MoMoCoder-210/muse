@@ -239,13 +239,6 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
         )
         .map_err(|e| e.to_string())?;
 
-        crate::project_log::append_log(
-            &log_path,
-            "项目",
-            "INFO",
-            &format!("片段已删除 clipId={}", id),
-        );
-
         // 有拆解任务则取消
         if task_count > 0 {
             tx.execute(
@@ -269,12 +262,25 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
         )
         .map_err(|e| e.to_string())?;
 
-        // 删除关联故事板
+        // 删除关联故事板的视频文件及任务（FK → storyboards，无 CASCADE）
+        tx.execute(
+            "DELETE FROM storyboard_videos WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
+            rusqlite::params![id],
+        )
+        .map_err(|e| format!("无法删除分镜视频 clipId={}: {}", id, e))?;
+
+        tx.execute(
+            "UPDATE tasks SET storyboard_id = NULL WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
+            rusqlite::params![id],
+        )
+        .map_err(|e| format!("无法取消关联任务 clipId={}: {}", id, e))?;
+
+        // 删除关联故事板（storyboard_assets 有 ON DELETE CASCADE，自动清理）
         tx.execute(
             "DELETE FROM storyboards WHERE clip_id = ?1",
             rusqlite::params![id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("无法删除分镜 clipId={}: {}", id, e))?;
 
         // 删除关联资产的生成图片记录（不删除文件）
         tx.execute(
@@ -297,7 +303,23 @@ pub fn delete_clips(input: DeleteClipsInput, app: tauri::AppHandle) -> Result<()
         )
         .map_err(|e| e.to_string())?;
     }
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| {
+        crate::project_log::append_log(
+            &log_path,
+            "项目",
+            "ERROR",
+            &format!("删除片段事务提交失败: {}", e),
+        );
+        e.to_string()
+    })?;
+    for id in &input.clip_ids {
+        crate::project_log::append_log(
+            &log_path,
+            "项目",
+            "INFO",
+            &format!("已删除片段 clipId={}", id),
+        );
+    }
     Ok(())
 }
 

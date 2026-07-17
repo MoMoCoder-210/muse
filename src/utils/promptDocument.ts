@@ -39,6 +39,63 @@ export function createAssetTag(name: string, index: number): string {
   return `${name}(@图片${index})`;
 }
 
+/**
+ * 动态标注：在原始提示词中为资产名插入 (@图片N)。
+ *
+ * - 台词区域（<…>）内跳过，不标注
+ * - 已存在的 (@图片\d+) 不重复标注（旧数据兼容）
+ * - 资产名按最长优先匹配，避免 "甲" 误匹配 "同事甲"
+ */
+export function annotatePrompt(rawText: string, mentions: PromptMention[]): string {
+  if (!rawText || mentions.length === 0) return rawText;
+
+  // 如果文本已含 (@图片\d+)，说明是旧数据已标注，直接返回
+  if (/\(@图片\d+\)/.test(rawText)) return rawText;
+
+  // 按名称长度降序，长名优先匹配
+  const sorted = [...mentions].sort((a, b) => b.name.length - a.name.length);
+
+  const assetTag = (m: PromptMention) => m.assetTag || createAssetTag(m.name, m.n);
+  const tagRe = /^\(@图片\d+\)/;
+
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < rawText.length) {
+    // 跳过台词区域 <…>
+    if (rawText[cursor] === "<") {
+      const end = rawText.indexOf(">", cursor + 1);
+      if (end === -1) {
+        result += rawText.slice(cursor);
+        break;
+      }
+      result += rawText.slice(cursor, end + 1);
+      cursor = end + 1;
+      continue;
+    }
+
+    const matched = sorted.find((m) => rawText.startsWith(m.name, cursor));
+    if (!matched) {
+      result += rawText[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const after = rawText.slice(cursor + matched.name.length);
+    // 已是 (@图片N) 则跳过
+    if (tagRe.test(after)) {
+      result += matched.name;
+      cursor += matched.name.length;
+      continue;
+    }
+
+    result += assetTag(matched);
+    cursor += matched.name.length;
+  }
+
+  return result;
+}
+
 export function normalizeMention(raw: Partial<PromptMention>): PromptMention | null {
   const n = Number(raw.n);
   const name = typeof raw.name === "string" ? raw.name.trim() : "";

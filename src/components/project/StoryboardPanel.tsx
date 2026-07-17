@@ -23,8 +23,8 @@ import type { AssetMention } from "./MentionDropdown";
 import { PromptEditor } from "./PromptEditor";
 import type { PromptEditorHandle, PromptEditorChange } from "./PromptEditor";
 import {
-  createAssetTag, hydratePromptDoc, isPromptDoc,
-  plainTextToPromptDoc, promptDocToPlainText, type PromptMention,
+  annotatePrompt, createAssetTag, plainTextToPromptDoc,
+  promptDocToPlainText, type PromptMention,
 } from "../../utils/promptDocument";
 import {
   VIDEO_DURATION_MIN, VIDEO_DURATION_MAX, VIDEO_ASPECT_OPTIONS,
@@ -768,106 +768,59 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
       });
     }
 
-    const storedDoc = rawParams.prompt_doc;
-    const sourcePrompt = sb.video_prompt || (isPromptDoc(storedDoc) ? promptDocToPlainText(storedDoc) : "");
-    const mappedMentionCount = mentions.length;
+    const sourcePrompt = sb.video_prompt || "";
     const mentionByIndex = new Map(mentions.map((mention) => [mention.index, mention]));
-    const assetsByName = new Map<string, StoryboardAssetInfo[]>();
-    for (const asset of assets) {
-      const name = asset.name.trim();
-      if (!name) continue;
-      const entries = assetsByName.get(name) ?? [];
-      entries.push(asset);
-      assetsByName.set(name, entries);
-    }
 
-    // 只恢复名称唯一的资产。直接用精确的完整 assetTag 正则匹配，不做左边界字符类检查——
-    // 左边界检查会把 CJK 上下文词（如"在"）误判为名称字符而跳过合法位置（同 findAssetTag 修复）。
-    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    for (const [name, matchingAssets] of assetsByName) {
-      if (matchingAssets.length !== 1) continue;
-
-      const tagPattern = new RegExp(`${escapeRegex(name)}\\(@图片(\\d+)\\)`, "gu");
-      let tagMatch: RegExpExecArray | null;
-      while ((tagMatch = tagPattern.exec(sourcePrompt)) !== null) {
-        const index = Number(tagMatch[1]);
-        if (!Number.isInteger(index) || index < 1 || mentionByIndex.has(index)) continue;
-
-        const asset = matchingAssets[0];
-        mentionByIndex.set(index, {
-          assetId: asset.asset_id,
-          name: asset.name,
-          type: asset.type,
+    // 按名称恢复资产映射（仅名称唯一时生效，避免误匹配）
+    const assetsByName = (() => {
+      const map = new Map<string, StoryboardAssetInfo[]>();
+      for (const asset of assets) {
+        const name = asset.name.trim();
+        if (!name) continue;
+        const entries = map.get(name) ?? [];
+        entries.push(asset);
+        map.set(name, entries);
+      }
+      return map;
+    })();
+    const escapeRegex = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const [name, matching] of assetsByName) {
+      if (matching.length !== 1) continue;
+      const pattern = new RegExp(`${escapeRegex(name)}\\(@图片(\\d+)\\)`, "gu");
+      for (const m of sourcePrompt.matchAll(pattern)) {
+        const idx = Number(m[1]);
+        if (!Number.isInteger(idx) || idx < 1 || mentionByIndex.has(idx)) continue;
+        const asset = matching[0];
+        mentionByIndex.set(idx, {
+          assetId: asset.asset_id, name: asset.name, type: asset.type,
           imagePath: asset.selected_image_path,
-          index,
-          assetTag: createAssetTag(asset.name, index),
+          index: idx, assetTag: createAssetTag(asset.name, idx),
         });
       }
     }
-
     mentions = [...mentionByIndex.values()].sort((a, b) => a.index - b.index);
-    const recoveredMissingMapping = mentions.length > mappedMentionCount;
 
-    // 重建条件：
-    // 1. 没有合法的 storedDoc
-    // 2. 有 mentions 但 storedDoc 里的 mention 节点数量少于恢复到的 mentions 数量
-    //    （涵盖：之前正则扫描失败存了纯文本 doc、或部分 mention 丢失的情况）
-    const storedMentionCount = (() => {
-      let count = 0;
-      const countMentions = (node: PromptDoc) => {
-        if (node.type === "mention") count++;
-        node.content?.forEach(countMentions);
-      };
-      if (isPromptDoc(storedDoc)) countMentions(storedDoc);
-      return count;
-    })();
-    const normalizedMentions: PromptMention[] = mentions.map((mention) => ({
-      n: mention.index,
-      assetId: mention.assetId,
-      name: mention.name,
-      type: mention.type,
-      imagePath: mention.imagePath,
-      assetTag: mention.assetTag,
+    const normalizedMentions: PromptMention[] = mentions.map((m) => ({
+      n: m.index, assetId: m.assetId, name: m.name,
+      type: m.type, imagePath: m.imagePath, assetTag: m.assetTag,
     }));
 
-    let needsPromptDocRebuild = !isPromptDoc(storedDoc)
-      || (mentions.length > 0 && storedMentionCount < mentions.length);
-
-    // hydrate 之后额外保底：若 sourcePrompt 中仍有 assetTag 未转为 mention 节点
-    // （如 LLM 追加的新行文），回退到全量 plainTextToPromptDoc 重建。
-    let nextDoc: PromptDoc = needsPromptDocRebuild
-      ? plainTextToPromptDoc(sourcePrompt, normalizedMentions)
-      : hydratePromptDoc(storedDoc as PromptDoc, normalizedMentions);
-
-    if (!needsPromptDocRebuild) {
-      // 保底：比较 hydrate 后的 mention 节点数 vs 全量解析应得的节点数。
-      // 若 prompt_doc 中将 assetTag 存为纯文本（如编辑中误覆盖），
-      // hydrate 无法恢复；全量 rebuild 可重新转为 mention 节点。
-      const expectedDoc = plainTextToPromptDoc(sourcePrompt, normalizedMentions);
-      const countMentions = (node: PromptDoc): number => {
-        let c = node.type === "mention" ? 1 : 0;
-        node.content?.forEach((child) => { c += countMentions(child as PromptDoc); });
-        return c;
-      };
-      const hydratedCount = countMentions(nextDoc);
-      const expectedCount = countMentions(expectedDoc);
-      if (hydratedCount < expectedCount) {
-        needsPromptDocRebuild = true;
-        nextDoc = expectedDoc;
-      }
-    }
-
+    // 动态标注 (@图片N) → 全量重建 Tiptap doc
+    const annotatedPrompt = annotatePrompt(sourcePrompt, normalizedMentions);
+    const nextDoc = plainTextToPromptDoc(annotatedPrompt, normalizedMentions);
     const nextPrompt = promptDocToPlainText(nextDoc);
 
-    mentionMapRef.current = new Map(mentions.map((mention) => [mention.index, mention]));
+    mentionMapRef.current = new Map(mentions.map((m) => [m.index, m]));
     setMentionItems(mentions);
     setParams(parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
     setPrompt(nextPrompt);
     setPromptDoc(nextDoc);
 
-    // 修复旧行缺失映射、或先前错误保存为普通文本 AST 的情况，并将恢复结果持久化。
-    const migrationKey = `${sb.id}:${sb.video_param_json ?? ""}:${mentions.map((mention) => mention.assetTag).join("|")}`;
-    if ((needsPromptDocRebuild || recoveredMissingMapping) && !migratedPromptDocKeysRef.current.has(migrationKey)) {
+    // 持久化矫正后的 prompt_doc（仅旧数据缺失/损坏时迁移，不覆盖原始 video_prompt）
+    const storedDoc = rawParams.prompt_doc;
+    const needsMigration = storedDoc && JSON.stringify(nextDoc) !== JSON.stringify(storedDoc);
+    const migrationKey = `${sb.id}:${sb.video_param_json ?? ""}`;
+    if (needsMigration && !migratedPromptDocKeysRef.current.has(migrationKey)) {
       migratedPromptDocKeysRef.current.add(migrationKey);
       const migratedParams = {
         ...rawParams,
@@ -878,7 +831,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
       void queueStoryboardSave({
         storyboard_id: sb.id,
         video_param_json: JSON.stringify(migratedParams),
-        video_prompt: nextPrompt || null,
+        video_prompt: sourcePrompt || null,
       }).catch(() => { /* 下次编辑/失焦时重试 */ });
     }
   }, [assets, sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
@@ -944,7 +897,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   // 当前分镜可 @ 的资产。已分配项从 mention_map（或后端返回的 assetTag）取稳定编号；
   // 新资产在用户选择时才分配 N，避免列表排序影响任何既有引用。
   const mentionAssets = useMemo<AssetMention[]>(() =>
-    assets.map((asset) => {
+    assets.filter(linked).map((asset) => {
       const assigned = mentionItems.find((mention) => mention.assetId === asset.asset_id);
       const index = assigned?.index ?? asset.index ?? 0;
       return {
@@ -956,7 +909,8 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         assetTag: assigned?.assetTag ?? asset.assetTag ?? (index > 0 ? createAssetTag(asset.name, index) : ""),
       };
     }),
-    [assets, mentionItems],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assets, mentionItems, sb.character_ids_json, sb.scene_ids_json, sb.item_ids_json],
   );
 
   // 新资产在当前映射的末尾分配编号；保存或生成时会按仍存在的胶囊重排为连续编号。
