@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getAppVersion } from "./services/tauri";
 import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
 import { TitleBar } from "./components/layout/TitleBar";
-import { HelpModal } from "./components/layout/HelpModal";
+
+
 import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
@@ -22,7 +23,7 @@ export default function App() {
   const [version, setVersion] = useState("unknown");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
+
 
   useEffect(() => {
     getAppVersion().then(setVersion).catch(() => {
@@ -42,8 +43,8 @@ export default function App() {
 
         <TitleBar
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenHelp={() => setHelpOpen(true)}
         />
+
 
         {view === "home" ? (
           <HomePage
@@ -68,9 +69,6 @@ export default function App() {
           <SettingsPage onClose={() => setSettingsOpen(false)} />
         ) : null}
 
-        {helpOpen ? (
-          <HelpModal version={version} onClose={() => setHelpOpen(false)} />
-        ) : null}
       </div>
     </ToastProvider>
   );

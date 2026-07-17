@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { APP_NAME } from "../../config/muse";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { detectFFmpeg } from "../../services/tauri";
+import { open } from "@tauri-apps/plugin-shell";
+
+const HELP_URL = "https://gitee.com/yangtao210/muse";
 
 type TitleBarProps = {
   onOpenSettings: () => void;
-  onOpenHelp: () => void;
 };
 
 // 浏览器预览环境（非 Tauri 运行时）下禁用窗口控制，避免调用报错
@@ -18,12 +21,20 @@ const isTauri =
  * 右侧设置 / 帮助 与窗口控制（最小化 / 最大化 / 关闭）。
  * 拖拽由 onMouseDown 手动调用 startDragging 实现，双击空白处最大化。
  */
-export function TitleBar({ onOpenSettings, onOpenHelp }: TitleBarProps) {
+export function TitleBar({ onOpenSettings }: TitleBarProps) {
   const [isMax, setIsMax] = useState(false);
+  const [ffmpegOk, setFfmpegOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!isTauri) return;
     getCurrentWindow().isMaximized().then(setIsMax).catch(console.error);
+  }, []);
+
+  // 检测 FFmpeg 状态（壳级常驻，不需要用户打开设置页）
+  useEffect(() => {
+    detectFFmpeg()
+      .then((s) => setFfmpegOk(s.available))
+      .catch(() => setFfmpegOk(false));
   }, []);
 
   const minimize = () => {
@@ -73,6 +84,13 @@ export function TitleBar({ onOpenSettings, onOpenHelp }: TitleBarProps) {
       <div className="tb-spacer" />
 
       <div className="tb-actions">
+        {/* FFmpeg 状态指示器：简约圆点，hover 显示详情，不可点击 */}
+        <span
+          className={`tb-status-dot-indicator${ffmpegOk === null ? " is-loading" : ffmpegOk ? " is-ok" : " is-error"}`}
+          title={ffmpegOk === null ? "FFmpeg服务 检测中…" : ffmpegOk ? "FFmpeg服务 已就绪" : "FFmpeg服务 未检测到"}
+          aria-label="FFmpeg服务 状态"
+        />
+
         <button
           type="button"
           className="tb-btn"
@@ -89,7 +107,7 @@ export function TitleBar({ onOpenSettings, onOpenHelp }: TitleBarProps) {
         <button
           type="button"
           className="tb-btn"
-          onClick={onOpenHelp}
+          onClick={() => open(HELP_URL).catch(console.error)}
           title="帮助"
           aria-label="打开帮助"
         >

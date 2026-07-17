@@ -30,6 +30,16 @@ export async function getAppVersion(): Promise<string> {
   return invoke<string>("get_app_version");
 }
 
+/** 打开应用数据目录（settings.json / workspace / logs 等） */
+export async function openAppDataDir(): Promise<void> {
+  return invoke<void>("open_app_data_dir");
+}
+
+/** 打开日志文件所在目录 */
+export async function openLogDir(): Promise<void> {
+  return invoke<void>("open_log_dir");
+}
+
 /**
  * 列出所有项目
  *

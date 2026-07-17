@@ -13,9 +13,7 @@ export function HomePage({ version, onCreateProject, onGoToProjects }: HomePageP
   return (
     <section className="home-screen">
       <div className="home-card">
-        <div className="brand-badge">{APP_NAME}</div>
         <h1>{APP_NAME}</h1>
-        <p>为剧本到完整视频产出的AI工作台</p>
 
         <div className="home-actions">
           <button type="button" className="primary-button" onClick={onCreateProject}>

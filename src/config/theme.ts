@@ -152,11 +152,11 @@ export interface ThemeTokens {
   textSecondaryRgb: string;
 
   // 圆角
-  radiusSm: string;
-  radiusMd: string;
-  radiusLg: string;
-  radiusXl: string;
-  radius2xl: string;
+  radiusSm: string;          // 4px  — 硬边元素（tab 内项、工具按钮、关闭按钮）
+  radiusMd: string;          // 8px  — 标准控件（按钮、输入框、select trigger）
+  radiusLg: string;          // 10px — 较大控件（卡片内列表、chip 容器）
+  radiusXl: string;          // 14px — 内层面板（侧边栏卡片、下拉菜单）
+  radius2xl: string;         // 18px — 外层面板（弹窗、设置面板、大卡片）
   radiusFull: string;
 
   // 间距
@@ -215,48 +215,48 @@ export const darkTheme: ThemeTokens = {
   textAccent:       "#bfdbfe",
   textSuccess:      "#86efac",
 
-  accentPrimary:    "#2563eb",
-  accentSecondary:  "#0ea5e9",
-  accentPurple:     "#a855f7",
-  accentOrange:     "#f97316",
+  accentPrimary:    "#0071e3",    // SF Blue
+  accentSecondary:  "#5ac8fa",    // SF Light Blue (系统辅色)
+  accentPurple:     "#bf5af2",    // SF Purple
+  accentOrange:     "#ff9f0a",    // SF Orange
 
   borderBase:       "rgba(148, 163, 184, 0.14)",
   borderSubtle:     "rgba(148, 163, 184, 0.12)",
   borderFaint:      "rgba(148, 163, 184, 0.10)",
-  borderAccent:     "rgba(96, 165, 250, 0.80)",
-  borderAccentSubtle: "rgba(96, 165, 250, 0.22)",
+  borderAccent:     "rgba(10, 132, 255, 0.80)",
+  borderAccentSubtle: "rgba(10, 132, 255, 0.22)",
 
-  // 基础语义色
-  colorDanger:        "#e04040",
-  colorDangerDark:    "#c62828",
-  colorDangerDarker:  "#b71c1c",
-  colorDangerLight:   "#ef5350",
-  colorDangerLighter: "#d32f2f",
-  colorSuccess:       "#50c878",
-  colorWarning:       "#ffb432",
-  colorInfo:          "#6cb4ff",
+  // 基础语义色 (Apple SF Colors)
+  colorDanger:        "#ff453a",    // SF Red
+  colorDangerDark:    "#d8232a",
+  colorDangerDarker:  "#a01c1f",
+  colorDangerLight:   "#ff6961",
+  colorDangerLighter: "#ff453a",
+  colorSuccess:       "#30d158",    // SF Green
+  colorWarning:       "#ff9f0a",    // SF Orange
+  colorInfo:          "#64d2ff",    // SF Light Blue
 
-  // RGB 通道
-  colorDangerRgb:     "224, 64, 64",
-  colorSuccessRgb:    "80, 200, 120",
-  colorWarningRgb:    "255, 180, 50",
-  colorInfoRgb:       "100, 160, 255",
-  accentPrimaryRgb:   "37, 99, 235",
-  borderAccentRgb:    "96, 165, 250",
+  // RGB 通道 (匹配新的 Apple 色值)
+  colorDangerRgb:     "255, 69, 58",
+  colorSuccessRgb:    "48, 209, 88",
+  colorWarningRgb:    "255, 159, 10",
+  colorInfoRgb:       "100, 210, 255",
+  accentPrimaryRgb:   "0, 113, 227",
+  borderAccentRgb:    "10, 132, 255",
 
-  btnPrimaryBg:     "#2563eb",
-  btnPrimaryBgEnd:  "#0ea5e9",
-  btnPrimaryBorder: "rgba(125, 211, 252, 0.34)",
-  btnPrimaryShadow: "rgba(37, 99, 235, 0.28)",
-  btnSecondaryBg:   "rgba(37, 99, 235, 0.26)",
-  btnSecondaryBorder: "rgba(96, 165, 250, 0.28)",
+  btnPrimaryBg:     "#0071e3",
+  btnPrimaryBgEnd:  "#0a84ff",
+  btnPrimaryBorder: "rgba(10, 132, 255, 0.34)",
+  btnPrimaryShadow: "rgba(0, 113, 227, 0.28)",
+  btnSecondaryBg:   "rgba(0, 113, 227, 0.22)",
+  btnSecondaryBorder: "rgba(10, 132, 255, 0.24)",
   btnSecondaryText: "#dbeafe",
   btnGhostBg:       "rgba(15, 23, 42, 0.76)",
   btnGhostBorder:   "rgba(148, 163, 184, 0.18)",
   btnGhostText:     "#e2e8f0",
 
-  focusRing:        "rgba(59, 130, 246, 0.16)",
-  focusBorder:      "rgba(96, 165, 250, 0.80)",
+  focusRing:        "rgba(0, 113, 227, 0.16)",
+  focusBorder:      "rgba(10, 132, 255, 0.80)",
 
   shadowCard:       "0 24px 70px rgba(0, 0, 0, 0.45)",
   shadowModal:      "0 24px 70px rgba(0, 0, 0, 0.42)",
@@ -264,32 +264,32 @@ export const darkTheme: ThemeTokens = {
 
   overlayModal:     "rgba(2, 6, 23, 0.72)",
 
-  stepDoneBg:       "rgba(37, 99, 235, 0.28)",
+  stepDoneBg:       "rgba(0, 113, 227, 0.28)",
   stepDoneBgEnd:    "rgba(15, 23, 42, 0.68)",
-  stepDoneBorder:   "rgba(59, 130, 246, 0.42)",
+  stepDoneBorder:   "rgba(10, 132, 255, 0.42)",
   stepDoneText:     "#dbeafe",
 
-  badgeBg:          "rgba(59, 130, 246, 0.16)",
+  badgeBg:          "rgba(10, 132, 255, 0.16)",
   badgeText:        "#bfdbfe",
 
   chipBg:           "rgba(148, 163, 184, 0.12)",
   chipText:         "#cbd5e1",
 
-  selectActiveBg:   "rgba(37, 99, 235, 0.16)",
+  selectActiveBg:   "rgba(0, 113, 227, 0.16)",
   selectActiveText: "#dbeafe",
-  selectHoverBg:    "rgba(37, 99, 235, 0.24)",
-  selectMenuBorder: "rgba(96, 165, 250, 0.22)",
+  selectHoverBg:    "rgba(0, 113, 227, 0.24)",
+  selectMenuBorder: "rgba(10, 132, 255, 0.22)",
   selectMenuBg:     "rgba(9, 14, 24, 0.98)",
   segmentedBg:      "rgba(148, 163, 184, 0.12)",
-  segmentedActiveBg:     "rgba(59, 130, 246, 0.22)",
-  segmentedActiveBorder: "rgba(96, 165, 250, 0.80)",
+  segmentedActiveBg:     "rgba(0, 113, 227, 0.22)",
+  segmentedActiveBorder: "rgba(10, 132, 255, 0.80)",
 
   canvasParticleColor: "rgba(255, 255, 255, 0.6)",
   canvasLineColor:     "148, 163, 184",   // 供 JS 拼入 rgba(r,g,b,alpha)
-  canvasGlow1:         "37, 99, 235",
-  canvasGlow2:         "14, 165, 233",
-  canvasGlow3:         "168, 85, 247",
-  canvasGlow4:         "249, 115, 22",
+  canvasGlow1:         "0, 113, 227",
+  canvasGlow2:         "90, 200, 250",
+  canvasGlow3:         "191, 90, 242",
+  canvasGlow4:         "255, 159, 10",
 
   // modal close button 半透明文字色
   modalCloseBtnColor:  "rgba(226, 232, 240, 0.82)",
@@ -302,7 +302,7 @@ export const darkTheme: ThemeTokens = {
 
   colorWhite:                   "#ffffff",
   shadowPanel:                  "0 24px 70px rgba(0, 0, 0, 0.35)",
-  selectTriggerHoverBorder:     "rgba(96, 165, 250, 0.48)",
+  selectTriggerHoverBorder:     "rgba(10, 132, 255, 0.48)",
 
   bgHoverSubtle:                "rgba(255, 255, 255, 0.04)",
   bgPanelSubtle:                "rgba(255, 255, 255, 0.02)",
@@ -316,9 +316,9 @@ export const darkTheme: ThemeTokens = {
 
   radiusSm:                     "4px",
   radiusMd:                     "8px",
-  radiusLg:                     "12px",
-  radiusXl:                     "16px",
-  radius2xl:                    "20px",
+  radiusLg:                     "10px",
+  radiusXl:                     "14px",
+  radius2xl:                    "18px",
   radiusFull:                   "999px",
 
   spacingXs:                    "4px",

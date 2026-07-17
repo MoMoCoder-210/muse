@@ -91,7 +91,36 @@
 }
 .tb-btn--close:hover {
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-white);
+}
+
+/* ── FFmpeg 状态指示器（简约圆点，hover 显示详情） ──── */
+.tb-status-dot-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px;
+  border-radius: var(--radius-full);
+  flex: none;
+  background: var(--border-base);
+  transition: background 200ms ease, box-shadow 200ms ease;
+  cursor: default;
+}
+.tb-status-dot-indicator.is-ok {
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(var(--color-success-rgb), 0.6);
+}
+.tb-status-dot-indicator.is-error {
+  background: var(--color-warning);
+  box-shadow: 0 0 4px rgba(var(--color-warning-rgb), 0.5);
+}
+.tb-status-dot-indicator.is-loading {
+  background: var(--text-muted);
+  animation: tb-status-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tb-status-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 /* 内容区填充剩余空间 */

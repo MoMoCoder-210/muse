@@ -145,6 +145,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_version,
+            commands::open_app_data_dir,
+            commands::open_log_dir,
             commands::create_project,
             commands::get_project,
             commands::list_projects,

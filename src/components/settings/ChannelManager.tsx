@@ -383,7 +383,7 @@ export function ChannelManager<T extends ChannelLike>({
   // ── 渲染 ──────────────────────────────────────────
 
   return (
-    <div className="channel-manager-v2">
+    <div className="cm">
 
       {note && <div className="cm-note">{note}</div>}
 

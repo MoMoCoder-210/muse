@@ -16,12 +16,18 @@
   --bg-hover:           rgba(255, 255, 255, 0.05);
   --bg-selected:        rgba(37, 99, 235, 0.12);
 
-  /* 圆角 */
+  /* 圆角 — 分层语义
+     sm:  4px  硬边元素（tab 内项、工具按钮、关闭按钮）
+     md:  8px  标准控件（按钮、输入框、select trigger）
+     lg:  10px 较大控件（卡片内列表、chip 容器）
+     xl:  14px 内层面板（侧边栏卡片、下拉菜单）
+     2xl: 18px 外层面板（弹窗、设置面板、大卡片）
+  */
   --radius-sm:            4px;
-  --radius-md:            6px;
-  --radius-lg:            8px;
-  --radius-xl:            10px;
-  --radius-2xl:           12px;
+  --radius-md:            8px;
+  --radius-lg:            10px;
+  --radius-xl:            14px;
+  --radius-2xl:           18px;
   --radius-full:          999px;
 
   /* 间距 */
@@ -46,36 +52,36 @@
   --text-primary-rgb:     248, 250, 252;
   --text-secondary-rgb:   203, 213, 225;
 
-  /* 主色 */
-  --accent-primary:     #2563eb;
-  --accent-secondary:   #0ea5e9;
-  --accent-purple:      #a855f7;
-  --accent-orange:      #f97316;
+  /* 主色 — Apple SF Colors */
+  --accent-primary:     #0071e3;
+  --accent-secondary:   #5ac8fa;
+  --accent-purple:      #bf5af2;
+  --accent-orange:      #ff9f0a;
 
   /* 边框 */
   --border-base:        rgba(148, 163, 184, 0.14);
   --border-subtle:      rgba(148, 163, 184, 0.12);
   --border-faint:       rgba(148, 163, 184, 0.10);
-  --border-accent:      rgba(96, 165, 250, 0.80);
-  --border-accent-subtle: rgba(96, 165, 250, 0.22);
+  --border-accent:      rgba(10, 132, 255, 0.80);
+  --border-accent-subtle: rgba(10, 132, 255, 0.22);
 
   /* ── 基础语义色（纯值，供组件变量引用） ── */
-  --color-danger:         #e57373;
-  --color-danger-dark:    #ef5350;
-  --color-danger-darker:  #e04040;
-  --color-danger-light:   #ef9a9a;
-  --color-danger-lighter: #e57373;
-  --color-success:        #50c878;
-  --color-warning:        #ffb432;
-  --color-info:           #6cb4ff;
+  --color-danger:         #ff453a;
+  --color-danger-dark:    #d8232a;
+  --color-danger-darker:  #a01c1f;
+  --color-danger-light:   #ff6961;
+  --color-danger-lighter: #ff453a;
+  --color-success:        #30d158;
+  --color-warning:        #ff9f0a;
+  --color-info:           #64d2ff;
 
-  /* ── RGB 通道（供 rgba() 组合使用） ── */
-  --color-danger-rgb:     229, 115, 115;
-  --color-success-rgb:    80, 200, 120;
-  --color-warning-rgb:    255, 180, 50;
-  --color-info-rgb:       100, 160, 255;
-  --accent-primary-rgb:   37, 99, 235;
-  --border-accent-rgb:    96, 165, 250;
+  /* ── RGB 通道（供 rgba() 组合使用，匹配 Apple 色值） ── */
+  --color-danger-rgb:     255, 69, 58;
+  --color-success-rgb:    48, 209, 88;
+  --color-warning-rgb:    255, 159, 10;
+  --color-info-rgb:       100, 210, 255;
+  --accent-primary-rgb:   0, 113, 227;
+  --border-accent-rgb:    10, 132, 255;
 
   /* ── 资产类型颜色（角色/场景/物品） ── */
   --asset-character:        #fdba74;
@@ -90,11 +96,11 @@
 
   /* ── 按钮 ── */
   --btn-primary-bg:         var(--accent-primary);
-  --btn-primary-bg-end:     var(--accent-secondary);
-  --btn-primary-border:     rgba(125, 211, 252, 0.34);
+  --btn-primary-bg-end:     #0a84ff;
+  --btn-primary-border:     rgba(10, 132, 255, 0.34);
   --btn-primary-shadow:     rgba(var(--accent-primary-rgb), 0.28);
-  --btn-secondary-bg:       rgba(var(--accent-primary-rgb), 0.26);
-  --btn-secondary-border:   rgba(var(--border-accent-rgb), 0.28);
+  --btn-secondary-bg:       rgba(var(--accent-primary-rgb), 0.22);
+  --btn-secondary-border:   rgba(var(--border-accent-rgb), 0.24);
   --btn-secondary-text:     #dbeafe;
   --btn-ghost-bg:           rgba(15, 23, 42, 0.76);
   --btn-ghost-border:       rgba(148, 163, 184, 0.18);
@@ -108,7 +114,7 @@
   --btn-danger-hover-shadow: rgba(var(--color-danger-rgb), 0.35);
 
   /* 焦点环 */
-  --focus-ring:             rgba(var(--accent-primary-rgb), 0.16);
+  --focus-ring:             rgba(0, 113, 227, 0.16);
   --focus-border:           var(--border-accent);
 
   /* 阴影 */
@@ -190,6 +196,9 @@
   /* 杂项 */
   --modal-close-btn-color:  rgba(226, 232, 240, 0.82);
   --color-white:            #ffffff;
+
+  /* ── 杂项 RGB ── */
+  --color-white-rgb:        255, 255, 255;
 
   /* ── 字体 ──
      10 个字号刻度：

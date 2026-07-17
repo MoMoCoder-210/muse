@@ -1,49 +1,70 @@
-/* Toast 通知 */
+/* ─────────────────────────────────────────────────────────
+   Apple 风格 Toast 通知
+   - 固定在右下角，垂直堆叠（新消息在顶部）
+   - 毛玻璃背景 + 柔和阴影
+   - 入场：从右侧滑入 + 透明度渐变
+   - 最多同时显示 3 条，超出自动挤掉最早的那条
+   ───────────────────────────────────────────────────────── */
 
 .toast-container {
   position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: var(--spacing-xl);
+  bottom: var(--spacing-2xl);
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
   pointer-events: none;
-  max-width: calc(100vw - 40px);
+  max-width: 380px;
   width: max-content;
 }
 
 .toast-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-deep);
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-xl);
+  /* Apple 毛玻璃 */
+  background: rgba(30, 30, 32, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.28),
+    0 0 0 0.5px rgba(255, 255, 255, 0.06) inset;
   color: var(--text-primary);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-base);
   pointer-events: auto;
   cursor: pointer;
-  animation: toast-in 200ms ease-out;
+  user-select: none;
+  animation: toast-slide-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 200ms ease, opacity 200ms ease;
 }
 
 .toast-item:hover {
-  opacity: 0.85;
+  transform: scale(1.02);
+  opacity: 0.92;
 }
 
-@keyframes toast-in {
+.toast-item:active {
+  transform: scale(0.98);
+}
+
+/* ── 入场动画：从右侧滑入 + 淡入 ── */
+@keyframes toast-slide-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateX(40px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0) scale(1);
   }
 }
 
+/* ── 图标 ── */
 .toast-icon {
   flex-shrink: 0;
   width: 22px;
@@ -53,6 +74,8 @@
   place-items: center;
   font-size: var(--font-size-xs);
   font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
 }
 
 .toast-info .toast-icon {
@@ -75,7 +98,9 @@
   color: var(--toast-error-color);
 }
 
+/* ── 文字 ── */
 .toast-text {
   flex: 1;
   min-width: 0;
+  word-break: break-word;
 }

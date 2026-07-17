@@ -11,6 +11,52 @@ pub fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// 打开应用数据目录（settings.json / workspace / logs 等）
+#[tauri::command]
+pub fn open_app_data_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| format!("创建目录失败：{}", e))?;
+    open_path_in_explorer(&app_data_dir)
+}
+
+/// 打开应用日志文件所在目录
+#[tauri::command]
+pub fn open_log_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let log_dir = app_data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("创建目录失败：{}", e))?;
+    open_path_in_explorer(&log_dir)
+}
+
+fn open_path_in_explorer(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("打开目录失败：{}", e))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("打开目录失败：{}", e))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("打开目录失败：{}", e))?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    Err("当前平台不支持自动打开目录".to_string())
+}
+
 /// 获取应用设置
 #[tauri::command]
 pub fn get_settings(app: tauri::AppHandle) -> Result<Value, String> {
