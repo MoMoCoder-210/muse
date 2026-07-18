@@ -43,12 +43,12 @@ export function AddAssetModal({ assetType, onConfirm, onCancel, disabled }: AddA
           <h2 className="delete-confirm-title">添加{label}</h2>
           <button
             type="button"
-            className="icon-button modal-close-button"
+            className="modal-close"
             aria-label="关闭"
             onClick={onCancel}
             disabled={disabled}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
@@ -97,12 +97,12 @@ export function AddAssetModal({ assetType, onConfirm, onCancel, disabled }: AddA
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="secondary-button btn-sm" onClick={onCancel} disabled={disabled}>
+          <button type="button" className="asset-drawer-btn asset-drawer-btn--secondary" onClick={onCancel} disabled={disabled}>
             取消
           </button>
           <button
             type="button"
-            className="primary-button btn-sm"
+            className="asset-drawer-btn asset-drawer-btn--primary"
             onClick={() => onConfirm({ type: assetType, name: name.trim(), description: description.trim(), prompt: prompt.trim() })}
             disabled={disabled || !canSubmit}
           >

@@ -97,7 +97,7 @@ export function AssetCard({
           </button>
         </div>
 
-        {/* 右下角：声音绑定按钮（仅角色资产） */}
+        {/* 左上角：声音绑定按钮（仅角色资产），与右上角删除按钮对称 */}
         {data.type === "character" && (
           <button
             type="button"

@@ -391,7 +391,7 @@ export function AssetImageGallery({
         {currentImage && currentImage.is_selected ? (
           <button
             type="button"
-            className="primary-button btn-sm"
+            className="asset-gallery-action-btn asset-gallery-action-btn--primary"
             disabled
           >
             已绑定
@@ -399,7 +399,7 @@ export function AssetImageGallery({
         ) : currentImage && currentImage.status === "ready" && onSelect ? (
           <button
             type="button"
-            className="primary-button btn-sm"
+            className="asset-gallery-action-btn asset-gallery-action-btn--primary"
             onClick={() => onSelect(currentImage.id)}
             disabled={disabled}
           >
@@ -414,7 +414,7 @@ export function AssetImageGallery({
           {onSelectFromProject && (
             <button
               type="button"
-              className="secondary-button btn-sm"
+              className="asset-gallery-local-btn asset-gallery-local-btn--secondary"
               onClick={onSelectFromProject}
               disabled={disabled}
             >
@@ -424,7 +424,7 @@ export function AssetImageGallery({
           {onSelectLocal && (
             <button
               type="button"
-              className="primary-button btn-sm"
+              className="asset-gallery-local-btn asset-gallery-local-btn--secondary"
               onClick={async () => { await onSelectLocal(); }}
               disabled={disabled}
             >
@@ -462,12 +462,12 @@ export function AssetImageGallery({
               同时删除磁盘文件
             </label>
             <div className="modal-actions">
-              <button type="button" className="secondary-button btn-sm" onClick={() => setDeleteTarget(null)} disabled={disabled}>
+              <button type="button" className="asset-drawer-btn asset-drawer-btn--secondary" onClick={() => setDeleteTarget(null)} disabled={disabled}>
                 取消
               </button>
               <button
                 type="button"
-                className="danger-button btn-sm"
+                className="asset-drawer-btn asset-drawer-btn--danger"
                 onClick={() => { onDelete(deleteTarget, deleteFile); setDeleteTarget(null); }}
                 disabled={disabled}
               >

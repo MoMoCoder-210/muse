@@ -92,7 +92,7 @@ export function VoiceBindingDrawer({
         </div>
 
         <div className="asset-drawer-footer">
-          <button type="button" className="primary-button btn-sm" onClick={onClose}>
+          <button type="button" className="asset-drawer-btn asset-drawer-btn--primary" onClick={onClose}>
             确定
           </button>
         </div>

@@ -4,6 +4,7 @@ import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAs
 import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
 import { isClipDecomposed } from "../../utils/clip";
+import { avatarColor } from "../../utils/avatar-colors";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
 import type { VoiceBinding } from "../../types/project";
 import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
@@ -579,6 +580,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
               {disassembledClips.map((clip) => {
                 const cs = clipScripts.find((s) => s.clip_id === clip.id);
                 const isSelected = clip.id === selectedClipId;
+                const colors = avatarColor(clip.sort_index);
                 return (
                   <button
                     key={clip.id}
@@ -587,7 +589,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                     onClick={() => setSelectedClipId(clip.id)}
                     title={clip.title}
                   >
-                    <span className="rail-clips-item-num">{clip.sort_index}</span>
+                    <span className="rail-clips-item-num" style={{ background: colors.bg, color: colors.text }}>{clip.sort_index}</span>
                     <span className="rail-clips-item-text">
                       <span className="rail-clips-item-title">{clip.title}</span>
                       {cs && (
@@ -641,8 +643,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                   </span>
                   <button
                     type="button"
-                    className="primary-button btn-sm"
-                    style={{ visibility: selectedAssetIds.size > 0 ? "visible" : "hidden" }}
+                    className={`asset-toolbar-btn asset-toolbar-btn--primary${selectedAssetIds.size > 0 ? "" : " asset-toolbar-btn--hidden"}`}
                     onClick={() => handleOpenBatchDrawer(allAssetCards.filter((c) => selectedAssetIds.has(c.id)))}
                     disabled={operating || selectedAssetIds.size === 0}
                   >
@@ -650,8 +651,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                   </button>
                   <button
                     type="button"
-                    className="danger-button btn-sm"
-                    style={{ visibility: selectedAssetIds.size > 0 ? "visible" : "hidden" }}
+                    className={`asset-toolbar-btn asset-toolbar-btn--danger${selectedAssetIds.size > 0 ? "" : " asset-toolbar-btn--hidden"}`}
                     onClick={() => handleDeleteClick(allAssetCards.filter((c) => selectedAssetIds.has(c.id)))}
                     disabled={operating || selectedAssetIds.size === 0}
                   >

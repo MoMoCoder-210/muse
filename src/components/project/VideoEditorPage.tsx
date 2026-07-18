@@ -25,6 +25,7 @@ type VideoMeta = { ar: number; dur: number };
 type Props = { project: ProjectInfo };
 
 import { isClipDecomposed } from "../../utils/clip";
+import { avatarColor } from "../../utils/avatar-colors";
 
 /** 秒 → "m:ss" */
 function fmtDur(d: number | null): string {
@@ -549,19 +550,22 @@ export function VideoEditorPage({ project }: Props) {
             <p className="rail-clips-empty">暂无片段</p>
           ) : (
             <div className="rail-clips-list">
-              {clips.map((c) => (
+              {clips.map((c) => {
+                const colors = avatarColor(c.sort_index);
+                return (
                 <button
                   key={c.id}
                   className={`rail-clips-item${c.id === clipId ? " on" : ""}`}
                   onClick={() => setClipId(c.id)}
                   title={c.title}
                 >
-                  <span className="rail-clips-item-num">{c.sort_index}</span>
+                  <span className="rail-clips-item-num" style={{ background: colors.bg, color: colors.text }}>{c.sort_index}</span>
                   <span className="rail-clips-item-text">
                     <span className="rail-clips-item-title">{c.title}</span>
                   </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

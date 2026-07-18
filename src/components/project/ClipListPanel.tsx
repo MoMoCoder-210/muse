@@ -9,26 +9,7 @@ import type { Clip, ProjectInfo } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
 import { useClipPolling } from "../../hooks/useClipPolling";
 
-type ClipListPanelProps = {
-  project: ProjectInfo;
-  onCreateClip: () => void;
-  /** 递增此值触发列表重新加载 */
-  refreshKey: number;
-};
-
-/** 片段序号对应的头像色调 — 循环 6 色方案 */
-const AVATAR_COLORS = [
-  { bg: "rgba(0,122,255,0.18)",  text: "#007aff" },
-  { bg: "rgba(255,149,0,0.18)",  text: "#ff9500" },
-  { bg: "rgba(175,82,222,0.18)", text: "#af52de" },
-  { bg: "rgba(255,69,58,0.18)",  text: "#ff453a" },
-  { bg: "rgba(48,209,88,0.18)",  text: "#30d158" },
-  { bg: "rgba(90,200,250,0.18)", text: "#5ac8fa" },
-];
-
-function avatarColor(index: number): { bg: string; text: string } {
-  return AVATAR_COLORS[(index - 1) % AVATAR_COLORS.length];
-}
+import { avatarColor } from "../../utils/avatar-colors";
 
 /** 取序号数字作为头像文字 */
 function avatarLabel(index: number): string {

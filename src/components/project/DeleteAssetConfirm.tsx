@@ -17,30 +17,30 @@ export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: Del
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
-      <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="delete-confirm-title">删除资产</h2>
+      <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="delete-panel-header">
+          <h2 className="delete-panel-title">删除资产</h2>
           <button
             type="button"
-            className="icon-button modal-close-button"
+            className="modal-close"
             aria-label="关闭"
             onClick={onCancel}
             disabled={disabled}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <p className="clip-delete-modal-text">
+        <p className="delete-panel-desc">
           {count === 1
             ? <>确认删除资产 <strong>「{first.resource.name}」</strong>？</>
             : <>确认删除 <strong>{count}</strong> 个资产？</>
           }
         </p>
-        <div className="modal-actions">
-          <button type="button" className="secondary-button btn-sm" onClick={onCancel} disabled={disabled}>
+        <div className="delete-panel-actions">
+          <button type="button" className="delete-panel-btn delete-panel-btn--cancel" onClick={onCancel} disabled={disabled}>
             取消
           </button>
-          <button type="button" className="danger-button btn-sm" onClick={() => onConfirm(cards)} disabled={disabled}>
+          <button type="button" className="delete-panel-btn delete-panel-btn--danger" onClick={() => onConfirm(cards)} disabled={disabled}>
             删除
           </button>
         </div>

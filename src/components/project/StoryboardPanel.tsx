@@ -32,6 +32,7 @@ import {
   VIDEO_RESOLUTION_OPTIONS,
 } from "../../config/muse";
 import { isClipDecomposed } from "../../utils/clip";
+import { avatarColor } from "../../utils/avatar-colors";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -148,7 +149,7 @@ export function StoryboardPanel({ project }: Props) {
     }));
     setVideosMap((prev) => ({ ...prev, ...map }));
   }, []);
-  // ── 左侧片段栏：常驻展开，可点击收起 ──
+  // ── 左侧片段栏：手动展开/收起 ──
   const [railCollapsed, setRailCollapsed] = useState(false);
   const toggleRail = useCallback(() => setRailCollapsed((v) => !v), []);
 
@@ -314,7 +315,7 @@ export function StoryboardPanel({ project }: Props) {
 
   return (
     <div className="rail-layout">
-      {/* ── 左侧轨道（常驻，可点击收起） ── */}
+      {/* ── 左侧轨道（手动展开/收起） ── */}
       <div className={`rail-clips${railCollapsed ? " is-collapsed" : " is-expanded"}`}>
         <div className="rail-clips-inner">
           <div className="rail-clips-head">
@@ -323,12 +324,15 @@ export function StoryboardPanel({ project }: Props) {
           </div>
           {loading ? <p className="rail-clips-empty">加载中…</p> : filtered.length === 0 ? <p className="rail-clips-empty">暂无片段</p> : (
             <div className="rail-clips-list">
-              {filtered.map((c) => (
-                <button key={c.id} className={`rail-clips-item${c.id === clipId ? " on" : ""}`} onClick={() => setClipId(c.id)} title={c.title}>
-                  <span className="rail-clips-item-num">{c.sort_index}</span>
-                  <span className="rail-clips-item-text"><span className="rail-clips-item-title">{c.title}</span></span>
-                </button>
-              ))}
+              {filtered.map((c) => {
+                const colors = avatarColor(c.sort_index);
+                return (
+                  <button key={c.id} className={`rail-clips-item${c.id === clipId ? " on" : ""}`} onClick={() => setClipId(c.id)} title={c.title}>
+                    <span className="rail-clips-item-num" style={{ background: colors.bg, color: colors.text }}>{c.sort_index}</span>
+                    <span className="rail-clips-item-text"><span className="rail-clips-item-title">{c.title}</span></span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -340,7 +344,11 @@ export function StoryboardPanel({ project }: Props) {
           aria-label={railCollapsed ? "展开片段列表" : "收起片段列表"}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d={railCollapsed ? "M6 4L10 8L6 12" : "M10 4L6 8L10 12"} />
+            {railCollapsed ? (
+              <path d="M6 4L10 8L6 12" />
+            ) : (
+              <path d="M10 4L6 8L10 12" />
+            )}
           </svg>
         </button>
       </div>

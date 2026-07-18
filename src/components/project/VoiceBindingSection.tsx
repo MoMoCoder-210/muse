@@ -78,7 +78,6 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
 
   const handleBindLocal = (entry: VoiceFileEntry) => {
     onChange({ source: "local", filePath: entry.file_path, label: entry.file_name });
-    toast("已绑定本地声音", "success");
   };
 
   // 停止当前播放
@@ -123,7 +122,7 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
     setPlayingId(filePath);
   };
 
-  // 本地上传（新文件：先导入工作区再绑定）
+  // 本地上传（上传到工作区，但不自动绑定）
   const handleLocalUpload = async () => {
     try {
       const selected = await open({
@@ -131,9 +130,9 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
         filters: [{ name: "音频", extensions: ["mp3", "wav", "m4a", "ogg", "flac"] }],
       });
       if (!selected || typeof selected !== "string") return;
-      const result = await importVoiceFile(clipId, selected);
-      onChange({ source: "local", filePath: result.file_path, label: result.file_name });
-      toast("已绑定本地声音", "success");
+      await importVoiceFile(clipId, selected);
+      // 上传后刷新列表，不自动绑定
+      await loadLocalFiles();
     } catch (e) {
       toast(`上传失败：${String(e)}`, "error");
     }
@@ -183,7 +182,7 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
         <>
           <button
             type="button"
-            className="secondary-button btn-sm voice-binding-upload"
+            className="voice-binding-upload-btn"
             disabled={disabled}
             onClick={handleLocalUpload}
           >

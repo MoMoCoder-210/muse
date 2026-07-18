@@ -474,7 +474,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
           <div className="generate-asset-form">
             <div className="field">
               <span>画幅比例</span>
-              <div className="segmented" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+              <div className="segmented segmented--cols5">
                 {(["16:9", "9:16", "4:3", "3:4", "1:1"] as AspectRatio[]).map((r) => (
                   <button
                     key={r}
@@ -491,7 +491,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
 
             <div className="field">
               <span>生成数量</span>
-              <div className="segmented" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+              <div className="segmented segmented--cols4">
                 {([1, 2, 3, 4] as number[]).map((n) => (
                   <button
                     key={n}
@@ -528,7 +528,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
             <>
               <button
                 type="button"
-                className="secondary-button btn-sm"
+                className="asset-drawer-btn asset-drawer-btn--secondary"
                 onClick={() => handleGenerateClick(() => onGenerate(current, { size, style, n: imageCount }))}
                 disabled={disabled}
               >
@@ -536,7 +536,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
               </button>
               <button
                 type="button"
-                className="primary-button btn-sm"
+                className="asset-drawer-btn asset-drawer-btn--primary"
                 onClick={() => handleGenerateClick(() => onBatchGenerate(cards, { size, style, n: imageCount }))}
                 disabled={disabled}
               >
@@ -546,7 +546,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
           ) : (
             <button
               type="button"
-              className="primary-button btn-sm"
+              className="asset-drawer-btn asset-drawer-btn--primary"
               onClick={() => handleGenerateClick(() => onGenerate(current, { size, style, n: imageCount }))}
               disabled={disabled}
             >
