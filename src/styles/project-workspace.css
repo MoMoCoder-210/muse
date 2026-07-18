@@ -77,14 +77,18 @@
 .workspace-inner {
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
   height: 100%;
   min-height: 0;
 }
 
 .workspace-header-row {
-  display: grid;
+  display: flex;
+  justify-content: center;
   gap: var(--spacing-md);
+  max-width: 100%;
+  width: 100%;
+  margin: 0 auto;
 }
 
 /* 空状态 */

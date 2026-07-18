@@ -109,6 +109,26 @@ struct StoryboardVideoReadyPayload {
     error_message: Option<String>,
 }
 
+/// 启动健康检测事件负载（转发给前端）
+#[derive(Clone, serde::Serialize)]
+pub struct StartupStatusPayload {
+    pub status: String,     // "checking" | "ready" | "error"
+    pub db_ok: bool,
+    pub ffmpeg_ok: bool,
+    pub worker_ok: bool,
+    pub message: String,
+}
+
+/// Worker 生命周期事件负载（转发给前端）
+#[derive(Clone, serde::Serialize)]
+struct WorkerStatusPayload {
+    status: String,         // "crashed" | "restarting" | "restarted" | "max_restarts" | "start_failed"
+    worker_id: String,
+    message: String,
+    attempt: Option<u32>,   // 当前重试次数（restarting/restarted 时）
+    max_attempts: Option<u32>,
+}
+
 /// 解析 stdout 行内容
 ///
 /// 返回 Option<&str>：heartbeat 消息返回 Some("heartbeat")，调用方可据此更新心跳时间戳。
@@ -629,8 +649,20 @@ impl SidecarManager {
                 "ERROR",
                 &format!("超过最大重启次数（{}）", MAX_RESTART_COUNT),
             );
+            self.emit_worker_status(
+                "max_restarts",
+                "Worker 多次崩溃，已达最大重启次数上限，请检查日志或重启应用",
+                Some(self.restart_count),
+            );
             return Err(SidecarError::MaxRestartsExceeded);
         }
+
+        // 通知前端即将重启
+        self.emit_worker_status(
+            "restarting",
+            &format!("Worker 异常退出，正在重启（第 {}/{} 次）…", self.restart_count + 1, MAX_RESTART_COUNT),
+            Some(self.restart_count + 1),
+        );
 
         // 先清理旧进程
         if let Some(child) = self.child.as_mut() {
@@ -671,7 +703,24 @@ impl SidecarManager {
         let log_path = self.log_path.clone();
         let ffmpeg = self.ffmpeg_path.clone();
         let ffprobe = self.ffprobe_path.clone();
-        self.start(&db, &workspace, &config, &log_path, &ffmpeg, &ffprobe)
+        match self.start(&db, &workspace, &config, &log_path, &ffmpeg, &ffprobe) {
+            Ok(()) => {
+                self.emit_worker_status(
+                    "restarted",
+                    &format!("Worker 已恢复运行（第 {}/{} 次重启成功）", self.restart_count, MAX_RESTART_COUNT),
+                    Some(self.restart_count),
+                );
+                Ok(())
+            }
+            Err(e) => {
+                self.emit_worker_status(
+                    "start_failed",
+                    &format!("Worker 重启失败：{}", e),
+                    Some(self.restart_count),
+                );
+                Err(e)
+            }
+        }
     }
 
     /// 用户主动保存配置时调用：强制用已保存的启动参数重新拉起 Worker。
@@ -855,6 +904,18 @@ impl SidecarManager {
 
     pub fn is_running(&self) -> bool {
         self.child.is_some()
+    }
+
+    /// 向前端发送 Worker 生命周期事件
+    fn emit_worker_status(&self, status: &str, message: &str, attempt: Option<u32>) {
+        let payload = WorkerStatusPayload {
+            status: status.to_string(),
+            worker_id: self.worker_id.clone(),
+            message: message.to_string(),
+            attempt,
+            max_attempts: Some(MAX_RESTART_COUNT),
+        };
+        let _ = self.app.emit("worker-status", payload);
     }
 
     pub fn matches_runtime(

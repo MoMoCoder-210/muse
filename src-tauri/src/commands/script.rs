@@ -173,16 +173,25 @@ pub fn generate_clip_script(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
 
-    // 查询片段所属项目和原文
+    // 查询片段所属项目、原文和当前状态
     let row = conn
         .query_row(
-            "SELECT project_id, source_text FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT project_id, source_text, status FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             rusqlite::params![&input.clip_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
         )
         .map_err(|e| format!("片段查询失败：{}", e))?;
 
-    let (project_id, source_text) = row;
+    let (project_id, source_text, clip_status) = row;
+
+    // 只有 pending 或 failed 状态的片段才能拆解
+    if clip_status != "pending" && clip_status != "failed" {
+        return Err(format!(
+            "当前片段状态为「{}」，不允许重新拆解。只有待处理或失败的片段可以拆解",
+            clip_status
+        ));
+    }
+
     if source_text.trim().is_empty() {
         return Err("片段原文为空，无法拆解".to_string());
     }

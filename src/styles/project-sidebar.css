@@ -283,20 +283,16 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.35);
+  background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 1;
   transition:
-    opacity 140ms ease,
     background 140ms ease,
     color 140ms ease;
-}
-.project-item:hover .project-item__delete {
-  opacity: 1;
 }
 .project-item__delete:hover {
   background: rgba(var(--color-danger-rgb), 0.35);

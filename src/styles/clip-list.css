@@ -1,4 +1,4 @@
-/* 剧本导入面板与片段列表面板（模块 02） */
+/* 剧本导入面板与片段列表面板（模块 02）— macOS 风格重设计 */
 
 /* ── 片段列表面板 ─────────────────────────────── */
 .clip-list-panel {
@@ -7,10 +7,43 @@
   gap: var(--spacing-sm);
   height: 100%;
   min-height: 0;
-  padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface-deep);
+  padding: 0;
+  border: 0.5px solid var(--glass-border);
+  border-radius: var(--radius-3xl);
+  background: var(--glass-bg);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    var(--shadow-glass);
+  overflow: hidden;
+}
+
+/* ── 面板头部 ─────────────────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 0;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+/* ── 面板加载态 ───────────────────────────────── */
+.panel-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
 }
 
 /* 拆分状态标签 */
@@ -28,12 +61,13 @@
 
 /* 错误提示横幅 */
 .split-error-banner {
-  padding: 12px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface-deep);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  padding: 10px 16px;
+  margin: 0 16px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-hover-subtle);
+  border: 0.5px solid var(--glass-border);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
   line-height: var(--line-height-base);
 }
 
@@ -43,47 +77,107 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
-  text-align: center;
+  margin: 0 12px;
+  padding: 28px 20px;
+  border: 0.5px dashed var(--glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--text-quaternary);
   font-size: var(--font-size-sm);
+  text-align: center;
+  background: var(--bg-hover-subtle);
+  line-height: 1.5;
 }
 
-/* 片段列表 */
+/* ── 片段列表 — macOS Finder 卡片风格 ──────────── */
 .clip-list {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: 2px;
   overflow-y: auto;
-  padding-right: var(--spacing-xs);
+  scrollbar-gutter: stable;
+  padding: 8px 12px;
 }
 
+.clip-list::-webkit-scrollbar {
+  width: 5px;
+}
+.clip-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.clip-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
+.clip-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ── 片段卡片 ─────────────────────────────────── */
 .clip-item {
-  border: 1px solid var(--border-faint);
-  border-radius: var(--radius-lg);
+  position: relative;
+  border: 0.5px solid transparent;
+  border-radius: var(--radius-xl);
   background: transparent;
   overflow: hidden;
   flex-shrink: 0;
-  transition: border-color 120ms ease;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .clip-item:hover {
-  border-color: var(--border-base);
+  background: var(--bg-hover-subtle);
+  border-color: var(--glass-border);
 }
 
+.clip-item--selected {
+  background: rgba(var(--accent-primary-rgb), 0.1);
+  border-color: rgba(var(--accent-primary-rgb), 0.25);
+}
+.clip-item--selected:hover {
+  background: rgba(var(--accent-primary-rgb), 0.14);
+  border-color: rgba(var(--accent-primary-rgb), 0.35);
+}
+
+.clip-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  border-color: var(--focus-border);
+}
+
+/* ── 片段卡片头部（行） ────────────────────────── */
 .clip-item-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 10px;
+  padding: 10px 14px;
   cursor: pointer;
   user-select: none;
   transition: background 120ms ease;
 }
 
 .clip-item-header:hover {
-  background: var(--bg-surface-deep);
+  background: transparent;
+}
+
+/* ── 左侧序号头像 ──────────────────────────────── */
+.clip-index-avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: 0;
+  background: rgba(var(--text-muted-rgb), 0.12);
+  color: var(--text-secondary);
 }
 
 .clip-index {
@@ -93,29 +187,41 @@
   white-space: nowrap;
 }
 
+/* ── 中间信息区 ────────────────────────────────── */
+.clip-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+
 .clip-title {
-  flex: 0 1 auto;
-  max-width: 260px;
   font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 
 .clip-wordcount {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   font-size: var(--font-size-xs);
   white-space: nowrap;
-  margin-left: auto;
 }
 
 /* 片段状态标签 */
 .clip-status {
-  padding: 2px 8px;
+  padding: 1px 8px;
   border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 .clip-status--pending      { background: var(--chip-bg);    color: var(--chip-text); }
@@ -125,7 +231,7 @@
 .clip-status--storyboard_ready { background: var(--badge-bg); color: var(--badge-text); }
 .clip-status--media_ready  { background: var(--badge-bg);   color: var(--badge-text); }
 .clip-status--done         { background: var(--chip-bg);    color: var(--text-success); }
-.clip-status--failed       { background: var(--chip-bg);    color: var(--text-muted); }
+.clip-status--failed       { background: var(--chip-bg);    color: var(--text-tertiary); }
 
 .clip-disassembled-label {
   font-size: var(--font-size-xs);
@@ -133,7 +239,7 @@
   white-space: nowrap;
 }
 
-/* 全选 checkbox：更大更醒目，带 hover 光晕 */
+/* ── 全选 checkbox ─────────────────────────────── */
 .clip-select-all {
   display: inline-flex;
   align-items: center;
@@ -231,7 +337,50 @@
   transform: rotate(45deg);
 }
 
-/* 标题编辑图标按钮 */
+/* ── 展开箭头 ──────────────────────────────────── */
+.clip-expand-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  line-height: 1;
+  transition: color 140ms ease, transform 200ms ease;
+}
+
+.clip-item:hover .clip-expand-icon {
+  color: var(--text-secondary);
+}
+
+/* ── 删除按钮 ──────────────────────────────────── */
+.clip-item__delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.clip-item__delete:hover {
+  background: rgba(var(--color-danger-rgb), 0.18);
+  color: var(--color-danger);
+}
+
+/* 标题编辑图标按钮 — macOS 风格 */
 .clip-edit-title-btn {
   display: inline-flex;
   align-items: center;
@@ -241,24 +390,28 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  color: var(--text-quaternary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color 120ms ease, background 120ms ease, transform 120ms ease;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.clip-item:hover .clip-edit-title-btn {
+  opacity: 1;
 }
 
 .clip-edit-title-btn:hover {
-  color: var(--text-primary);
-  background: var(--chip-bg);
-  transform: translateY(-1px);
+  color: var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.14);
 }
 
-.clip-expand-icon {
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
 
+
+/* 删除确认弹窗（复用项目列表样式，仅覆盖差异） */
 .clip-delete-modal {
   max-width: 340px;
 }
@@ -286,16 +439,22 @@
   justify-content: center;
 }
 
-/* 片段展开内容 */
+/* ── 片段展开内容 — macOS 毛玻璃风格 ──────────────── */
 .clip-item-body {
-  padding: 0 14px 14px;
-  border-top: 1px solid var(--border-faint);
+  padding: 0 14px 16px;
+  border-top: 0.5px solid var(--border-faint);
+  margin: 0 14px;
 }
 
 .clip-summary {
-  margin: 10px 0 6px;
+  margin: 12px 0 10px;
+  padding: 10px 14px;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
+  line-height: 1.6;
+  background: var(--bg-hover-subtle);
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-faint);
 }
 
 .clip-text {
@@ -305,21 +464,100 @@
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   font-family: var(--font-family);
-  line-height: var(--line-height-base);
-  max-height: 320px;
+  line-height: 1.7;
+  max-height: 360px;
   overflow-y: auto;
-  padding: var(--spacing-md);
-  background: var(--bg-canvas);
-  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  background: var(--bg-input);
+  border-radius: var(--radius-lg);
+  border: 0.5px solid var(--border-faint);
 }
 
-/* ── 片段选择/工具栏/标题编辑/拆分（模块 02 第 9 节） ──────── */
-/* @author yt @date 20260702 新增片段编辑交互样式 */
+.clip-text::-webkit-scrollbar {
+  width: 4px;
+}
+.clip-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+.clip-text::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
 
-/* 选中态片段高亮 */
-.clip-item--selected {
-  border-color: var(--border-accent);
-  background: var(--badge-bg);
+/* ── 片段操作按钮 — macOS 胶囊风格 ────────────────── */
+.clip-action-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 14px;
+  border: 0.5px solid transparent;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.clip-action-btn:hover {
+  transform: translateY(-0.5px);
+}
+
+.clip-action-btn:active {
+  transform: translateY(0);
+}
+
+/* 拆解按钮 — 主色调 */
+.clip-action-btn--primary {
+  background: rgba(var(--accent-primary-rgb), 0.2);
+  border-color: rgba(var(--accent-primary-rgb), 0.28);
+  color: var(--btn-secondary-text);
+}
+.clip-action-btn--primary:hover {
+  background: rgba(var(--accent-primary-rgb), 0.32);
+  border-color: rgba(var(--accent-primary-rgb), 0.44);
+  box-shadow: 0 4px 14px rgba(var(--accent-primary-rgb), 0.18);
+}
+
+/* 取消按钮 — 中性色调 */
+.clip-action-btn--ghost {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.16);
+  color: var(--text-secondary);
+}
+.clip-action-btn--ghost:hover {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: var(--text-primary);
+}
+
+/* 已拆解/禁用状态 */
+.clip-action-btn--disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-quaternary);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── 片段选择/工具栏/标题编辑/拆分 ──────────────── */
+
+/* 额外信息区（横幅 + 工具栏） */
+.clip-list-extra {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 0 16px;
 }
 
 /* 标题编辑 inline input */
@@ -338,23 +576,17 @@
   font-family: var(--font-family);
 }
 
-/* 额外信息区（横幅 + 工具栏） */
-.clip-list-extra {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
 /* 拆分进行中横幅 */
 .split-running-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border-radius: var(--radius-lg);
+  padding: 10px 16px;
+  border-radius: var(--radius-xl);
   background: var(--badge-bg);
   color: var(--badge-text);
   font-size: var(--font-size-sm);
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.18);
 }
 
 /* 旋转加载图标 */
@@ -404,16 +636,49 @@
   100% { content: "..."; }
 }
 
-/* 片段列表工具栏 */
+/* ── 面板头部按钮 — macOS 胶囊风格 ─────────────── */
+.clip-panel-create-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.3);
+  border-radius: var(--radius-xl);
+  background: rgba(var(--accent-primary-rgb), 0.18);
+  color: var(--btn-secondary-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+
+.clip-panel-create-btn:hover {
+  background: rgba(var(--accent-primary-rgb), 0.28);
+  border-color: rgba(var(--accent-primary-rgb), 0.48);
+  box-shadow: 0 4px 16px rgba(var(--accent-primary-rgb), 0.14);
+  transform: translateY(-0.5px);
+}
+
+.clip-panel-create-btn:active {
+  transform: translateY(0);
+}
+
+/* ── 片段列表工具栏 ─────────────────────────────── */
 .clip-list-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-toolbar-gap);
-  padding: 6px 2px;
+  gap: 10px;
+  padding: 4px 0 6px;
   font-size: var(--font-size-sm);
 }
 
-/* 片段列表工具栏 — 全选复选框（toolbar 简化版，父选择器限定作用域） */
 .clip-list-toolbar .clip-select-all {
   display: inline-flex;
   align-items: center;
@@ -423,8 +688,78 @@
 }
 
 .clip-selected-count {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   font-size: var(--font-size-xs);
+  margin-right: auto;
+}
+
+/* 工具栏按钮隐藏态 */
+.clip-toolbar-btn--hidden {
+  visibility: hidden;
+}
+
+/* 标题行（标题 + 编辑按钮） */
+.clip-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* 工具栏按钮 — macOS 胶囊风格 */
+.clip-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 14px;
+  border: 0.5px solid transparent;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.clip-toolbar-btn:hover {
+  transform: translateY(-0.5px);
+}
+
+.clip-toolbar-btn:active {
+  transform: translateY(0);
+}
+
+/* 批量拆解 */
+.clip-toolbar-btn--primary {
+  background: rgba(var(--accent-primary-rgb), 0.2);
+  border-color: rgba(var(--accent-primary-rgb), 0.28);
+  color: var(--btn-secondary-text);
+}
+.clip-toolbar-btn--primary:hover {
+  background: rgba(var(--accent-primary-rgb), 0.32);
+  border-color: rgba(var(--accent-primary-rgb), 0.44);
+  box-shadow: 0 4px 14px rgba(var(--accent-primary-rgb), 0.18);
+}
+
+/* 批量删除 */
+.clip-toolbar-btn--danger {
+  background: rgba(var(--color-danger-rgb), 0.16);
+  border-color: rgba(var(--color-danger-rgb), 0.22);
+  color: var(--color-danger-light);
+}
+.clip-toolbar-btn--danger:hover {
+  background: rgba(var(--color-danger-rgb), 0.26);
+  border-color: rgba(var(--color-danger-rgb), 0.36);
+  box-shadow: 0 4px 14px rgba(var(--color-danger-rgb), 0.16);
+  color: #ff6961;
 }
 
 /* ── 工作区分栏布局 ────────────────────────────── */
@@ -449,10 +784,20 @@
   gap: var(--spacing-sm);
   height: 100%;
   min-height: 0;
-  padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-deep);
+  padding: 0;
+  border: 0.5px solid var(--glass-border);
+  border-radius: var(--radius-3xl);
+  background: var(--glass-bg);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    var(--shadow-glass);
+  overflow: hidden;
+}
+
+.script-list-panel .panel-header {
+  padding: 18px 22px 0;
 }
 
 .script-list {
@@ -461,7 +806,22 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: 2px;
+  padding: 8px 12px;
+}
+
+.script-list::-webkit-scrollbar {
+  width: 5px;
+}
+.script-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.script-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
+.script-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .script-list-item {
@@ -469,20 +829,21 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  border-radius: var(--radius-xl);
   cursor: pointer;
-  transition: background 120ms ease;
-  border: 1px solid var(--border-faint);
+  transition: background 160ms ease, border-color 160ms ease;
+  border: 0.5px solid transparent;
 }
 
 .script-list-item:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover-subtle);
+  border-color: var(--glass-border);
 }
 
 .script-list-item--selected {
-  background: var(--bg-selected);
-  border-color: var(--border-accent);
+  background: rgba(var(--accent-primary-rgb), 0.1);
+  border-color: rgba(var(--accent-primary-rgb), 0.25);
 }
 
 .script-list-item-info {
@@ -495,15 +856,17 @@
 
 .script-list-item-name {
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 
 .script-list-item-meta {
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .script-list-item-status {
@@ -511,10 +874,10 @@
   white-space: nowrap;
 }
 
-.script-list-item-status--pending { color: var(--text-muted); }
+.script-list-item-status--pending { color: var(--text-tertiary); }
 .script-list-item-status--running { color: var(--accent-secondary); }
 .script-list-item-status--success { color: var(--text-success); }
-.script-list-item-status--failed  { color: var(--text-muted); }
+.script-list-item-status--failed  { color: var(--text-tertiary); }
 
 .script-list-item-actions {
   display: flex;
@@ -529,12 +892,19 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  margin: 0 12px;
+  padding: 28px 20px;
+  border: 0.5px dashed var(--glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--text-quaternary);
   font-size: var(--font-size-sm);
+  text-align: center;
+  background: var(--bg-hover-subtle);
+  line-height: 1.5;
 }
 
 .empty-script-list-hint {
   margin-top: var(--spacing-xs);
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  color: var(--text-quaternary);
 }

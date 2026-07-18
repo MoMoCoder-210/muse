@@ -103,7 +103,6 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
       <main className="project-workspace">
         <ProjectWorkspace
           project={selectedProject}
-          onProjectUpdated={handleProjectUpdated}
         />
       </main>
 

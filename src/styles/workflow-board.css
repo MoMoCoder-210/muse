@@ -1,105 +1,76 @@
-/* ── 工作流步骤板 ────────────────────────────── */
-/* @author yt @date 20260702 收敛为低饱和风格，与整体暗色玻璃质感协调 */
+/* ── 工作流步骤导航 — macOS Segmented Control 风格 ── */
+
 .workflow-board {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--spacing-md);
-}
-
-.workflow-step {
-  min-height: 68px;
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-faint);
-  background: var(--bg-surface-deep);
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 120ms ease;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--segmented-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid var(--border-faint);
 }
 
-.workflow-step:hover {
-  background: var(--bg-surface-modal);
-  border-color: var(--border-base);
-}
-
-.workflow-step:active {
-  transform: scale(0.97);
-}
-
-.workflow-step-index {
+/* ── 分段按钮 ─────────────────────────────────── */
+.workflow-segment {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-faint);
-  color: var(--text-muted);
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-xs);
-}
-
-.workflow-step-label {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
-/* 已完成：淡 accent 底色，去掉渐变 */
-.workflow-step--done {
-  border-color: var(--border-accent-subtle);
-  background: var(--badge-bg);
-}
-
-.workflow-step--done:hover {
-  background: var(--select-active-bg);
-  border-color: var(--border-accent);
-}
-
-.workflow-step--done .workflow-step-index {
-  border-color: var(--border-accent-subtle);
-  color: var(--text-accent);
+  flex: 1;
+  height: 30px;
+  padding: 0 var(--spacing-lg);
+  border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-family);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
 }
 
-.workflow-step--done .workflow-step-label {
-  color: var(--text-accent);
-}
-
-/* 当前进行中：主色细边框 + 极淡底色，不用强光晕 */
-.workflow-step--active {
-  border-color: var(--border-accent);
-  background: var(--step-active-bg);
-}
-
-.workflow-step--active:hover {
-  border-color: var(--accent-primary);
-  background: var(--badge-bg);
-}
-
-.workflow-step--active .workflow-step-index {
-  border-color: var(--border-accent);
+.workflow-segment:hover {
   color: var(--text-primary);
-  background: var(--accent-primary);
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.workflow-step--active .workflow-step-label {
+/* ── 选中态：白色滑块效果 ──────────────────────── */
+.workflow-segment--active {
+  background: var(--bg-surface-modal);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    0 0 0 0.5px rgba(0, 0, 0, 0.08);
 }
 
-/* 禁用态：不可点击，灰显 */
-.workflow-step--disabled {
+.workflow-segment--active:hover {
+  background: var(--bg-surface-modal);
+  color: var(--text-primary);
+}
+
+/* ── 标签文字 ──────────────────────────────────── */
+.workflow-segment-label {
+  display: inline;
+  pointer-events: none;
+}
+
+/* ── 禁用态 ────────────────────────────────────── */
+.workflow-segment--disabled {
+  opacity: 0.35;
   cursor: not-allowed;
-  opacity: 0.45;
 }
 
-.workflow-step--disabled:hover {
-  background: var(--bg-surface-deep);
-  border-color: var(--border-faint);
+.workflow-segment--disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
 }

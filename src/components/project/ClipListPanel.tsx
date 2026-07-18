@@ -8,7 +8,6 @@ import {
 import type { Clip, ProjectInfo } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
 import { useClipPolling } from "../../hooks/useClipPolling";
-import { DeleteClipConfirm } from "./DeleteClipConfirm";
 
 type ClipListPanelProps = {
   project: ProjectInfo;
@@ -16,6 +15,25 @@ type ClipListPanelProps = {
   /** 递增此值触发列表重新加载 */
   refreshKey: number;
 };
+
+/** 片段序号对应的头像色调 — 循环 6 色方案 */
+const AVATAR_COLORS = [
+  { bg: "rgba(0,122,255,0.18)",  text: "#007aff" },
+  { bg: "rgba(255,149,0,0.18)",  text: "#ff9500" },
+  { bg: "rgba(175,82,222,0.18)", text: "#af52de" },
+  { bg: "rgba(255,69,58,0.18)",  text: "#ff453a" },
+  { bg: "rgba(48,209,88,0.18)",  text: "#30d158" },
+  { bg: "rgba(90,200,250,0.18)", text: "#5ac8fa" },
+];
+
+function avatarColor(index: number): { bg: string; text: string } {
+  return AVATAR_COLORS[(index - 1) % AVATAR_COLORS.length];
+}
+
+/** 取序号数字作为头像文字 */
+function avatarLabel(index: number): string {
+  return String(index);
+}
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理",
@@ -41,6 +59,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const [editingTitleValue, setEditingTitleValue] = useState("");
   const [operating, setOperating] = useState(false);
   const [deleteConfirmClipId, setDeleteConfirmClipId] = useState<string | null>(null);
+  const [batchDeletePending, setBatchDeletePending] = useState(false);
   const editingTitleRef = useRef("");
 
   // 数据变化时清理已失效的选中项
@@ -57,6 +76,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const refresh = useCallback(async () => {
     await load();
     setDeleteConfirmClipId(null);
+    setBatchDeletePending(false);
   }, [load]);
 
   // 初始加载 + refreshKey 变化的重新加载
@@ -67,11 +87,9 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const getCanDisassemble = (clip: Clip) =>
     clip.status === "pending" || clip.status === "failed";
 
-  const deletingClip = deleteConfirmClipId
-    ? clips.find((c) => c.id === deleteConfirmClipId) ?? null
-    : null;
-
-  const allSelected = clips.length > 0 && selectedIds.size === clips.length;
+  /** 可被选中的片段（排除已拆解完成的，它们只能删除不能重新拆解） */
+  const selectableClips = clips.filter(getCanDisassemble);
+  const allSelected = selectableClips.length > 0 && selectableClips.every((c) => selectedIds.has(c.id));
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -83,13 +101,21 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   };
 
   const toggleSelectAll = () => {
-    if (allSelected) setSelectedIds(new Set());
-    else setSelectedIds(new Set(clips.map((c) => c.id)));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableClips.map((c) => c.id)));
+    }
   };
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`确认删除选中的 ${selectedIds.size} 个片段？`)) return;
+    setBatchDeletePending(true);
+  }, [selectedIds]);
+
+  const confirmBatchDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    setBatchDeletePending(false);
     setOperating(true);
     try {
       const count = selectedIds.size;
@@ -108,15 +134,17 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     setDeleteConfirmClipId(clip.id);
   };
 
-  const confirmDeleteOne = useCallback(async (clip: Clip) => {
+  const confirmDeleteOne = useCallback(async () => {
+    const clipId = deleteConfirmClipId;
+    if (!clipId) return;
     setDeleteConfirmClipId(null);
     setOperating(true);
     try {
-      await deleteClips([clip.id]);
+      await deleteClips([clipId]);
       toast("已删除片段", "success");
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        next.delete(clip.id);
+        next.delete(clipId);
         return next;
       });
       await refresh();
@@ -125,13 +153,18 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     } finally {
       setOperating(false);
     }
-  }, [refresh, toast]);
+  }, [deleteConfirmClipId, refresh, toast]);
 
   const handleExtract = useCallback(async (clipIds: string[]) => {
-    if (clipIds.length === 0) return;
+    // 过滤掉已拆解的片段（仅拆解 pending/failed 状态的片段）
+    const validIds = clipIds.filter((id) => {
+      const clip = clips.find((c) => c.id === id);
+      return clip && getCanDisassemble(clip);
+    });
+    if (validIds.length === 0) return;
     setOperating(true);
     try {
-      for (const clipId of clipIds) {
+      for (const clipId of validIds) {
         await generateClipScript({ clip_id: clipId });
       }
       await refresh();
@@ -140,7 +173,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     } finally {
       setOperating(false);
     }
-  }, [refresh, toast]);
+  }, [clips, refresh, toast]);
 
   const handleCancel = useCallback(async (clipId: string) => {
     setOperating(true);
@@ -184,17 +217,21 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     );
   }
 
+  const deletingClip = deleteConfirmClipId
+    ? clips.find((c) => c.id === deleteConfirmClipId) ?? null
+    : null;
+
   return (
     <div className="clip-list-panel">
       <div className="panel-header">
         <h3>片段列表</h3>
         <button
           type="button"
-          className="primary-button btn-sm"
+          className="clip-panel-create-btn"
           onClick={onCreateClip}
           disabled={operating}
         >
-          新建片段
+          + 新建片段
         </button>
       </div>
 
@@ -232,8 +269,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
             </span>
             <button
               type="button"
-              className="primary-button btn-sm"
-              style={{ visibility: selectedIds.size > 0 ? "visible" : "hidden" }}
+              className={`clip-toolbar-btn clip-toolbar-btn--primary${selectedIds.size > 0 ? "" : " clip-toolbar-btn--hidden"}`}
               onClick={() => handleExtract([...selectedIds])}
               disabled={operating || selectedIds.size === 0}
             >
@@ -241,8 +277,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
             </button>
             <button
               type="button"
-              className="danger-button btn-sm"
-              style={{ visibility: selectedIds.size > 0 ? "visible" : "hidden" }}
+              className={`clip-toolbar-btn clip-toolbar-btn--danger${selectedIds.size > 0 ? "" : " clip-toolbar-btn--hidden"}`}
               onClick={handleBatchDelete}
               disabled={operating || selectedIds.size === 0}
             >
@@ -268,6 +303,8 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
             const isSelected = selectedIds.has(clip.id);
             const isExpanded = expandedId === clip.id;
             const isEditingTitle = editingTitleId === clip.id;
+            const canDisassemble = getCanDisassemble(clip);
+            const colors = avatarColor(clip.sort_index);
 
             return (
               <div
@@ -281,57 +318,82 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                   <input
                     type="checkbox"
                     checked={isSelected}
-                    onChange={() => toggleSelect(clip.id)}
-                    disabled={operating}
+                    onChange={() => canDisassemble && toggleSelect(clip.id)}
+                    disabled={operating || !canDisassemble}
                     onClick={(e) => e.stopPropagation()}
+                    title={canDisassemble ? undefined : "已拆解的片段不可重新拆解"}
                   />
-                  <span className="clip-index">第 {clip.sort_index} 集</span>
-                  {isEditingTitle ? (
-                    <input
-                      className="clip-title-input"
-                      value={editingTitleValue}
-                      onChange={(e) => { setEditingTitleValue(e.target.value); editingTitleRef.current = e.target.value; }}
-                      onBlur={() => saveTitle(clip.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveTitle(clip.id);
-                        else if (e.key === "Escape") setEditingTitleId(null);
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
-                  ) : (
-                    <>
-                      <span className="clip-title">
-                        {clip.title || "（无标题）"}
-                      </span>
-                      <button
-                        type="button"
-                        className="clip-edit-title-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditTitle(clip);
+
+                  {/* 左侧序号头像 */}
+                  <div
+                    className="clip-index-avatar"
+                    style={{ background: colors.bg, color: colors.text }}
+                  >
+                    {avatarLabel(clip.sort_index)}
+                  </div>
+
+                  {/* 中间信息区 */}
+                  <div className="clip-item-info">
+                    {isEditingTitle ? (
+                      <input
+                        className="clip-title-input"
+                        value={editingTitleValue}
+                        onChange={(e) => { setEditingTitleValue(e.target.value); editingTitleRef.current = e.target.value; }}
+                        onBlur={() => saveTitle(clip.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveTitle(clip.id);
+                          else if (e.key === "Escape") setEditingTitleId(null);
                         }}
-                        title="编辑标题"
-                      >
-                        ✏️
-                      </button>
-                    </>
-                  )}
-                  <span className="clip-wordcount">{clip.source_text.length} 字</span>
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                      />
+                    ) : (
+                      <div className="clip-title-row">
+                        <span className="clip-title">
+                          {clip.title || "（无标题）"}
+                        </span>
+                        <button
+                          type="button"
+                          className="clip-edit-title-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditTitle(clip);
+                          }}
+                          title="编辑标题"
+                          aria-label="编辑标题"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                            <path
+                              d="M11.5 1.5L14.5 4.5L5 14H2V11L11.5 1.5Z"
+                              stroke="currentColor"
+                              strokeWidth="1.3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                    <span className="clip-wordcount">{clip.source_text.length} 字</span>
+                  </div>
+
+                  {/* 状态标签 */}
                   {clip.status === "running" ? (
                     <span className="clip-status clip-status--running">
                       <span className="spinner spinner--sm" aria-hidden />
                       拆解中
                     </span>
-                  ) : clip.status !== "script_ready" ? (
+                  ) : clip.status !== "script_ready" && clip.status !== "pending" ? (
                     <span className={`clip-status clip-status--${clip.status}`}>
                       {STATUS_LABEL[clip.status] ?? clip.status}
                     </span>
                   ) : null}
+
+                  {/* 操作按钮 — macOS 胶囊风格 */}
                   {clip.status === "running" ? (
                     <button
                       type="button"
-                      className="ghost-button btn-sm"
+                      className="clip-action-btn clip-action-btn--ghost"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCancel(clip.id);
@@ -344,7 +406,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                   ) : getCanDisassemble(clip) ? (
                     <button
                       type="button"
-                      className="primary-button btn-sm"
+                      className="clip-action-btn clip-action-btn--primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleExtract([clip.id]);
@@ -355,18 +417,15 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                       拆解
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      className="primary-button btn-sm"
-                      disabled
-                      title="已完成拆解"
-                    >
+                    <span className="clip-action-btn clip-action-btn--disabled">
                       已拆解
-                    </button>
+                    </span>
                   )}
+
+                  {/* 删除按钮 */}
                   <button
                     type="button"
-                    className="project-delete-btn"
+                    className="clip-item__delete"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteOne(clip);
@@ -375,12 +434,23 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                     aria-label="删除片段"
                     title="删除片段"
                   >
-                    ✕
+                    <svg width="12" height="13" viewBox="0 0 12 13" fill="none">
+                      <path
+                        d="M1.5 3.5H10.5M4.5 3V2C4.5 1.45 4.95 1 5.5 1H6.5C7.05 1 7.5 1.45 7.5 2V3M9.5 3V11C9.5 11.55 9.05 12 8.5 12H3.5C2.95 12 2.5 11.55 2.5 11V3H9.5Z"
+                        stroke="currentColor"
+                        strokeWidth="1.1"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
+
+                  {/* 展开箭头 */}
                   <span className="clip-expand-icon" aria-hidden>
                     {isExpanded ? "▲" : "▼"}
                   </span>
                 </div>
+
                 {isExpanded && (
                   <div className="clip-item-body">
                     {clip.summary && <p className="clip-summary">{clip.summary}</p>}
@@ -393,13 +463,96 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
         </div>
       )}
 
+      {/* 单个删除确认弹窗 — 复用项目列表的 DeleteConfirmModal 样式 */}
       {deletingClip && (
-        <DeleteClipConfirm
-          clip={deletingClip}
-          onConfirm={confirmDeleteOne}
-          onCancel={() => setDeleteConfirmClipId(null)}
-          disabled={operating}
-        />
+        <div
+          className="modal-backdrop"
+          role="alertdialog"
+          aria-modal="true"
+          onClick={() => !operating && setDeleteConfirmClipId(null)}
+        >
+          <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="delete-panel-header">
+              <h2 className="delete-panel-title">删除片段</h2>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="关闭"
+                onClick={() => setDeleteConfirmClipId(null)}
+                disabled={operating}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <p className="delete-panel-desc">
+              将永久移除 <strong>第 {deletingClip.sort_index} 集</strong> 及其全部关联数据。此操作无法恢复。
+            </p>
+            <div className="delete-panel-actions">
+              <button
+                type="button"
+                className="delete-panel-btn delete-panel-btn--cancel"
+                onClick={() => setDeleteConfirmClipId(null)}
+                disabled={operating}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="delete-panel-btn delete-panel-btn--danger"
+                onClick={confirmDeleteOne}
+                disabled={operating}
+              >
+                {operating ? "删除中…" : "删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量删除确认弹窗 — 复用项目列表的 DeleteConfirmModal 样式 */}
+      {batchDeletePending && (
+        <div
+          className="modal-backdrop"
+          role="alertdialog"
+          aria-modal="true"
+          onClick={() => !operating && setBatchDeletePending(false)}
+        >
+          <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="delete-panel-header">
+              <h2 className="delete-panel-title">批量删除片段</h2>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="关闭"
+                onClick={() => setBatchDeletePending(false)}
+                disabled={operating}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <p className="delete-panel-desc">
+              将永久移除选中的 <strong>{selectedIds.size} 个片段</strong> 及其全部关联数据。此操作无法恢复。
+            </p>
+            <div className="delete-panel-actions">
+              <button
+                type="button"
+                className="delete-panel-btn delete-panel-btn--cancel"
+                onClick={() => setBatchDeletePending(false)}
+                disabled={operating}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="delete-panel-btn delete-panel-btn--danger"
+                onClick={confirmBatchDelete}
+                disabled={operating}
+              >
+                {operating ? "删除中…" : "删除"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

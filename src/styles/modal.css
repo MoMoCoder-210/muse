@@ -81,6 +81,7 @@
   gap: 16px;
   margin-top: var(--spacing-xl);
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding-right: 4px;
   flex: 1;
   min-height: 0;

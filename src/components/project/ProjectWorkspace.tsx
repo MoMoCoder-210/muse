@@ -12,14 +12,15 @@ import { CreateClipModal } from "./CreateClipModal";
 
 type ProjectWorkspaceProps = {
   project: ProjectInfo | null;
-  onProjectUpdated: (project: ProjectInfo) => void;
 };
 
 /**
  * 项目工作区主视图
  *
+ * 管理 4 个工作流阶段：片段管理 → 资产管理 → 分镜管理 → 视频编辑。
+ * 通过轮询 clipScripts 驱动后续阶段的禁用/启用状态。
  */
-export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated }: ProjectWorkspaceProps) {
+export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
   const [clipScripts, setClipScripts] = useState<ClipScriptInfo[] | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [showCreateClip, setShowCreateClip] = useState(false);
@@ -39,8 +40,9 @@ export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated 
       if (cancelled) return;
       getClipScripts(project.id).then((cs) => {
         if (!cancelled) setClipScripts(cs);
-      }).catch(() => {
-        // 轮询失败不打扰用户，需要调试可打开后端日志
+      }).catch((err) => {
+        // 轮询失败不打扰用户；调试时可打开浏览器控制台查看
+        if (import.meta.env.DEV) console.debug("[ProjectWorkspace] clipScripts poll error:", err);
       });
     };
     poll();
@@ -66,11 +68,13 @@ export function ProjectWorkspace({ project, onProjectUpdated: _onProjectUpdated 
 
   return (
     <div className="workspace-inner">
-      <WorkflowBoard
-        activeIndex={activeStep}
-        disabledSteps={disabledSteps}
-        onStepClick={setActiveStep}
-      />
+      <div className="workspace-header-row">
+        <WorkflowBoard
+          activeIndex={activeStep}
+          disabledSteps={disabledSteps}
+          onStepClick={setActiveStep}
+        />
+      </div>
       {activeStep === 0 ? (
         <ClipListPanel
           project={project}

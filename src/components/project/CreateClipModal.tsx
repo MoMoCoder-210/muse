@@ -36,7 +36,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
     const t = title.trim();
     const c = text.trim();
     if (!t || !c) { toast("请填写片段标题和正文", "warning"); return; }
-    if (c.length > 1500) { toast("片段正文不能超过 1500 字符", "warning"); return; }
+    if (c.length > 2000) { toast("单片段不能超过 2000 字符", "warning"); return; }
     setLoading(true);
     try {
       await createClip({ project_id: projectId, title: t, source_text: c });
@@ -48,20 +48,20 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
   }, [title, text, projectId, toast, onCreated]);
 
   const handleSmartImport = useCallback(async () => {
-    if (smartTab === "paste" && !text.trim()) { toast("请先粘贴剧本内容。", "warning"); return; }
-    if (smartTab === "file" && !filePath.trim()) { toast("请先选择剧本文件。", "warning"); return; }
+    if (smartTab === "paste" && !text.trim()) { toast("请粘贴剧本内容。", "warning"); return; }
+    if (smartTab === "file" && !filePath.trim()) { toast("请选择剧本文件。", "warning"); return; }
     setLoading(true);
     try {
       const settings = await getSettings();
       if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
-        toast("文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
+        toast("LLM模型未配置，智能导入需要使用模型能力。", "warning");
         return;
       }
       await importScriptByTab(projectId, smartTab, text, filePath);
-      toast("剧本导入成功，正在拆分…", "success");
+      toast("剧本导入成功。", "success");
       onCreated();
     } catch (err) {
-      toast("导入失败，请检查文件内容或后端日志。", "error");
+      toast("导入失败，请检查文件内容。", "error");
     } finally { setLoading(false); }
   }, [smartTab, text, filePath, projectId, onCreated, toast]);
 
@@ -86,7 +86,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
                 <span className="form-label">片段标题</span>
                 <input
                   type="text" className="form-input"
-                  placeholder="例如：第 1 集 · 开场"
+                  placeholder="输入片段标题"
                   value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100}
                 />
               </label>
@@ -96,7 +96,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
                 </span>
                 <textarea
                   className="script-textarea"
-                  placeholder="输入片段正文内容…"
+                  placeholder="输入片段正文"
                   value={text} onChange={(e) => setText(e.target.value)}
                   maxLength={1500} rows={10}
                 />
@@ -116,12 +116,12 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
                 <textarea
                   className="script-textarea"
                   value={text} onChange={(e) => setText(e.target.value)}
-                  placeholder="将剧本文本粘贴到这里…" rows={10}
+                  placeholder="将剧本粘贴到此处" rows={10}
                 />
               ) : (
                 <div className="file-picker">
                   <div className="file-picker-input">
-                    <input value={filePath} readOnly placeholder="选择 .txt 剧本文件" className="file-path-display" />
+                    <input value={filePath} readOnly placeholder="选择 .txt 文件" className="file-path-display" />
                     <button type="button" className="ghost-button btn-sm" onClick={handlePickFile}>选择文件</button>
                   </div>
                 </div>
@@ -133,7 +133,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
         <div className="import-actions">
           <button type="button" className="secondary-button btn-sm" onClick={onClose} disabled={loading}>取消</button>
           <button type="button" className="primary-button btn-sm" onClick={tab === "manual" ? handleManualCreate : handleSmartImport} disabled={loading}>
-            {tab === "manual" ? "创建" : "开始导入并拆分"}
+            {tab === "manual" ? "创建" : "开始导入"}
           </button>
         </div>
       </div>

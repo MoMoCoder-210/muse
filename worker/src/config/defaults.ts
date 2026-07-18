@@ -2,11 +2,15 @@
  * Worker 侧配置类型与默认值。
  *
  * 类型定义 → src/config/settings-types.ts（构建时从 src/types/settings-types.ts 复制）
- * 默认值 → ../src/config/default-settings.json（单一真相源）
+ * 默认值 → 构建时复制到 dist/config/default-settings.json（单一真相源）
  */
 import { createRequire } from "module";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
-const defaultSettingsJson = require("../../src/config/default-settings.json");
+const defaultSettingsJson = require(join(__dirname, "default-settings.json"));
 
 // 类型从共享模块重导出
 export type {

@@ -8,17 +8,50 @@ import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsPage } from "./components/settings/SettingsPage";
-import { ToastProvider } from "./hooks/useToast";
+import { ToastProvider, useToast } from "./hooks/useToast";
+import { useWorkerStatus } from "./hooks/useWorkerStatus";
+import type { WorkerStatusPayload } from "./hooks/useWorkerStatus";
+import { StartupScreen } from "./components/layout/StartupScreen";
 
 type ViewMode = "home" | "projects";
 
 /**
+ * 内部组件：监听 Worker 生命周期事件并通过 Toast 提示用户。
+ * 必须放在 ToastProvider 内部。
+ */
+function WorkerStatusMonitor() {
+  const { toast } = useToast();
+
+  useWorkerStatus((payload: WorkerStatusPayload) => {
+    switch (payload.status) {
+      case "restarting":
+        toast(payload.message, "warning");
+        break;
+      case "restarted":
+        toast(payload.message, "success");
+        break;
+      case "start_failed":
+        toast(payload.message, "error");
+        break;
+      case "max_restarts":
+        toast(payload.message, "error");
+        break;
+      default:
+        toast(payload.message, "warning");
+    }
+  });
+
+  return null;
+}
+
+/**
  * 应用根组件
  *
- * 管理页面路由（首页/项目管理）、版本信息、弹窗状态。
+ * 启动流程：显示 StartupScreen 等待后端健康检测 → 全部通过后进入主界面。
  *
  */
 export default function App() {
+  const [startupReady, setStartupReady] = useState(false);
   const [view, setView] = useState<ViewMode>("home");
   const [version, setVersion] = useState("unknown");
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -36,8 +69,17 @@ export default function App() {
     setView("projects");
   }, []);
 
+  const handleStartupReady = useCallback(() => {
+    setStartupReady(true);
+  }, []);
+
+  if (!startupReady) {
+    return <StartupScreen onReady={handleStartupReady} />;
+  }
+
   return (
     <ToastProvider>
+      <WorkerStatusMonitor />
       <div className="app-shell">
         <DynamicBackdrop />
 
