@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { getSettings, saveSettings, getAppVersion, openAppDataDir, openLogDir } from "../../services/tauri";
 import { ChannelManager } from "./ChannelManager";
 import {
@@ -146,6 +147,41 @@ export function SettingsPage({ onClose }: Props) {
           </div>
         </div>
 
+        {/* 项目默认位置 */}
+        <div className="sk-group">
+          <h4 className="sk-group-title">项目</h4>
+          <div className="sk-card">
+            <div className="sk-row sk-row--input">
+              <span className="sk-row-label">默认项目目录</span>
+              <div className="sk-inline-input">
+                <input
+                  className="sk-input"
+                  value={settings.general.defaultProjectDir}
+                  onChange={(e) => {
+                    const next = { ...settingsRef.current, general: { ...settingsRef.current.general, defaultProjectDir: e.target.value } };
+                    updateState(next);
+                  }}
+                  onBlur={() => persist(settingsRef.current)}
+                  placeholder="D:\\projects"
+                />
+                <button
+                  type="button"
+                  className="sk-browse-btn"
+                  onClick={async () => {
+                    const selected = await open({ directory: true, multiple: false, title: "选择默认项目目录" });
+                    if (typeof selected === "string" && selected.trim()) {
+                      const next = { ...settingsRef.current, general: { ...settingsRef.current.general, defaultProjectDir: selected } };
+                      await persist(next);
+                    }
+                  }}
+                >
+                  选择目录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 存储 */}
         <div className="sk-group">
           <h4 className="sk-group-title">存储</h4>
@@ -201,9 +237,9 @@ export function SettingsPage({ onClose }: Props) {
               list={settings.text} blank={DEFAULT_TEXT_CHANNEL}
               fields={CHANNEL_FIELDS} hasModels
               params={settings.textParams as unknown as Record<string, number>} paramsFields={TEXT_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, textParams: p as any })}
-              onChange={(next) => updateState({ ...settingsRef.current, text: next })}
-              onPersist={(u) => persist({ ...settingsRef.current, text: u })}
+              onParamsChange={(p) => persist({ ...settingsRef.current, textParams: p as unknown as AppSettings["textParams"] })}
+              onChange={(next) => updateState({ ...settingsRef.current, text: next as unknown as AppSettings["text"] })}
+              onPersist={(u) => persist({ ...settingsRef.current, text: u as unknown as AppSettings["text"] })}
             />
           )}
           {modelTab === "image" && (
@@ -211,9 +247,9 @@ export function SettingsPage({ onClose }: Props) {
               list={settings.image} blank={DEFAULT_IMAGE_CHANNEL}
               fields={CHANNEL_FIELDS} hasModels
               params={settings.imageParams as unknown as Record<string, number>} paramsFields={IMAGE_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as any })}
-              onChange={(next) => updateState({ ...settingsRef.current, image: next })}
-              onPersist={(u) => persist({ ...settingsRef.current, image: u })}
+              onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as unknown as AppSettings["imageParams"] })}
+              onChange={(next) => updateState({ ...settingsRef.current, image: next as unknown as AppSettings["image"] })}
+              onPersist={(u) => persist({ ...settingsRef.current, image: u as unknown as AppSettings["image"] })}
             />
           )}
           {modelTab === "voice" && (
@@ -221,9 +257,9 @@ export function SettingsPage({ onClose }: Props) {
               list={settings.voice} blank={DEFAULT_VOICE_CHANNEL}
               fields={VOICE_FIELDS} hasModels={false} enableTest={false} fixedSingle
               params={settings.voiceParams as unknown as Record<string, number>} paramsFields={VOICE_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, voiceParams: p as any })}
-              onChange={(next) => updateState({ ...settingsRef.current, voice: next })}
-              onPersist={(u) => persist({ ...settingsRef.current, voice: u })}
+              onParamsChange={(p) => persist({ ...settingsRef.current, voiceParams: p as unknown as AppSettings["voiceParams"] })}
+              onChange={(next) => updateState({ ...settingsRef.current, voice: next as unknown as AppSettings["voice"] })}
+              onPersist={(u) => persist({ ...settingsRef.current, voice: u as unknown as AppSettings["voice"] })}
             />
           )}
           {modelTab === "video" && (
@@ -232,9 +268,9 @@ export function SettingsPage({ onClose }: Props) {
               fields={CHANNEL_FIELDS} hasModels
               resolutionOptions={VIDEO_RESOLUTION_OPTIONS}
               params={settings.videoParams as unknown as Record<string, number>} paramsFields={VIDEO_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, videoParams: p as any })}
-              onChange={(next) => updateState({ ...settingsRef.current, video: next })}
-              onPersist={(u) => persist({ ...settingsRef.current, video: u })}
+              onParamsChange={(p) => persist({ ...settingsRef.current, videoParams: p as unknown as AppSettings["videoParams"] })}
+              onChange={(next) => updateState({ ...settingsRef.current, video: next as unknown as AppSettings["video"] })}
+              onPersist={(u) => persist({ ...settingsRef.current, video: u as unknown as AppSettings["video"] })}
             />
           )}
         </div>

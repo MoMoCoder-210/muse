@@ -64,6 +64,23 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
 
   return (
     <section className={`projects-screen${sidebarOpen ? " projects-screen--sidebar-open" : ""}`}>
+      {/* 侧边栏收起时的窄把手 — 点击展开 */}
+      <div
+        className="sidebar-grabber"
+        onClick={() => setSidebarOpen(true)}
+        title="展开项目列表"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M6 4L10 8L6 12"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+
       <div className={`sidebar-drawer${sidebarOpen ? " sidebar-drawer--open" : ""}`}>
         <ProjectSidebar
           projects={projects}
@@ -81,25 +98,6 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
           onDeleteProject={(project) => setDeleteTarget(project)}
           onGoHome={onGoHome}
         />
-
-        {/* 切换按钮：紧贴侧边栏右边缘 */}
-        <button
-          type="button"
-          className="sidebar-toggle-btn sidebar-toggle-btn--edge"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label={sidebarOpen ? "收起项目列表" : "展开项目列表"}
-          title={sidebarOpen ? "收起项目列表" : "展开项目列表"}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d={sidebarOpen ? "M10 4L6 8L10 12" : "M6 4L10 8L6 12"}
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
       </div>
 
       <main className="project-workspace">

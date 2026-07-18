@@ -1,4 +1,7 @@
 {
+  "general": {
+    "defaultProjectDir": ""
+  },
   "text": {
     "channels": [
       {

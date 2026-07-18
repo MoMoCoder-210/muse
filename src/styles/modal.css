@@ -1,36 +1,69 @@
-/* 弹窗 */
+/* 弹窗 — Apple 风格 */
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  display: grid;
-  place-items: center;
-  padding: var(--spacing-xl);
-  background: var(--overlay-modal);
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  padding: 50px var(--spacing-xl) var(--spacing-xl);
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  animation: modal-fade-in 240ms ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .modal-panel {
-  width: min(720px, 100%);
-  padding: 22px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-deep);
-  box-shadow: var(--shadow-modal);
+  width: min(640px, 100%);
+  max-height: calc(100vh - 50px - var(--spacing-xl));
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px 24px;
+  margin: auto;
+  border: 1px solid var(--glass-border-strong);
+  border-radius: var(--radius-4xl);
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--shadow-glass-lg);
+  overflow: hidden;
+  animation: modal-panel-in 340ms cubic-bezier(0.22, 0, 0, 1);
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
   position: relative;
+  margin-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .modal-header h2 {
-  margin: 10px 0 0;
-  font-size: var(--font-size-section);
-  line-height: var(--line-height-section);
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: -0.01em;
 }
 
 .modal-title {
@@ -39,20 +72,26 @@
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
   line-height: var(--line-height-tight);
+  letter-spacing: -0.01em;
 }
 
 .modal-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: var(--spacing-lg);
+  gap: 16px;
+  margin-top: var(--spacing-xl);
+  overflow-y: auto;
+  padding-right: 4px;
+  flex: 1;
+  min-height: 0;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 12px;
+  margin-top: 22px;
+  flex-shrink: 0;
 }
 
 .modal-script-field {
@@ -64,7 +103,8 @@
 }
 
 .modal-script-textarea {
-  min-height: 220px;
+  min-height: 140px;
+  max-height: 200px;
 }
 
 /* 关闭按钮（帮助等通用弹窗） */
@@ -72,21 +112,22 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--modal-close-btn-color);
-  font-size: var(--font-size-lg);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--transition-smooth), color var(--transition-smooth), transform var(--transition-smooth);
 }
 .modal-close:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.12);
   color: var(--text-primary);
+  transform: scale(1.05);
 }
 
 /* 帮助弹窗 */

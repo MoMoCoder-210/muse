@@ -52,6 +52,12 @@
   --text-primary-rgb:     248, 250, 252;
   --text-secondary-rgb:   203, 213, 225;
 
+  /* 文字色（语义层） */
+  --text-primary:          #f8fafc;
+  --text-secondary:        #cbd5e1;
+  --text-tertiary:         rgba(255, 255, 255, 0.45);
+  --text-quaternary:       rgba(255, 255, 255, 0.2);
+
   /* 主色 — Apple SF Colors */
   --accent-primary:     #0071e3;
   --accent-secondary:   #5ac8fa;
@@ -143,7 +149,19 @@
   --z-toast:                1200;/* Toast 通知 */
 
   /* 壳尺寸 */
-  --titlebar-height:        44px; /* 自定义标题栏高度 */
+  --titlebar-height:        30px; /* 自定义标题栏高度 */
+
+  /* ── Apple 风格增强 ── */
+  --radius-3xl:             22px; /* 大面板圆角 */
+  --radius-4xl:             28px; /* 超大圆角（弹窗） */
+  --glass-bg:               rgba(30, 30, 32, 0.62);  /* 毛玻璃底色 */
+  --glass-bg-strong:        rgba(28, 28, 30, 0.78);  /* 强毛玻璃（弹窗面板） */
+  --glass-border:           rgba(255, 255, 255, 0.08); /* 毛玻璃边框 */
+  --glass-border-strong:    rgba(255, 255, 255, 0.12); /* 强毛玻璃边框 */
+  --shadow-glass:           0 8px 32px rgba(0, 0, 0, 0.32);  /* 毛玻璃浮层阴影 */
+  --shadow-glass-lg:        0 24px 80px rgba(0, 0, 0, 0.48); /* 大毛玻璃阴影 */
+  --shadow-card-hover:      0 4px 20px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.06); /* 卡片悬浮 */
+  --transition-smooth:      280ms cubic-bezier(0.25, 0, 0, 1); /* Apple 缓动 */
 
   /* 工作流步骤 */
   --step-active-bg:         rgba(var(--accent-primary-rgb), 0.16);
@@ -176,13 +194,6 @@
   /* 危险色（语义层，供组件引用） */
   --danger-color:         var(--color-danger);
   --danger-bg:            rgba(var(--color-danger-rgb), 0.12);
-
-  /* 项目列表 */
-  --project-item-hover-ring:    rgba(var(--border-accent-rgb), 0.35);
-  --project-item-hover-glow:    rgba(var(--border-accent-rgb), 0.12);
-  --project-item-active-bg:     rgba(var(--accent-primary-rgb), 0.18);
-  --project-item-active-ring:   rgba(var(--border-accent-rgb), 0.50);
-  --project-item-active-glow:   rgba(var(--border-accent-rgb), 0.18);
 
   /* Toast */
   --toast-info-bg:        rgba(var(--color-info-rgb), 0.18);

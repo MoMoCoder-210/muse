@@ -9,9 +9,6 @@ type DeleteConfirmModalProps = {
   onClose: () => void;
 };
 
-/**
- * 删除确认弹窗
- */
 export function DeleteConfirmModal({
   project,
   onDeleted,
@@ -37,42 +34,46 @@ export function DeleteConfirmModal({
   return (
     <div
       className="modal-backdrop"
-      role="dialog"
+      role="alertdialog"
       aria-modal="true"
       onClick={() => !deleting && onClose()}
     >
-      <div className="modal-panel delete-confirm-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="delete-confirm-title">删除项目</h2>
+      <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
+        {/* 标题栏 */}
+        <div className="delete-panel-header">
+          <h2 className="delete-panel-title">删除项目</h2>
           <button
             type="button"
-            className="icon-button modal-close-button"
+            className="modal-close"
             aria-label="关闭"
-            onClick={() => !deleting && onClose()}
+            onClick={onClose}
+            disabled={deleting}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <div className="delete-confirm-body">
-          <p>
-            确认删除 <strong>「{project.name}」</strong> ？此操作不可撤销。
-          </p>
+        {/* 正文 */}
+        <p className="delete-panel-desc">
+          将永久移除 <strong>{project.name}</strong> 及其全部关联数据。此操作无法恢复。
+        </p>
 
-          <label className="delete-files-option">
-            <input
-              type="checkbox"
-              checked={deleteFiles}
-              onChange={(e) => setDeleteFiles(e.target.checked)}
-            />
-            <span>同时删除项目文件夹</span>
-          </label>
-        </div>
+        {/* 复选框 */}
+        <label className="delete-panel-check">
+          <input
+            type="checkbox"
+            checked={deleteFiles}
+            onChange={(e) => setDeleteFiles(e.target.checked)}
+          />
+          <span className="delete-panel-check-box" />
+          <span>同时删除本地文件夹</span>
+        </label>
 
-        <div className="modal-actions">
+        {/* 按钮 */}
+        <div className="delete-panel-actions">
           <button
             type="button"
-            className="secondary-button"
+            className="delete-panel-btn delete-panel-btn--cancel"
             onClick={onClose}
             disabled={deleting}
           >
@@ -80,11 +81,11 @@ export function DeleteConfirmModal({
           </button>
           <button
             type="button"
-            className="danger-button"
+            className="delete-panel-btn delete-panel-btn--danger"
             onClick={handleConfirm}
             disabled={deleting}
           >
-            删除
+            {deleting ? "删除中…" : "删除"}
           </button>
         </div>
       </div>

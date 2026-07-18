@@ -11,7 +11,7 @@ export const CREATE_MODES = {
 export type CreateMode = (typeof CREATE_MODES)[keyof typeof CREATE_MODES];
 
 export const CREATE_MODE_OPTIONS = [
-  { label: "手动", value: CREATE_MODES.manual },
+  { label: "默认", value: CREATE_MODES.manual },
   { label: "剧本", value: CREATE_MODES.script },
 ] as const;
 

@@ -10,120 +10,92 @@ pub(crate) fn default_settings_json() -> Value {
         .expect("默认设置 JSON 解析失败（src/config/default-settings.json）")
 }
 
+// ── 渠道清洗 DSL ──────────────────────────────────────
+
+/// 定义一组渠道 + 参数的清洗规格
+struct ChannelSpec<'a> {
+    key: &'a str,
+    channel_fields: &'a [(&'a str, &'a str)],
+    model_fields: &'a [(&'a str, &'a str)],
+    param_keys: &'a [&'a str],
+}
+
 /// 清洗并补全设置 JSON，兼容旧版扁平格式自动迁移。
 
 pub(crate) fn sanitize_settings(input: Value) -> Value {
     let default = default_settings_json();
-    let mut root = Map::new();
     let source = input.as_object();
+    let mut root = Map::new();
 
-    // text 渠道（含 apiFormat）
+    // general 通用设置
     root.insert(
-        "text".to_string(),
-        sanitize_channel_list(
-            source.and_then(|obj| obj.get("text")),
-            &default["text"],
-            &[("apiKey", ""), ("baseUrl", "")],
-            &[("id", "m1"), ("modelId", "")],
-        ),
-    );
-    // text 全局参数
-    root.insert(
-        "textParams".to_string(),
+        "general".to_string(),
         sanitize_section(
-            source.and_then(|obj| obj.get("textParams")),
-            &default["textParams"],
-            &["timeoutMs", "maxTokens", "temperature"],
+            source.and_then(|obj| obj.get("general")),
+            &default["general"],
+            &["defaultProjectDir"],
         ),
     );
 
-    // image 渠道
-    root.insert(
-        "image".to_string(),
-        sanitize_channel_list(
-            source.and_then(|obj| obj.get("image")),
-            &default["image"],
-            &[("apiKey", ""), ("baseUrl", "")],
-            &[("id", "m1"), ("modelId", "")],
-        ),
-    );
-    // image 参数
-    root.insert(
-        "imageParams".to_string(),
-        sanitize_section(
-            source.and_then(|obj| obj.get("imageParams")),
-            &default["imageParams"],
-            &["timeoutMs"],
-        ),
-    );
-
-    // voice 渠道（OpenSpeech V3：apiKey / resourceId / baseUrl / sampleRate，无 models）
-    root.insert(
-        "voice".to_string(),
-        sanitize_channel_list(
-            source.and_then(|obj| obj.get("voice")),
-            &default["voice"],
-            &[
+    // 渠道规格表 — 每个渠道类型一套
+    let specs: &[ChannelSpec] = &[
+        ChannelSpec {
+            key: "text",
+            channel_fields: &[("apiKey", ""), ("baseUrl", "")],
+            model_fields: &[("id", "m1"), ("modelId", "")],
+            param_keys: &["timeoutMs", "maxTokens", "temperature"],
+        },
+        ChannelSpec {
+            key: "image",
+            channel_fields: &[("apiKey", ""), ("baseUrl", "")],
+            model_fields: &[("id", "m1"), ("modelId", "")],
+            param_keys: &["timeoutMs"],
+        },
+        ChannelSpec {
+            key: "voice",
+            channel_fields: &[
                 ("apiKey", ""),
                 ("resourceId", ""),
-                (
-                    "baseUrl",
-                    "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
-                ),
+                ("baseUrl", "https://openspeech.bytedance.com/api/v3/tts/unidirectional"),
                 ("sampleRate", "24000"),
             ],
-            &[],
-        ),
-    );
-    // voice 参数
-    root.insert(
-        "voiceParams".to_string(),
-        sanitize_section(
-            source.and_then(|obj| obj.get("voiceParams")),
-            &default["voiceParams"],
-            &["timeoutMs", "speed"],
-        ),
-    );
+            model_fields: &[],
+            param_keys: &["timeoutMs", "speed"],
+        },
+        ChannelSpec {
+            key: "asset",
+            channel_fields: &[("apiKey", ""), ("baseUrl", "")],
+            model_fields: &[],
+            param_keys: &["timeoutMs"],
+        },
+        ChannelSpec {
+            key: "video",
+            channel_fields: &[("apiKey", ""), ("baseUrl", "")],
+            model_fields: &[("id", "m1"), ("modelId", "")],
+            param_keys: &["timeoutMs"],
+        },
+    ];
 
-    // asset 渠道（无 models）
-    root.insert(
-        "asset".to_string(),
-        sanitize_channel_list(
-            source.and_then(|obj| obj.get("asset")),
-            &default["asset"],
-            &[("apiKey", ""), ("baseUrl", "")],
-            &[],
-        ),
-    );
-    // asset 参数
-    root.insert(
-        "assetParams".to_string(),
-        sanitize_section(
-            source.and_then(|obj| obj.get("assetParams")),
-            &default["assetParams"],
-            &["timeoutMs"],
-        ),
-    );
-
-    // video 渠道
-    root.insert(
-        "video".to_string(),
-        sanitize_channel_list(
-            source.and_then(|obj| obj.get("video")),
-            &default["video"],
-            &[("apiKey", ""), ("baseUrl", "")],
-            &[("id", "m1"), ("modelId", "")],
-        ),
-    );
-    // video 参数
-    root.insert(
-        "videoParams".to_string(),
-        sanitize_section(
-            source.and_then(|obj| obj.get("videoParams")),
-            &default["videoParams"],
-            &["timeoutMs"],
-        ),
-    );
+    for spec in specs {
+        root.insert(
+            spec.key.to_string(),
+            sanitize_channel_list(
+                source.and_then(|obj| obj.get(spec.key)),
+                &default[spec.key],
+                spec.channel_fields,
+                spec.model_fields,
+            ),
+        );
+        let params_key = format!("{}Params", spec.key);
+        root.insert(
+            params_key.clone(),
+            sanitize_section(
+                source.and_then(|obj| obj.get(&params_key)),
+                &default[&params_key],
+                spec.param_keys,
+            ),
+        );
+    }
 
     Value::Object(root)
 }

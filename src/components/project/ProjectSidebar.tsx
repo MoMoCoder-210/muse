@@ -12,10 +12,9 @@ type ProjectSidebarProps = {
 };
 
 /**
- * 项目侧边栏
+ * 项目侧边栏 — macOS 风格
  *
- * 管理页面左侧导航栏，包含项目列表、创建/刷新操作与底部导航。
- *
+ * 极简侧边导航：品牌头 → 新建按钮 → 项目列表 → 底部返回
  */
 export function ProjectSidebar({
   projects,
@@ -27,15 +26,19 @@ export function ProjectSidebar({
 }: ProjectSidebarProps) {
   return (
     <aside className="project-sidebar">
-      {/* 头部 */}
+      {/* 品牌头部 */}
       <div className="sidebar-header">
         <h2 className="sidebar-title">{APP_NAME}</h2>
+        <span className="sidebar-subtitle">项目管理</span>
       </div>
 
-      {/* 操作区：创建 */}
+      {/* 新建按钮 — 胶囊主按钮 */}
       <div className="sidebar-actions">
-        <button type="button" className="primary-button btn-sm sidebar-create-btn" onClick={onCreateProject}>
-          + 新建项目
+        <button type="button" className="sidebar-create-btn" onClick={onCreateProject}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          新建项目
         </button>
       </div>
 
@@ -49,9 +52,12 @@ export function ProjectSidebar({
         />
       </div>
 
-      {/* 底部操作栏 */}
+      {/* 底部返回 */}
       <div className="sidebar-footer">
         <button type="button" className="sidebar-back-btn" onClick={onGoHome}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
           返回首页
         </button>
       </div>

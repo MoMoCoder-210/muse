@@ -222,6 +222,14 @@
 }
 .sk-row:last-child { border-bottom: none; }
 
+/* 行内带输入框 */
+.sk-row--input {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
 .sk-row-label {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -232,6 +240,59 @@
   color: var(--text-primary);
   font-weight: var(--font-weight-medium);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── 行内输入 + 按钮 ── */
+.sk-inline-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.sk-inline-input .sk-input {
+  flex: 1;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-smooth), box-shadow var(--transition-smooth);
+}
+
+.sk-inline-input .sk-input:focus {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.sk-inline-input .sk-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sk-browse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--glass-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-smooth), color var(--transition-smooth), border-color var(--transition-smooth);
+}
+
+.sk-browse-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: rgba(var(--accent-primary-rgb), 0.3);
 }
 
 /* 操作行（存储入口） */

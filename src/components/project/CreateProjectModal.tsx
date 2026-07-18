@@ -1,9 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   CREATE_MODES,
   CREATE_MODE_OPTIONS,
-  DEFAULT_PROJECT_ROOT,
   STYLE_OPTIONS,
   type CreateMode,
   type StyleMode,
@@ -42,14 +41,14 @@ function ScriptImportSection({
           className={`tab-btn ${scriptTab === "paste" ? "active" : ""}`}
           onClick={() => setScriptTab("paste")}
         >
-          粘贴文本
+          粘贴剧本
         </button>
         <button
           type="button"
           className={`tab-btn ${scriptTab === "file" ? "active" : ""}`}
           onClick={() => setScriptTab("file")}
         >
-          导入 TXT 文件
+          导入剧本
         </button>
       </div>
 
@@ -58,7 +57,7 @@ function ScriptImportSection({
           className="script-textarea modal-script-textarea"
           value={scriptText}
           onChange={(e) => setScriptText(e.target.value)}
-          placeholder="在这里粘贴待拆分的剧本文本"
+          placeholder="在这里粘贴剧本"
           rows={8}
         />
       ) : (
@@ -67,7 +66,7 @@ function ScriptImportSection({
             <input
               value={scriptFilePath}
               readOnly
-              placeholder="选择 .txt 剧本文件"
+              placeholder="选择 .txt 文件"
               className="file-path-display"
             />
             <button type="button" className="ghost-button" onClick={onPickFile}>
@@ -94,24 +93,36 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
   const [loading, setLoading] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
-  const [projectDirectory, setProjectDirectory] = useState(DEFAULT_PROJECT_ROOT);
-  const [createMode, setCreateMode] = useState<CreateMode>(CREATE_MODES.script);
+  const [projectDirectory, setProjectDirectory] = useState("");
+  const [defaultProjectDir, setDefaultProjectDir] = useState("");
+
+  // 加载设置中的默认项目目录
+  useEffect(() => {
+    getSettings().then((s) => {
+      const dir = s.general.defaultProjectDir || "";
+      setDefaultProjectDir(dir);
+      if (!projectDirectory) {
+        setProjectDirectory(dir);
+      }
+    }).catch(() => {});
+  }, []);
   const [styleMode, setStyleMode] = useState<StyleMode>(STYLE_OPTIONS[0]);
   const [scriptTab, setScriptTab] = useState<"paste" | "file">("paste");
   const [scriptText, setScriptText] = useState("");
   const [scriptFilePath, setScriptFilePath] = useState("");
+  const [createMode, setCreateMode] = useState<CreateMode>(CREATE_MODES.manual);
 
   const handlePickWorkspace = useCallback(async () => {
     const selected = await open({
       directory: true,
       multiple: false,
-      defaultPath: DEFAULT_PROJECT_ROOT || undefined,
+      defaultPath: projectDirectory || defaultProjectDir || undefined,
       title: "选择项目目录",
     });
     if (typeof selected === "string" && selected.trim()) {
       setProjectDirectory(selected);
     }
-  }, []);
+  }, [projectDirectory, defaultProjectDir]);
 
   const handlePickScriptFile = useCallback(async () => {
     const path = await pickTxtFile({ title: "选择剧本文件" });
@@ -120,33 +131,33 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
 
   const handleScriptModePostCreate = useCallback(
     async (project: ProjectInfo) => {
-      const settings = await getSettings();
-      if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
-        onCreated(project);
-        toast("项目已创建，但文本模型 API Key 未配置，请先到设置页填入后再启动拆分。", "warning");
-        return;
-      }
-
       await importScriptByTab(project.id, scriptTab, scriptText, scriptFilePath);
       onCreated({ ...project, current_step: "script" });
-      toast(`项目已创建并开始拆分：${project.name}`, "success");
+      toast(`创建成功：${project.name}`, "success");
     },
     [scriptTab, scriptText, scriptFilePath, onCreated, toast],
   );
 
   const handleCreate = useCallback(async () => {
     if (!projectName.trim()) {
-      toast("请先输入项目名。", "warning");
+      toast("请先输入项目名", "warning");
       return;
     }
 
     if (createMode === CREATE_MODES.script) {
       if (scriptTab === "paste" && !scriptText.trim()) {
-        toast("剧本模式下请先输入剧本文本。", "warning");
+        toast("请输入剧本。", "warning");
         return;
       }
       if (scriptTab === "file" && !scriptFilePath.trim()) {
-        toast("剧本模式下请先选择剧本文件。", "warning");
+        toast("请选择剧本文件。", "warning");
+        return;
+      }
+
+      // 文本模型未配置则不允许通过剧本模式创建
+      const settings = await getSettings();
+      if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
+        toast("剧本模式创建项目需要配置LLM模型。", "warning");
         return;
       }
     }
@@ -156,7 +167,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       const project = await createProject({
         name: projectName.trim(),
         description: projectDescription.trim() || undefined,
-        workspace_path: projectDirectory.trim() || DEFAULT_PROJECT_ROOT,
+        workspace_path: projectDirectory.trim(),
         input_mode: createMode,
         style_mode: styleMode,
       });
@@ -166,7 +177,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
           await handleScriptModePostCreate(project);
         } catch {
           onCreated(project);
-          toast("项目已创建，但剧本导入或拆分启动失败，请检查模型配置和后端日志。", "warning");
+          toast("剧本导入或拆分启动失败，请检查模型配置与日志。", "warning");
         }
         return;
       }
@@ -174,7 +185,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       onCreated(project);
       toast(`项目已创建：${project.name}`, "info");
     } catch {
-      toast("创建项目失败，请检查目录权限或后端日志。", "error");
+      toast("创建项目失败，请检查项目目录权限或日志。", "error");
     } finally {
       setLoading(false);
     }
@@ -203,21 +214,21 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="create-project-title" className="modal-title">
-            创建新项目
+            新建项目
           </h2>
           <button
             type="button"
-            className="icon-button modal-close-button"
-            aria-label="关闭创建项目弹窗"
+            className="modal-close"
+            aria-label="关闭新建项目弹窗"
             onClick={onClose}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
         <div className="modal-form">
           <label className="field">
-            <span>项目名</span>
+            <span>项目名称</span>
             <input
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
@@ -231,7 +242,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
               <input
                 value={projectDirectory}
                 onChange={(e) => setProjectDirectory(e.target.value)}
-                placeholder="留空则使用默认项目目录"
+                placeholder={`${defaultProjectDir || "D:\\projects"}`}
               />
               <button type="button" className="ghost-button" onClick={handlePickWorkspace}>
                 选择目录
@@ -278,7 +289,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
             <textarea
               value={projectDescription}
               onChange={(e) => setProjectDescription(e.target.value)}
-              placeholder="可选，补充项目背景或目标"
+              placeholder="输入项目描述"
               rows={3}
             />
           </label>
@@ -294,7 +305,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
             onClick={handleCreate}
             disabled={loading}
           >
-            {loading ? "创建中..." : "确认创建"}
+            {loading ? "创建中..." : "创建"}
           </button>
         </div>
       </div>

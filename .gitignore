@@ -70,3 +70,6 @@ logs/
 # 开发时生成的测试工作区（实际项目数据在用户目录下，不在仓库中）
 workspace/
 .desktop-lite-data/
+
+# Worker 构建时从 src/types/ 复制的共享类型（单向同步，不提交副本）
+worker/src/config/settings-types.ts

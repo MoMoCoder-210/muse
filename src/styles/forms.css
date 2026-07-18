@@ -12,30 +12,36 @@
 .field span {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.01em;
 }
 
 .field input,
 .field textarea {
   width: 100%;
   border: 1px solid var(--border-base);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-control);
   padding: 12px 14px;
   outline: none;
+  transition:
+    border-color var(--transition-smooth),
+    box-shadow var(--transition-smooth),
+    background var(--transition-smooth);
 }
 
-.field textarea {
-  min-height: 96px;
-  resize: vertical;
-  line-height: var(--line-height-base);
+.field input:hover,
+.field textarea:hover {
+  border-color: var(--border-accent-subtle);
 }
 
 .field input:focus,
 .field textarea:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-ring);
+  background: var(--bg-input-deep);
 }
 
 /* 组合输入 */
@@ -52,18 +58,32 @@
 .segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--radius-xl);
+  background: var(--segmented-bg);
 }
 
 .segmented button {
-  background: var(--segmented-bg);
-  color: var(--btn-ghost-text);
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  padding: 8px 12px;
+  transition: background var(--transition-smooth), color var(--transition-smooth), border-color var(--transition-smooth);
+}
+
+.segmented button:hover {
+  color: var(--text-primary);
 }
 
 .segmented button.active {
   background: var(--segmented-active-bg);
   color: var(--color-white);
-  border: 1px solid var(--segmented-active-border);
+  border-color: var(--segmented-active-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 /* 自定义 Select */
@@ -73,23 +93,23 @@
 
 .select-trigger {
   width: 100%;
-  min-height: 48px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
   padding: 12px 14px;
   border: 1px solid var(--border-base);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: var(--font-size-control);
   text-align: left;
   transition:
-    border-color 120ms ease,
-    background 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
+    border-color var(--transition-smooth),
+    background var(--transition-smooth),
+    box-shadow var(--transition-smooth),
+    transform var(--transition-smooth);
 }
 
 .select-trigger:hover {
@@ -121,30 +141,67 @@
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: var(--z-dropdown);
+  z-index: var(--z-modal);
   display: grid;
-  gap: 6px;
+  gap: 4px;
   padding: var(--spacing-sm);
   border: 1px solid var(--select-menu-border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   background: var(--select-menu-bg);
   box-shadow: var(--shadow-select-menu);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  /* 默认隐藏（无动画时兜底） */
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+  transform-origin: top center;
+}
+
+/* 入场动画 */
+.select-menu--in {
+  animation: selectMenuIn 200ms cubic-bezier(0.25, 0, 0, 1) forwards;
+}
+
+/* 出场动画 */
+.select-menu--out {
+  animation: selectMenuOut 150ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
+
+@keyframes selectMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes selectMenuOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
 }
 
 .select-option {
   width: 100%;
-  min-height: 42px;
+  min-height: 40px;
   padding: 10px 12px;
   border: 0;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-size-control);
   text-align: left;
   transition:
-    background 120ms ease,
-    color 120ms ease;
+    background var(--transition-smooth),
+    color var(--transition-smooth);
 }
 
 .select-option:hover {
@@ -163,22 +220,22 @@
   display: flex;
   gap: var(--spacing-xs);
   padding: var(--spacing-xs);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--segmented-bg);
   width: fit-content;
 }
 
 .tab-btn {
-  min-height: 30px;
+  min-height: 32px;
   padding: 6px 16px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background var(--transition-smooth), color var(--transition-smooth), border-color var(--transition-smooth);
 }
 
 .tab-btn:hover {
@@ -190,4 +247,5 @@
   background: var(--segmented-active-bg);
   color: var(--color-white);
   border-color: var(--segmented-active-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
