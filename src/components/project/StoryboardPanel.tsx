@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -127,6 +129,58 @@ function normalizePromptReferences(
   }
 
   return { promptDoc, prompt, mentions };
+}
+
+/* ── 参数区自定义下拉（macOS 浮层菜单） ── */
+function ParamSelect<T extends string>({
+  value,
+  options,
+  disabled,
+  onChange,
+  onBlur,
+}: {
+  value: T;
+  options: readonly { label: string; value: T }[];
+  disabled?: boolean;
+  onChange: (v: T) => void;
+  onBlur?: () => void;
+}) {
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const { menuElementProps, open, openMenu, closeMenu } = useDropdownMenu(
+    triggerRef,
+    { gap: 6, maxH: 220, menuClass: "sd-param-menu" },
+  );
+
+  const sel = options.find((o) => o.value === value);
+
+  return (
+    <div className="sd-param-select-shell" ref={triggerRef}>
+      <button
+        type="button"
+        className={`sd-param-select-btn${open ? " open" : ""}`}
+        disabled={disabled}
+        onClick={() => { if (open) closeMenu(); else openMenu(); }}
+      >
+        <span className="sd-param-select-label">{sel?.label ?? value}</span>
+        <span className="sd-param-select-caret" />
+      </button>
+      {createPortal(
+        <div {...menuElementProps} style={{ ...menuElementProps.style, zIndex: 2000 }}>
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`select-option${o.value === value ? " active" : ""}`}
+              onClick={() => { onChange(o.value); closeMenu(); if (onBlur) setTimeout(onBlur, 0); }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
 }
 
 export function StoryboardPanel({ project }: Props) {
@@ -1319,45 +1373,47 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
             <div className="sd-params-grid">
               <label className="sd-param-field">
                 <span className="sd-param-label">模型</span>
-                <select className="sd-param-select" value={params.model} onChange={(e) => updateParam("model", e.target.value)} onBlur={saveParams}>
-                  {Object.keys(videoModels).length === 0
-                    ? <option value="">未配置模型</option>
-                    : Object.keys(videoModels).map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <ParamSelect
+                  value={params.model}
+                  options={Object.keys(videoModels).length === 0
+                    ? [{ label: "未配置模型", value: "" as string }]
+                    : Object.keys(videoModels).map((m) => ({ label: m, value: m }))}
+                  onChange={(v) => updateParam("model", v)}
+                  onBlur={saveParams}
+                />
               </label>
               <label className="sd-param-field">
                 <span className="sd-param-label">时长</span>
-                <div className="sd-param-duration">
-                  <input
-                    type="number"
-                    className="sd-param-input"
-                    min={VIDEO_DURATION_MIN}
-                    max={VIDEO_DURATION_MAX}
-                    value={params.duration}
-                    disabled={busy}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      if (!Number.isFinite(raw)) return;
-                      const dv = clampDuration(raw);
-                      setParams((prev) => ({ ...prev, duration: Math.max(VIDEO_DURATION_MIN, Math.min(VIDEO_DURATION_MAX, Math.round(raw))) }));
-                      onDurationWrite(sb, dv);
-                    }}
-                    onBlur={saveParams}
-                  />
-                  <span className="sd-param-unit">s</span>
-                </div>
+                <ParamSelect
+                  value={String(params.duration)}
+                  disabled={busy}
+                  options={Array.from({ length: VIDEO_DURATION_MAX - VIDEO_DURATION_MIN + 1 }, (_, i) => VIDEO_DURATION_MIN + i).map((d) => ({ label: `${d}s`, value: String(d) }))}
+                  onChange={(v) => {
+                    const n = Number(v);
+                    if (!Number.isFinite(n)) return;
+                    setParams((prev) => ({ ...prev, duration: n }));
+                    onDurationWrite(sb, clampDuration(n));
+                  }}
+                  onBlur={saveParams}
+                />
               </label>
               <label className="sd-param-field">
                 <span className="sd-param-label">分辨率</span>
-                <select className="sd-param-select" value={params.resolution} onChange={(e) => updateParam("resolution", e.target.value)} onBlur={saveParams}>
-                  {getResolutions(params.model, videoModels).map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
+                <ParamSelect
+                  value={params.resolution}
+                  options={getResolutions(params.model, videoModels).map((r) => ({ label: r, value: r }))}
+                  onChange={(v) => updateParam("resolution", v)}
+                  onBlur={saveParams}
+                />
               </label>
               <label className="sd-param-field">
                 <span className="sd-param-label">宽高比</span>
-                <select className="sd-param-select" value={params.aspect_ratio} onChange={(e) => updateParam("aspect_ratio", e.target.value)} onBlur={saveParams}>
-                  {VIDEO_ASPECT_OPTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
+                <ParamSelect
+                  value={params.aspect_ratio}
+                  options={VIDEO_ASPECT_OPTIONS.map((a) => ({ label: a, value: a }))}
+                  onChange={(v) => updateParam("aspect_ratio", v)}
+                  onBlur={saveParams}
+                />
               </label>
             </div>
             <button

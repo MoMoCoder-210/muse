@@ -8,8 +8,10 @@
  * - 定位跟随光标（由父组件通过 getCaretCoords 计算后传入 position）
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import "../../styles/mention-dropdown.css";
+import { useMenuFlip } from "../../hooks/useMenuFlip";
+// mention-dropdown.css 已迁移至 styles.css 全局导入
 
 export interface AssetMention {
   assetId: string;
@@ -63,8 +65,17 @@ export function MentionDropdown({
   nextIndex,
   existingIndexMap,
 }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
+
+  // 使用 useMenuFlip 统一定位：将 position prop 包装为坐标 getter
+  const triggerRef = useRef<HTMLElement | null>(null); // 不需要 trigger DOM，仅用于满足接口
+
+  const getAnchorRect = useCallback(() => {
+    if (!position) return null;
+    return { top: position.top, left: position.left, width: undefined };
+  }, [position]);
+
+  const { menuRef, menuElRef } = useMenuFlip(triggerRef, 4, 240, isOpen, getAnchorRect);
 
   // 按类型分组 + 按 filter 过滤
   const groups = useMemo(() => {
@@ -113,8 +124,8 @@ export function MentionDropdown({
     if (items.length === 0) return;
     const next = Math.max(0, Math.min(idx, items.length - 1));
     setSelectedIdx(next);
-    ref.current?.querySelector<HTMLElement>(`[data-midx="${next}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [items.length]);
+    menuElRef.current?.querySelector<HTMLElement>(`[data-midx="${next}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [items.length, menuElRef]);
 
   // 键盘导航（全局捕获，父组件在 onKeyDown 中已 preventDefault）
   const handleKeyDown = useCallback(
@@ -144,27 +155,16 @@ export function MentionDropdown({
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (menuElRef.current && !menuElRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
     // mousedown 而非 click，确保在 textarea onBlur 之前捕获
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, menuElRef]);
 
-  // 计算实际显示位置：防止超出视口底部
-  const safePosition = useMemo(() => {
-    if (!position) return null;
-    const dropH = 240; // 最大高度
-    const vp = window.innerHeight;
-    const top = position.top + dropH > vp
-      ? position.top - dropH - 4  // 翻转到光标上方
-      : position.top;
-    return { top, left: position.left };
-  }, [position]);
-
-  if (!isOpen || !safePosition) return null;
+  if (!isOpen || !position) return null;
 
   const flatIdx = (gi: number) => {
     let cnt = -1;
@@ -174,17 +174,18 @@ export function MentionDropdown({
     return cnt;
   };
 
-  return (
+  const menuElement = (
     <div
-      ref={ref}
+      ref={menuRef}
       className="mention-drop"
       style={{
         position: "fixed",
-        top: safePosition.top,
-        left: safePosition.left,
+        zIndex: 3000,
         maxHeight: 240,
         minWidth: 200,
         maxWidth: 320,
+        visibility: "visible",
+        pointerEvents: "auto",
       }}
     >
       {groups.length === 0 ? (
@@ -236,4 +237,6 @@ export function MentionDropdown({
       )}
     </div>
   );
+
+  return createPortal(menuElement, document.body);
 }

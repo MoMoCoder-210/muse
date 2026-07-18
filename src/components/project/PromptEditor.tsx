@@ -6,7 +6,7 @@
  */
 
 import {
-  useEffect, useImperativeHandle, useRef, forwardRef, type MutableRefObject,
+  useEffect, useImperativeHandle, useRef, useState, useCallback, forwardRef, type MutableRefObject,
 } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -91,6 +91,7 @@ function buildMentionExtension(
           "data-mention": "true",
           "data-type": "mention",
           "data-kind": assetType ?? undefined,
+          "data-image-src": thumbSrc ?? "",
           class: "prompt-chip",
         }),
         thumbSrc
@@ -145,9 +146,45 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
     },
     ref,
   ) {
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const commandRef = useRef<((attrs: PromptMentionAttrs) => void) | null>(null);
     const rangeRef = useRef<{ from: number; to: number } | null>(null);
     const appliedResetKey = useRef<string | null>(null);
+    const [chipPreview, setChipPreview] = useState<{ src: string; x: number; y: number } | null>(null);
+    const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleChipMouseEnter = useCallback((e: MouseEvent) => {
+      const chip = (e.target as HTMLElement).closest?.(".prompt-chip") as HTMLElement | null;
+      if (!chip) return;
+      const src = chip.getAttribute("data-image-src");
+      if (!src) return;
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      previewTimer.current = setTimeout(() => {
+        const rect = chip.getBoundingClientRect();
+        setChipPreview({ src, x: rect.left + rect.width / 2, y: rect.top - 8 });
+      }, 400);
+    }, []);
+
+    const handleChipMouseLeave = useCallback((e: MouseEvent) => {
+      const chip = (e.target as HTMLElement).closest?.(".prompt-chip") as HTMLElement | null;
+      if (!chip) return;
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      setChipPreview(null);
+    }, []);
+
+    // 事件委托：监听 prompt-chip 的 hover
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      el.addEventListener("mouseover", handleChipMouseEnter, { passive: true });
+      el.addEventListener("mouseout", handleChipMouseLeave, { passive: true });
+      return () => {
+        el.removeEventListener("mouseover", handleChipMouseEnter);
+        el.removeEventListener("mouseout", handleChipMouseLeave);
+        if (previewTimer.current) clearTimeout(previewTimer.current);
+      };
+    }, [handleChipMouseEnter, handleChipMouseLeave]);
+
     const callbacks = useRef<MentionCallbacks>({
       onStart: (query, position) => onMentionStart?.(query, position),
       onUpdate: (query) => onMentionUpdate?.(query),
@@ -234,8 +271,16 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
     }), [document, editor]);
 
     return (
-      <div className={`prompt-editor${disabled ? " is-disabled" : ""}`}>
+      <div ref={containerRef} className={`prompt-editor${disabled ? " is-disabled" : ""}`}>
         <EditorContent editor={editor} />
+        {chipPreview && (
+          <div
+            className="prompt-chip-preview"
+            style={{ left: chipPreview.x, top: chipPreview.y }}
+          >
+            <img src={chipPreview.src} alt="" />
+          </div>
+        )}
       </div>
     );
   },

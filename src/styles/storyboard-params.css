@@ -1,0 +1,130 @@
+/* ============================================================
+   分镜管理 — 视频生成参数（模型/时长/分辨率/宽高比 + 生成按钮）
+   ============================================================ */
+
+/* 参数区块：撑满卡片高度，不滚动 */
+.sd-section--params {
+  flex: 1; min-height: 0;
+  overflow: hidden;
+  justify-content: flex-start;
+}
+
+/* 参数：2×2 网格，每个字段自带标签 */
+.sd-params-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm) var(--spacing-md);
+  flex-shrink: 0;
+}
+.sd-param-field {
+  display: flex; flex-direction: column; gap: var(--spacing-xs);
+  min-width: 0;
+}
+.sd-param-field .sd-param-label {
+  font-size: var(--font-size-xxs); color: var(--text-muted);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+}
+
+/* ── 参数区自定义下拉（macOS 浮层菜单） ── */
+.sd-param-select-shell {
+  position: relative;
+}
+
+.sd-param-select-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+.sd-param-select-btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.sd-param-select-btn.open {
+  border-color: rgba(var(--accent-primary-rgb), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.12);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.sd-param-select-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sd-param-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.sd-param-select-caret {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(45deg);
+  margin-top: -2px;
+  transition: transform 160ms ease;
+}
+.sd-param-select-btn.open .sd-param-select-caret {
+  transform: rotate(-135deg);
+  margin-top: 2px;
+}
+
+/* 参数区下拉菜单：fixed 定位可超出窗口 + 紧凑选项 */
+.select-menu .select-option {
+  min-height: 0;
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+}
+
+/* 时长下拉选择（已从数字输入框改为 select） */
+.sd-param-duration {
+  width: 100%;
+}
+
+/* 生成按钮（macOS 胶囊风格，置于参数区右下角） */
+.sd-section--params .sd-generate-btn.primary-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs);
+  min-height: 32px;
+  padding: 6px 14px;
+  font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-full);
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.3);
+  background: rgba(var(--accent-primary-rgb), 0.15);
+  color: rgb(var(--accent-primary-rgb));
+  flex-shrink: 0; width: fit-content;
+  margin-top: auto; align-self: flex-end;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+.sd-section--params .sd-generate-btn.primary-button:hover:not(:disabled) {
+  background: rgba(var(--accent-primary-rgb), 0.24);
+  border-color: rgba(var(--accent-primary-rgb), 0.5);
+  box-shadow: 0 4px 14px rgba(var(--accent-primary-rgb), 0.2);
+  transform: translateY(-1px);
+}
+.sd-section--params .sd-generate-btn.primary-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+.sd-section--params .sd-generate-btn.primary-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

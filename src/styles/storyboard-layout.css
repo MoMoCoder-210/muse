@@ -1,0 +1,86 @@
+/* ============================================================
+   分镜管理 — 布局与卡片容器
+   macOS 毛玻璃设计风格
+   ============================================================ */
+
+.sb-scroll {
+  height: 100%;
+  overflow: hidden;
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-md);
+  background: var(--glass-bg);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  border: 0.5px solid var(--glass-border);
+  border-radius: var(--radius-3xl);
+  box-shadow: var(--shadow-glass);
+}
+
+.sb-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: var(--spacing-sm); color: var(--text-muted);
+  font-size: var(--font-size-sm); text-align: center; user-select: none;
+}
+.sb-empty p { margin: 0; }
+
+.sb-view {
+  display: flex; flex-direction: column; gap: var(--spacing-sm);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 详情区（透传容器，仅承载 is-busy 状态）
+   ⚠️ display:contents 移除盒模型，禁止加 background/border/padding/margin */
+.sd-detail {
+  display: contents;
+}
+.sd-detail.is-busy { opacity: 0.45; pointer-events: none; }
+.sd-row-card {
+  display: flex; flex-direction: column;
+  padding: var(--spacing-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 0.5px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.sd-row-card--grow { flex: 1; min-height: 0; }
+.sd-row-card--fixed {
+  overflow: hidden;
+  height: 180px;
+}
+.sd-row-card--strip {
+  height: 120px;
+}
+
+/* ── 上方两栏：左50%视频 | 右50%提示词 ── */
+.sd-detail-top {
+  flex: 1; min-height: 0;
+  display: flex; gap: var(--spacing-md);
+}
+
+/* 左侧：视频播放器 */
+.sd-detail-left {
+  flex: 1; min-width: 0;
+  border-radius: var(--radius-lg); overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+  border: 0.5px solid rgba(255, 255, 255, 0.06);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* 右侧：提示词 */
+.sd-detail-right {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+}
+
+/* ── 第三行：双卡片并排（关联资产 | 参数） ── */
+.sd-row-split {
+  flex-shrink: 0;
+  display: flex; gap: var(--spacing-sm);
+  align-items: stretch;
+}
+.sd-row-split .sd-row-card--fixed {
+  flex: 1; min-width: 0;
+}

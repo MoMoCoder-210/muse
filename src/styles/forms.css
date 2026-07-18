@@ -138,9 +138,6 @@
 
 .select-menu {
   position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
   z-index: var(--z-modal);
   display: grid;
   gap: 4px;
@@ -157,6 +154,17 @@
   transform-origin: top center;
 }
 
+/* fixed 定位的菜单：top/left/width 完全由 JS 控制，CSS 不设默认值避免冲突 */
+.select-field-menu,
+.sd-param-menu {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  width: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 /* 入场动画 */
 .select-menu--in {
   animation: selectMenuIn 200ms cubic-bezier(0.25, 0, 0, 1) forwards;
@@ -165,6 +173,12 @@
 /* 出场动画 */
 .select-menu--out {
   animation: selectMenuOut 150ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
+
+/* 向上翻转时变换原点改到底部 */
+.select-field-menu--flip,
+.sd-param-menu--flip {
+  transform-origin: bottom center;
 }
 
 @keyframes selectMenuIn {
