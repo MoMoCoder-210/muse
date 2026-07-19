@@ -76,6 +76,19 @@ pub fn run() {
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
             log::info!("应用数据目录已就绪");
 
+            // ── 扩展 asset 协议作用域，确保前端能加载项目目录中的图片/视频 ──
+            let asset_scope = app.handle().asset_protocol_scope();
+            let projects_root = app_paths::default_projects_root();
+            if let Err(e) = asset_scope.allow_directory(&projects_root, true) {
+                log::warn!("asset scope: 无法添加项目根目录 {:?}: {}", projects_root, e);
+            }
+            if let Some(home) = dirs::home_dir() {
+                let _ = asset_scope.allow_directory(&home, true);
+            }
+            if let Some(docs) = dirs::document_dir() {
+                let _ = asset_scope.allow_directory(&docs, true);
+            }
+
             let log_path = project_log::log_path_for_app_data(&app_data_dir);
             project_log::append_log(&log_path, "应用", "INFO", "应用启动");
 
@@ -174,10 +187,16 @@ pub fn run() {
                 std::sync::Mutex::new(sidecar::SidecarManager::new(app.handle().clone()));
             app.manage(sidecar_manager);
 
-            let config_path = app_data_dir
-                .join("settings.json")
-                .to_string_lossy()
-                .to_string();
+            let config_path_buf = app_data_dir.join("settings.json");
+            // 首次启动时自动写入默认配置，确保 Worker 能读到配置文件
+            if !config_path_buf.exists() {
+                let default_json = commands::util::default_settings_json();
+                if let Ok(content) = serde_json::to_string_pretty(&default_json) {
+                    let _ = std::fs::write(&config_path_buf, content);
+                    project_log::append_log(&log_path, "应用", "INFO", "已自动生成默认 settings.json");
+                }
+            }
+            let config_path = config_path_buf.to_string_lossy().to_string();
             let db_path = crate::app_paths::app_db_path(app.handle())
                 .map_err(|e| std::io::Error::other(e))?
                 .to_string_lossy()

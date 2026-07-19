@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "npm run worker:build && tauri dev",
-    "tauri:build": "npm run worker:build && tauri build",
+    "tauri:build": "npm run fetch-node && npm run worker:build && tauri build",
+    "fetch-node": "node scripts/fetch-node.mjs",
     "worker:dev": "npm run dev -w worker",
     "worker:build": "npm run build -w worker",
     "gen:voices": "node scripts/gen-public-voices.mjs"

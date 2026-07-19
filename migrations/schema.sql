@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS storyboards (
     fused_image_path   TEXT,
     voice_path         TEXT,
     voice_duration     REAL,
+    video_duration     REAL,
     selected_video_id  TEXT REFERENCES storyboard_videos(id),
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))

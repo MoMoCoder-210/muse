@@ -520,7 +520,15 @@ impl SidecarManager {
             &format!("Worker 脚本路径：{}", worker_path.display()),
         );
 
-        let mut child = Command::new("node")
+        // 解析捆绑的 Node.js 运行时路径（优先使用打包内置的 node）
+        let node_binary = crate::app_paths::resolve_node_binary(&self.app);
+        self.log(
+            "子进程",
+            "INFO",
+            &format!("Node 运行时路径：{}", node_binary.display()),
+        );
+
+        let mut child = Command::new(&node_binary)
             .arg(&worker_path)
             .args(["--db", db_path])
             .args(["--workspace", workspace_path])
@@ -533,7 +541,7 @@ impl SidecarManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node: {}", e)))?;
+            .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node ({}): {}", node_binary.display(), e)))?;
 
         // 启动 stderr 读取线程 → 写入项目日志文件
         if let Some(stderr) = child.stderr.take() {

@@ -2,6 +2,7 @@
 
 use crate::sidecar::SharedSidecarManager;
 use serde_json::{Map, Value};
+use tauri::Manager;
 
 /// 返回默认设置 JSON
 
@@ -34,6 +35,16 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
             source.and_then(|obj| obj.get("general")),
             &default["general"],
             &["defaultProjectDir"],
+        ),
+    );
+
+    // concurrency 并发限制
+    root.insert(
+        "concurrency".to_string(),
+        sanitize_section(
+            source.and_then(|obj| obj.get("concurrency")),
+            &default["concurrency"],
+            &["text", "image", "arkUpload", "video"],
         ),
     );
 
@@ -126,7 +137,13 @@ fn sanitize_channel_list(
 ) -> Value {
     let src = match source {
         Some(v) => v,
-        None => return default_channel_list(default_section, channel_fields, model_fields),
+        None => {
+            // 无源数据时返回空渠道列表
+            let mut result = Map::new();
+            result.insert("channels".to_string(), Value::Array(vec![]));
+            result.insert("activeId".to_string(), Value::String(String::new()));
+            return Value::Object(result);
+        }
     };
 
     // 新格式：{ channels: [...], activeId: "..." }
@@ -139,22 +156,11 @@ fn sanitize_channel_list(
             let active_id = obj
                 .get("activeId")
                 .and_then(|v| v.as_str())
-                .unwrap_or("default")
+                .unwrap_or("")
                 .to_string();
 
             let mut result = Map::new();
-            result.insert(
-                "channels".to_string(),
-                if sanitized.is_empty() {
-                    Value::Array(vec![default_channel(
-                        default_section,
-                        channel_fields,
-                        model_fields,
-                    )])
-                } else {
-                    Value::Array(sanitized)
-                },
-            );
+            result.insert("channels".to_string(), Value::Array(sanitized));
             result.insert("activeId".to_string(), Value::String(active_id));
             return Value::Object(result);
         }
@@ -162,19 +168,6 @@ fn sanitize_channel_list(
 
     // 旧格式：扁平对象 → 迁移为单渠道列表
     let channel = sanitize_channel(source, default_section, channel_fields, model_fields);
-    let mut result = Map::new();
-    result.insert("channels".to_string(), Value::Array(vec![channel]));
-    result.insert("activeId".to_string(), Value::String("default".to_string()));
-    Value::Object(result)
-}
-
-/// 默认 ChannelList（单渠道），字段默认值取自 default_section
-fn default_channel_list(
-    default_section: &Value,
-    channel_fields: &[(&str, &str)],
-    model_fields: &[(&str, &str)],
-) -> Value {
-    let channel = default_channel(default_section, channel_fields, model_fields);
     let mut result = Map::new();
     result.insert("channels".to_string(), Value::Array(vec![channel]));
     result.insert("activeId".to_string(), Value::String("default".to_string()));
@@ -259,87 +252,25 @@ fn sanitize_channel(
                     })
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_else(|| vec![default_model_entry(default_section, model_fields)]);
+            .unwrap_or_else(|| {
+                default_ch
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            });
         ch.insert("models".to_string(), Value::Array(models));
 
         let active_model = src
             .and_then(|o| o.get("activeModelId"))
             .and_then(|v| v.as_str())
             .or_else(|| default_ch.get("activeModelId").and_then(|v| v.as_str()))
-            .unwrap_or("m1")
+            .unwrap_or("")
             .to_string();
         ch.insert("activeModelId".to_string(), Value::String(active_model));
     }
 
     Value::Object(ch)
-}
-
-/// 默认渠道（单条），字段默认值取自 default_section["channels"][0]
-fn default_channel(
-    default_section: &Value,
-    channel_fields: &[(&str, &str)],
-    model_fields: &[(&str, &str)],
-) -> Value {
-    let default_ch = default_section
-        .get("channels")
-        .and_then(Value::as_array)
-        .and_then(|a| a.first())
-        .cloned()
-        .unwrap_or_else(|| Value::Object(Map::new()));
-    let mut ch = Map::new();
-    ch.insert("id".to_string(), json_str(&default_ch, "id", "default"));
-    ch.insert("name".to_string(), json_str(&default_ch, "name", "默认"));
-
-    for (key, _default) in channel_fields {
-        let val = default_ch
-            .get(*key)
-            .cloned()
-            .unwrap_or(Value::String(String::new()));
-        ch.insert((*key).to_string(), val);
-    }
-
-    if !model_fields.is_empty() {
-        ch.insert(
-            "models".to_string(),
-            Value::Array(vec![default_model_entry(default_section, model_fields)]),
-        );
-        ch.insert(
-            "activeModelId".to_string(),
-            json_str(&default_ch, "activeModelId", "m1"),
-        );
-    }
-
-    Value::Object(ch)
-}
-
-fn json_str(v: &Value, key: &str, fallback: &str) -> Value {
-    Value::String(
-        v.get(key)
-            .and_then(|x| x.as_str())
-            .unwrap_or(fallback)
-            .to_string(),
-    )
-}
-
-fn default_model_entry(default_section: &Value, fields: &[(&str, &str)]) -> Value {
-    let default_model = default_section
-        .get("channels")
-        .and_then(Value::as_array)
-        .and_then(|a| a.first())
-        .and_then(|c| c.get("models"))
-        .and_then(Value::as_array)
-        .and_then(|a| a.first())
-        .cloned()
-        .unwrap_or_else(|| Value::Object(Map::new()));
-    let mut m = Map::new();
-    for (key, _default) in fields {
-        let val = default_model
-            .get(*key)
-            .cloned()
-            .unwrap_or(Value::String(String::new()));
-        m.insert((*key).to_string(), val);
-    }
-    Value::Object(m)
 }
 
 /// 解析工作区路径
@@ -397,11 +328,18 @@ pub(crate) fn get_project_workspace_path(
 fn resolve_schema_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(app)?;
     let cwd = std::env::current_dir().unwrap_or_default();
-    let candidates = [
-        app_data_dir.join("migrations").join("schema.sql"),
-        cwd.join("migrations").join("schema.sql"),
-        cwd.join("..").join("migrations").join("schema.sql"),
-    ];
+
+    // 生产包优先：resource_dir/migrations/schema.sql
+    let resource_candidate = app.path().resource_dir()
+        .ok()
+        .map(|d| d.join("migrations").join("schema.sql"));
+
+    let candidates: Vec<std::path::PathBuf> = [
+        resource_candidate,
+        Some(app_data_dir.join("migrations").join("schema.sql")),
+        Some(cwd.join("migrations").join("schema.sql")),
+        Some(cwd.join("..").join("migrations").join("schema.sql")),
+    ].into_iter().flatten().collect();
 
     candidates
         .into_iter()

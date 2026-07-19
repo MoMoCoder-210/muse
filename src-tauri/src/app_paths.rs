@@ -109,3 +109,41 @@ pub fn ffmpeg_path<R: Runtime, M: Manager<R>>(app: &M) -> Option<PathBuf> {
 pub fn ffprobe_path<R: Runtime, M: Manager<R>>(app: &M) -> Option<PathBuf> {
     resolve_ffmpeg_dir(app).map(|d| d.join("ffprobe.exe"))
 }
+
+/// 解析捆绑的 Node.js 可执行文件路径。
+///
+/// 查找顺序：
+/// 1. Tauri resource_dir/node/node.exe（生产包）
+/// 2. cwd/node/node.exe（开发模式，cwd 可能是 src-tauri/）
+/// 3. cwd/../node/node.exe（开发模式回退）
+/// 4. 系统 PATH 中的 "node"（兜底）
+pub fn resolve_node_binary<R: Runtime, M: Manager<R>>(app: &M) -> PathBuf {
+    let exe_name = if cfg!(windows) { "node.exe" } else { "node" };
+
+    // 1. Tauri resource_dir/node/
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let node_bin = res_dir.join("node").join(exe_name);
+        if node_bin.exists() {
+            return node_bin;
+        }
+    }
+
+    // 2. cwd/node/
+    if let Ok(cwd) = std::env::current_dir() {
+        let node_bin = cwd.join("node").join(exe_name);
+        if node_bin.exists() {
+            return node_bin;
+        }
+
+        // 3. cwd/../node/ (dev 模式下 cwd = src-tauri/)
+        if let Some(parent) = cwd.parent() {
+            let node_bin = parent.join("node").join(exe_name);
+            if node_bin.exists() {
+                return node_bin;
+            }
+        }
+    }
+
+    // 4. 兜底：使用系统 PATH 中的 node
+    PathBuf::from("node")
+}

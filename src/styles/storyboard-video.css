@@ -274,3 +274,7 @@
 @media (prefers-reduced-motion: reduce) {
   .sd-video-task-orb { animation: none; }
 }
+
+@keyframes sb-spin {
+  to { transform: rotate(360deg); }
+}

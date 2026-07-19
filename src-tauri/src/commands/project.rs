@@ -3,6 +3,7 @@
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 /// 删除项目工作区中的文件并统计实际结果；目录本身不计入文件数量。
 ///
@@ -115,18 +116,15 @@ pub fn create_project(
     let style_mode = input.style_mode.unwrap_or_else(|| "国漫".to_string());
     let workspace = util::resolve_workspace_path(&input.workspace_path, &input.name, &project_id);
 
+    // 仅预创建实际会被写入的目录，其余按需自动创建
     let dirs = [
-        "source/scripts",
-        "clips",
         "assets/characters",
         "assets/scenes",
         "assets/items",
-        "storyboards/draft",
-        "storyboards/final",
-        "audio",
+        "audio/voices",
         "video",
-        "exports",
-        "cache",
+        "videos/storyboards",
+        "output",
     ];
     for dir in &dirs {
         std::fs::create_dir_all(workspace.join(dir))
@@ -201,7 +199,7 @@ pub fn create_project(
 #[tauri::command]
 pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectInfo, String> {
     let conn = util::open_app_conn(&app)?;
-    conn.query_row(
+    let project = conn.query_row(
         "SELECT id, name, description, workspace_path, status, current_step, style_mode, created_at
          FROM projects WHERE id = ?1",
         rusqlite::params![&project_id],
@@ -218,7 +216,12 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
             })
         },
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // 动态扩展 asset 协议作用域，确保前端能访问该项目的工作区文件
+    let _ = app.asset_protocol_scope().allow_directory(&project.workspace_path, true);
+
+    Ok(project)
 }
 
 /// 列出所有项目

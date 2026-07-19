@@ -9,66 +9,28 @@
     "video": 2
   },
   "text": {
-    "channels": [
-      {
-        "id": "default",
-        "name": "默认",
-        "apiKey": "",
-        "baseUrl": "",
-        "models": [{ "id": "m1", "modelId": "" }],
-        "activeModelId": "m1"
-      }
-    ],
-    "activeId": "default"
+    "channels": [],
+    "activeId": ""
   },
   "textParams": { "timeoutMs": 300000, "maxTokens": 131072, "temperature": 0.7 },
   "image": {
-    "channels": [
-      {
-        "id": "default",
-        "name": "默认",
-        "apiKey": "",
-        "baseUrl": "",
-        "models": [{ "id": "m1", "modelId": "" }],
-        "activeModelId": "m1"
-      }
-    ],
-    "activeId": "default"
+    "channels": [],
+    "activeId": ""
   },
   "imageParams": { "timeoutMs": 300000 },
   "voice": {
-    "channels": [
-      {
-        "id": "default",
-        "name": "火山语音合成2.0",
-        "apiKey": "",
-        "resourceId": "",
-        "baseUrl": "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
-        "sampleRate": 24000
-      }
-    ],
-    "activeId": "default"
+    "channels": [],
+    "activeId": ""
   },
   "voiceParams": { "timeoutMs": 300000, "speed": 1.0 },
   "asset": {
-    "channels": [
-      { "id": "default", "name": "默认", "apiKey": "", "baseUrl": "" }
-    ],
-    "activeId": "default"
+    "channels": [],
+    "activeId": ""
   },
   "assetParams": { "timeoutMs": 300000 },
   "video": {
-    "channels": [
-      {
-        "id": "default",
-        "name": "默认",
-        "apiKey": "",
-        "baseUrl": "",
-        "models": [{ "id": "m1", "modelId": "" }],
-        "activeModelId": "m1"
-      }
-    ],
-    "activeId": "default"
+    "channels": [],
+    "activeId": ""
   },
   "videoParams": { "timeoutMs": 600000 }
 }
