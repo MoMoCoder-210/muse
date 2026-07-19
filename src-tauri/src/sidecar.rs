@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+use tauri::Manager;
 use thiserror::Error;
 
 #[allow(dead_code)]
@@ -102,6 +103,7 @@ struct ClipScriptReadyPayload {
 /// 分镜视频任务完成/失败负载
 #[derive(Clone, serde::Serialize)]
 struct StoryboardVideoReadyPayload {
+    task_id: String,
     project_id: String,
     clip_id: String,
     storyboard_id: String,
@@ -112,7 +114,7 @@ struct StoryboardVideoReadyPayload {
 /// 启动健康检测事件负载（转发给前端）
 #[derive(Clone, serde::Serialize)]
 pub struct StartupStatusPayload {
-    pub status: String,     // "checking" | "ready" | "error"
+    pub status: String, // "checking" | "ready" | "error"
     pub db_ok: bool,
     pub ffmpeg_ok: bool,
     pub worker_ok: bool,
@@ -122,10 +124,10 @@ pub struct StartupStatusPayload {
 /// Worker 生命周期事件负载（转发给前端）
 #[derive(Clone, serde::Serialize)]
 struct WorkerStatusPayload {
-    status: String,         // "crashed" | "restarting" | "restarted" | "max_restarts" | "start_failed"
+    status: String, // "crashed" | "restarting" | "restarted" | "max_restarts" | "start_failed"
     worker_id: String,
     message: String,
-    attempt: Option<u32>,   // 当前重试次数（restarting/restarted 时）
+    attempt: Option<u32>, // 当前重试次数（restarting/restarted 时）
     max_attempts: Option<u32>,
 }
 
@@ -152,6 +154,16 @@ fn parse_stdout_line<'a>(
                     "主进程",
                     "INFO",
                     &format!("Worker 就绪，workerId={}", wid),
+                );
+                let _ = app.emit(
+                    "worker-status",
+                    WorkerStatusPayload {
+                        status: "ready".to_string(),
+                        worker_id: wid.to_string(),
+                        message: "Worker 已就绪".to_string(),
+                        attempt: None,
+                        max_attempts: Some(MAX_RESTART_COUNT),
+                    },
                 );
             }
             "task_event" => {
@@ -297,6 +309,11 @@ fn parse_stdout_line<'a>(
                             }
                         }
                         "storyboard_video_ready" => {
+                            let task_id = event
+                                .get("taskId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
                             let project_id = event
                                 .get("projectId")
                                 .and_then(|v| v.as_str())
@@ -321,12 +338,14 @@ fn parse_stdout_line<'a>(
                                 .get("errorMessage")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
-                            if !project_id.is_empty()
+                            if !task_id.is_empty()
+                                && !project_id.is_empty()
                                 && !clip_id.is_empty()
                                 && !storyboard_id.is_empty()
                                 && !status.is_empty()
                             {
                                 let payload = StoryboardVideoReadyPayload {
+                                    task_id,
                                     project_id,
                                     clip_id,
                                     storyboard_id,
@@ -351,6 +370,20 @@ fn parse_stdout_line<'a>(
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown error");
                 crate::project_log::append_log(log_path, "主进程", "ERROR", message);
+                let _ = app.emit(
+                    "worker-status",
+                    WorkerStatusPayload {
+                        status: "start_failed".to_string(),
+                        worker_id: msg
+                            .get("workerId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?")
+                            .to_string(),
+                        message: message.to_string(),
+                        attempt: None,
+                        max_attempts: Some(MAX_RESTART_COUNT),
+                    },
+                );
             }
             _ => {
                 crate::project_log::append_log(log_path, "主进程(stdout)", "INFO", text);
@@ -430,8 +463,13 @@ impl SidecarManager {
         ffmpeg_path: &str,
         ffprobe_path: &str,
     ) -> Result<(), SidecarError> {
-        if self.child.is_some() {
+        if self.is_running() {
             return Err(SidecarError::AlreadyRunning);
+        }
+        // 进程已经退出但句柄尚未回收时，先清理旧句柄和读取线程再启动。
+        self.child = None;
+        for handle in self.log_handles.drain(..) {
+            let _ = handle.join();
         }
 
         // 保存参数供 restart() 复用
@@ -443,20 +481,27 @@ impl SidecarManager {
         self.ffprobe_path = ffprobe_path.to_string();
 
         // 解析 worker 脚本路径
-        // Tauri dev 模式下 current_dir() 是 src-tauri/，需要回退到项目根目录
-        let cwd = std::env::current_dir().map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+        // 生产包：resource_dir；开发：cwd（常用 src-tauri/，需回退到项目根）。
         let worker_path = {
-            let primary = cwd.join("worker").join("dist").join("index.js");
-            if primary.exists() {
-                primary
+            let resource_candidate = self.app.path().resource_dir()
+                .ok()
+                .map(|d| d.join("worker").join("dist").join("index.js"))
+                .filter(|p| p.exists());
+
+            if let Some(p) = resource_candidate {
+                p
             } else {
-                let fallback = cwd
-                    .parent()
-                    .unwrap_or(&cwd)
-                    .join("worker")
-                    .join("dist")
-                    .join("index.js");
-                fallback
+                let cwd = std::env::current_dir().map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+                let primary = cwd.join("worker").join("dist").join("index.js");
+                if primary.exists() {
+                    primary
+                } else {
+                    cwd.parent()
+                        .unwrap_or(&cwd)
+                        .join("worker")
+                        .join("dist")
+                        .join("index.js")
+                }
             }
         };
 
@@ -660,7 +705,11 @@ impl SidecarManager {
         // 通知前端即将重启
         self.emit_worker_status(
             "restarting",
-            &format!("Worker 异常退出，正在重启（第 {}/{} 次）…", self.restart_count + 1, MAX_RESTART_COUNT),
+            &format!(
+                "Worker 异常退出，正在重启（第 {}/{} 次）…",
+                self.restart_count + 1,
+                MAX_RESTART_COUNT
+            ),
             Some(self.restart_count + 1),
         );
 
@@ -707,7 +756,10 @@ impl SidecarManager {
             Ok(()) => {
                 self.emit_worker_status(
                     "restarted",
-                    &format!("Worker 已恢复运行（第 {}/{} 次重启成功）", self.restart_count, MAX_RESTART_COUNT),
+                    &format!(
+                        "Worker 已恢复运行（第 {}/{} 次重启成功）",
+                        self.restart_count, MAX_RESTART_COUNT
+                    ),
                     Some(self.restart_count),
                 );
                 Ok(())
@@ -902,8 +954,11 @@ impl SidecarManager {
 
     /// 检查 worker 是否在运行
 
-    pub fn is_running(&self) -> bool {
-        self.child.is_some()
+    pub fn is_running(&mut self) -> bool {
+        match self.child.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => false,
+        }
     }
 
     /// 向前端发送 Worker 生命周期事件

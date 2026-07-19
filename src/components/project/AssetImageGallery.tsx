@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { ImageLightbox } from "../common/ImageLightbox";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 export type GalleryImage = {
   id: string;
@@ -58,72 +59,6 @@ export function AssetImageGallery({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteFile, setDeleteFile] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragInfo = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
-
-  // 鼠标拖动平移
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (zoom <= 1) return; // 未放大时不触发拖动
-    e.preventDefault();
-    dragInfo.current = { startX: e.clientX, startY: e.clientY, originX: offset.x, originY: offset.y };
-    setIsDragging(true);
-  }, [zoom, offset]);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragInfo.current) return;
-    const dx = e.clientX - dragInfo.current.startX;
-    const dy = e.clientY - dragInfo.current.startY;
-    setOffset({ x: dragInfo.current.originX + dx, y: dragInfo.current.originY + dy });
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    dragInfo.current = null;
-    setIsDragging(false);
-  }, []);
-
-  // 拖动期间监听全局 mousemove / mouseup
-  useEffect(() => {
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [handleMouseMove, handleMouseUp]);
-
-  // 键盘操作：lightbox 打开时支持 Esc 关闭、左右切换
-  const handleLightboxKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") setLightboxOpen(false);
-    if (e.key === "ArrowLeft") goPrev();
-    if (e.key === "ArrowRight") goNext();
-  }, [images.length]);
-
-  // 滚轮缩放：放大/缩小
-  const handleLightboxWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.15 : 0.15;
-    setZoom((prev) => Math.min(5, Math.max(1, prev + delta)));
-  }, []);
-
-  useEffect(() => {
-    if (!lightboxOpen) return;
-    window.addEventListener("keydown", handleLightboxKeyDown);
-    window.addEventListener("wheel", handleLightboxWheel, { passive: false });
-    return () => {
-      window.removeEventListener("keydown", handleLightboxKeyDown);
-      window.removeEventListener("wheel", handleLightboxWheel);
-    };
-  }, [lightboxOpen, handleLightboxKeyDown, handleLightboxWheel]);
-
-  // 关闭 lightbox 时重置缩放和位移
-  useEffect(() => {
-    if (!lightboxOpen) {
-      setZoom(1);
-      setOffset({ x: 0, y: 0 });
-    }
-  }, [lightboxOpen]);
 
   // 图片列表变化时重置 activeIndex，优先跳到选中图片
   useEffect(() => {
@@ -139,12 +74,6 @@ export function AssetImageGallery({
   const currentIndex = images.length === 0 ? 0 : Math.min(activeIndex, images.length - 1);
   const currentImage = images[currentIndex] ?? null;
 
-  // 切换图片时重置缩放和位移
-  useEffect(() => {
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
-  }, [currentIndex]);
-
   const goPrev = () => {
     if (images.length <= 1) return;
     setActiveIndex((i) => (i > 0 ? i - 1 : images.length - 1));
@@ -158,11 +87,6 @@ export function AssetImageGallery({
   // 判断画廊是否有任何可展示的项目
   const hasItems = images.length > 0;
   const showGlobalLoading = !hasItems && globalStatus === "loading";
-
-  // 计算总体任务统计
-  const pendingCount = images.filter((img) => img.status === "pending").length;
-  const runningCount = images.filter((img) => img.status === "running").length;
-  const readyCount = images.filter((img) => img.status === "ready").length;
 
   // 缩略图内容渲染
   const renderThumbContent = (img: GalleryImage) => {
@@ -317,7 +241,6 @@ export function AssetImageGallery({
   };
 
   const showNavButtons = images.length > 1;
-  const pendingTotal = pendingCount + runningCount;
 
   return (
     <div className={`asset-gallery ${showGlobalLoading ? "asset-gallery--loading" : ""}`}>
@@ -354,13 +277,6 @@ export function AssetImageGallery({
           </>
         )}
 
-        {/* 任务进度角标 */}
-        {pendingTotal > 0 && (
-          <div className="asset-gallery-generating">
-            <span className="spinner" aria-hidden />
-            <span>{readyCount}/{images.length} 已完成</span>
-          </div>
-        )}
       </div>
 
       {/* 缩略图条：含状态标记 */}
@@ -436,121 +352,62 @@ export function AssetImageGallery({
 
       {/* 删除图片确认弹窗 */}
       {deleteTarget && onDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setDeleteTarget(null)}>
-          <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="delete-confirm-title">删除图片</h2>
-              <button
-                type="button"
-                className="icon-button modal-close-button"
-                aria-label="关闭"
-                onClick={() => setDeleteTarget(null)}
-                disabled={disabled}
-              >
-                ×
-              </button>
-            </div>
-            <p className="clip-delete-modal-text">
-              确认删除此图片？
-            </p>
-            <label className="delete-files-option">
-              <input
-                type="checkbox"
-                checked={deleteFile}
-                onChange={(e) => setDeleteFile(e.target.checked)}
-              />
-              同时删除磁盘文件
-            </label>
-            <div className="modal-actions">
-              <button type="button" className="asset-drawer-btn asset-drawer-btn--secondary" onClick={() => setDeleteTarget(null)} disabled={disabled}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="asset-drawer-btn asset-drawer-btn--danger"
-                onClick={() => { onDelete(deleteTarget, deleteFile); setDeleteTarget(null); }}
-                disabled={disabled}
-              >
-                删除
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          title="删除图片"
+          description={<>确认删除此图片？</>}
+          checkbox={{
+            label: "同时删除磁盘文件",
+            checked: deleteFile,
+            onChange: setDeleteFile,
+          }}
+          onConfirm={() => {
+            onDelete(deleteTarget, deleteFile);
+            setDeleteTarget(null);
+            setDeleteFile(false);
+          }}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setDeleteFile(false);
+          }}
+          disabled={disabled}
+        />
       )}
 
-      {/* 大图预览 Lightbox（Portal 到 body，避免抽屉 transform 导致 fixed 定位失效） */}
-      {lightboxOpen && currentImage?.status === "ready" && currentImage?.path && createPortal(
-        <div
-          className="asset-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label="图片大图预览"
-          onClick={() => setLightboxOpen(false)}
+      {/* 大图预览 */}
+      {lightboxOpen && currentImage?.status === "ready" && currentImage.path && (
+        <ImageLightbox
+          src={convertFileSrc(currentImage.path)}
+          alt={altName}
+          onClose={() => setLightboxOpen(false)}
         >
-          <div className="asset-lightbox-content" onClick={(e) => e.stopPropagation()}>
-            <img
-              className="asset-lightbox-img"
-              src={convertFileSrc(currentImage.path)}
-              alt={altName}
-              draggable={false}
-              style={{
-                transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-                transition: isDragging ? "none" : "transform 120ms ease",
-                cursor: zoom > 1 ? (isDragging ? "grabbing" : "grab") : "default",
-              }}
-              onMouseDown={handleMouseDown}
-            />
-
-            {/* 关闭按钮 */}
-            <button
-              type="button"
-              className="asset-lightbox-close"
-              onClick={() => setLightboxOpen(false)}
-              aria-label="关闭大图"
-            >
-              <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                <path d="M3 3L13 13M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </button>
-
-            {/* 多图切换 */}
-            {images.length > 1 && (
-              <>
-                <button
-                  type="button"
-                  className="asset-lightbox-nav asset-lightbox-nav--prev"
-                  onClick={goPrev}
-                  aria-label="上一张"
-                >
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="asset-lightbox-nav asset-lightbox-nav--next"
-                  onClick={goNext}
-                  aria-label="下一张"
-                >
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-                <div className="asset-lightbox-counter">
-                  {currentIndex + 1} / {images.length}
-                </div>
-              </>
-            )}
-
-            {/* 缩放比例 */}
-            {zoom !== 1 && (
-              <div className="asset-lightbox-zoom">
-                {Math.round(zoom * 100)}%
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                className="asset-lightbox-nav asset-lightbox-nav--prev"
+                onClick={goPrev}
+                aria-label="上一张"
+              >
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                  <path d="M10 4L6 8L10 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="asset-lightbox-nav asset-lightbox-nav--next"
+                onClick={goNext}
+                aria-label="下一张"
+              >
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                  <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <div className="asset-lightbox-counter">
+                {currentIndex + 1} / {images.length}
               </div>
-            )}
-          </div>
-        </div>,
-        document.body
+            </>
+          )}
+        </ImageLightbox>
       )}
     </div>
   );

@@ -56,7 +56,10 @@ pub(crate) fn sanitize_settings(input: Value) -> Value {
             channel_fields: &[
                 ("apiKey", ""),
                 ("resourceId", ""),
-                ("baseUrl", "https://openspeech.bytedance.com/api/v3/tts/unidirectional"),
+                (
+                    "baseUrl",
+                    "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+                ),
                 ("sampleRate", "24000"),
             ],
             model_fields: &[],

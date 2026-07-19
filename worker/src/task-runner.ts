@@ -8,9 +8,8 @@ import { TASK_TYPE_TO_API } from "./types.js";
 import type { ApiClients } from "./clients/index.js";
 import {
   getPendingTasks,
-  acquireLock,
+  claimPendingTask,
   releaseLock,
-  markTaskRunning,
   markTaskSuccess,
   markTaskFailed,
   getWaitingRemoteTasks,
@@ -65,6 +64,8 @@ export class TaskRunner {
   private pollCount = 0;
   /** 运行中任务的 AbortController 映射，用于取消 */
   private runningTasks: Map<string, AbortController> = new Map();
+  /** 已领取并在后台执行的任务；用于在完成后唤醒下一轮调度。 */
+  private activeTaskPromises: Map<string, Promise<void>> = new Map();
 
   constructor(
     db: DatabaseType,
@@ -162,6 +163,9 @@ export class TaskRunner {
   stop(): void {
     this.running = false;
     this.abortController.abort();
+    for (const taskAbort of this.runningTasks.values()) {
+      taskAbort.abort();
+    }
   }
 
   /**
@@ -183,29 +187,60 @@ export class TaskRunner {
       const summary = tasks.map((t) => `${t.type}(${t.id.slice(0, 8)})`).join(", ");
       log("任务调度", "INFO", `轮询发现 ${tasks.length} 个待处理任务：[${summary}]`);
     }
-    if (tasks.length === 0) return;
 
     for (const task of tasks) {
       if (!this.running) break;
 
       const taskType = task.type as TaskType;
       const apiType: ApiType = TASK_TYPE_TO_API[taskType] ?? "local";
+      if (!this.rateLimiter.acquire(apiType)) continue;
 
-      // 尝试获取逻辑锁（防止同一 clipId 重复调度）
+      // 锁记录与 pending → running 状态转换在同一 SQLite 事务中完成；并行
+      // 调度时，只有成功领取的一方才会启动 handler。
       const lockedBy = `workerId:${this.workerId}:taskId:${task.id}`;
-      if (!acquireLock(this.db, task.lock_key, lockedBy)) {
+      if (!claimPendingTask(this.db, task, lockedBy)) {
+        this.rateLimiter.release(apiType);
         continue;
       }
 
-      // 尝试获取令牌（并发 + 限流 + 暂停 统一由 rateLimiter 判断）
-      if (!this.rateLimiter.acquire(apiType)) {
-        releaseLock(this.db, task.lock_key);
-        continue;
-      }
-
-      // 锁 + 令牌都拿到，执行任务
-      await this.executeTask(task, apiType, taskType);
+      this.startClaimedTask(task, apiType, taskType, lockedBy);
     }
+  }
+
+  /** 启动已原子领取的任务，不阻塞本轮继续领取其他类型的可运行任务。 */
+  private startClaimedTask(
+    task: PendingTask,
+    apiType: ApiType,
+    taskType: TaskType,
+    lockedBy: string,
+  ): void {
+    const execution = this.executeTask(task, apiType, taskType, lockedBy);
+    this.activeTaskPromises.set(task.id, execution);
+
+    void execution
+      .catch((error) => {
+        // executeTask 内部会处理普通 handler 失败；这里只兜住其初始化阶段的意外异常，
+        // 避免锁或限流令牌因并行 Promise 被拒绝而遗留。
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log("任务调度", "ERROR", `任务执行初始化失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
+        try {
+          markTaskFailed(this.db, task.id, errorMessage);
+          recoverEntityStatusOnFinalFail(this.db, task);
+          this.emit({ type: "task_failed", taskId: task.id, errorMessage });
+        } catch (markError) {
+          log("任务调度", "ERROR", `初始化失败任务写库失败：${markError instanceof Error ? markError.message : String(markError)}`);
+        }
+        try {
+          releaseLock(this.db, task.lock_key, lockedBy);
+        } catch {
+          // 数据库关闭或锁已清理时，无需二次处理。
+        }
+        this.rateLimiter.release(apiType);
+      })
+      .finally(() => {
+        this.activeTaskPromises.delete(task.id);
+        if (this.running) this.wakeup();
+      });
   }
 
   /**
@@ -214,10 +249,9 @@ export class TaskRunner {
   private async executeTask(
     task: PendingTask,
     apiType: ApiType,
-    taskType: TaskType
+    taskType: TaskType,
+    lockedBy: string
   ): Promise<void> {
-    // 标记为 running
-    markTaskRunning(this.db, task.id);
     transitionEntityStatus(this.db, task, "running");
     this.emit({ type: "task_started", taskId: task.id, taskType });
 
@@ -227,7 +261,7 @@ export class TaskRunner {
       const errMsg = `未注册任务处理器：${taskType}`;
       log("任务调度", "ERROR", errMsg);
       markTaskFailed(this.db, task.id, errMsg);
-      releaseLock(this.db, task.lock_key);
+      releaseLock(this.db, task.lock_key, lockedBy);
       this.rateLimiter.release(apiType);
       this.emit({ type: "task_failed", taskId: task.id, errorMessage: errMsg });
       return;
@@ -289,6 +323,7 @@ export class TaskRunner {
       if (input?.projectId && input?.clipId && input?.storyboardId) {
         this.emit({
           type: "storyboard_video_ready",
+          taskId: task.id,
           projectId: input.projectId,
           clipId: input.clipId,
           storyboardId: input.storyboardId,
@@ -356,7 +391,7 @@ export class TaskRunner {
     } finally {
       this.runningTasks.delete(task.id);
       try {
-        releaseLock(this.db, task.lock_key);
+        releaseLock(this.db, task.lock_key, lockedBy);
       } catch {
         // 锁可能已被外部删除，忽略
       }

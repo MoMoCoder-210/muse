@@ -26,6 +26,7 @@ export type {
   AssetParams,
   VideoParams,
   ChannelList,
+  ConcurrencySettings,
   AppSettings,
 } from "./settings-types.js";
 

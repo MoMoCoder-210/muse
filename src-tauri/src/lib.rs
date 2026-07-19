@@ -21,6 +21,48 @@ fn get_startup_status(
     state.lock().ok().and_then(|s| s.clone())
 }
 
+/// 前端轮询的运行时服务健康状态。
+///
+/// 后端 IPC 能成功响应即代表后端可用；数据库、FFmpeg 和 Worker 均实时检查，
+/// 用于标题栏的简约状态标志。
+#[tauri::command]
+fn get_runtime_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, sidecar::SharedSidecarManager>,
+) -> sidecar::StartupStatusPayload {
+    let db_ok = match app_paths::app_db_path(&app) {
+        Ok(path) => match db::init_db(&path) {
+            Ok(conn) => conn
+                .query_row("SELECT 1", [], |row| row.get::<_, i32>(0))
+                .is_ok(),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    };
+    let ffmpeg_ok = app_paths::ffmpeg_path(&app).is_some_and(|path| path.exists())
+        && app_paths::ffprobe_path(&app).is_some_and(|path| path.exists());
+    let worker_ok = state
+        .lock()
+        .map(|mut manager| manager.is_running())
+        .unwrap_or(false);
+    let status = if db_ok && ffmpeg_ok && worker_ok {
+        "ready"
+    } else {
+        "error"
+    };
+    sidecar::StartupStatusPayload {
+        status: status.to_string(),
+        db_ok,
+        ffmpeg_ok,
+        worker_ok,
+        message: if status == "ready" {
+            "所有服务已就绪".to_string()
+        } else {
+            "存在未就绪服务".to_string()
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
@@ -44,7 +86,8 @@ pub fn run() {
             let handle = app.handle().clone();
 
             // 共享启动状态（setup 可能在 WebView 加载前完成，前端需通过 command 主动查询）
-            let startup_state: StdMutex<Option<sidecar::StartupStatusPayload>> = StdMutex::new(None);
+            let startup_state: StdMutex<Option<sidecar::StartupStatusPayload>> =
+                StdMutex::new(None);
             app.manage(startup_state);
 
             // ── 第1步：数据库初始化 ──
@@ -67,7 +110,10 @@ pub fn run() {
                     };
                     let _ = handle.emit("startup-status", &payload);
                     // 存入共享状态供前端主动查询
-                    if let Ok(mut state) = app.state::<StdMutex<Option<sidecar::StartupStatusPayload>>>().lock() {
+                    if let Ok(mut state) = app
+                        .state::<StdMutex<Option<sidecar::StartupStatusPayload>>>()
+                        .lock()
+                    {
                         *state = Some(payload);
                     }
                     return Err(Box::new(std::io::Error::other(e)));
@@ -82,10 +128,10 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            let ffmpeg_exists = !ffmpeg_path_str.is_empty()
-                && std::path::Path::new(&ffmpeg_path_str).exists();
-            let ffprobe_exists = !ffprobe_path_str.is_empty()
-                && std::path::Path::new(&ffprobe_path_str).exists();
+            let ffmpeg_exists =
+                !ffmpeg_path_str.is_empty() && std::path::Path::new(&ffmpeg_path_str).exists();
+            let ffprobe_exists =
+                !ffprobe_path_str.is_empty() && std::path::Path::new(&ffprobe_path_str).exists();
             let ffmpeg_ok = ffmpeg_exists && ffprobe_exists;
 
             if !ffmpeg_ok {
@@ -107,13 +153,20 @@ pub fn run() {
                     message: msg,
                 };
                 let _ = handle.emit("startup-status", &payload);
-                if let Ok(mut state) = app.state::<StdMutex<Option<sidecar::StartupStatusPayload>>>().lock() {
+                if let Ok(mut state) = app
+                    .state::<StdMutex<Option<sidecar::StartupStatusPayload>>>()
+                    .lock()
+                {
                     *state = Some(payload);
                 }
                 return Err(Box::new(std::io::Error::other("FFmpeg/FFprobe 未就绪")));
             }
 
-            log::info!("FFmpeg 检测通过：{} / {}", ffmpeg_path_str, ffprobe_path_str);
+            log::info!(
+                "FFmpeg 检测通过：{} / {}",
+                ffmpeg_path_str,
+                ffprobe_path_str
+            );
             project_log::append_log(&log_path, "应用", "INFO", "FFmpeg 就绪");
 
             // ── 第3步：Worker 进程启动 ──
@@ -161,7 +214,10 @@ pub fn run() {
                         message: msg,
                     };
                     let _ = handle.emit("startup-status", &payload);
-                    if let Ok(mut state) = app.state::<StdMutex<Option<sidecar::StartupStatusPayload>>>().lock() {
+                    if let Ok(mut state) = app
+                        .state::<StdMutex<Option<sidecar::StartupStatusPayload>>>()
+                        .lock()
+                    {
                         *state = Some(payload);
                     }
                     drop(mgr);
@@ -180,68 +236,69 @@ pub fn run() {
             };
             let _ = handle.emit("startup-status", &payload);
             // 存入共享状态供前端主动查询
-            if let Ok(mut state) = app.state::<StdMutex<Option<sidecar::StartupStatusPayload>>>().lock() {
+            if let Ok(mut state) = app
+                .state::<StdMutex<Option<sidecar::StartupStatusPayload>>>()
+                .lock()
+            {
                 *state = Some(payload);
             }
 
             // ── 启动心跳监控 ──
             {
                 let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                        let state = handle.state::<sidecar::SharedSidecarManager>();
-                        let mut mgr = match state.lock() {
-                            Ok(m) => m,
-                            Err(_) => break,
-                        };
-                        if !mgr.is_running() {
-                            continue;
-                        }
-                        match mgr.check_heartbeat() {
-                            Ok(()) => {}
-                            Err(sidecar::SidecarError::Crashed(msg)) => {
-                                log::warn!("Worker 心跳超时：{}", msg);
-                                project_log::append_log(
-                                    &log_path,
-                                    "应用",
-                                    "WARN",
-                                    &format!("Worker 心跳超时，尝试重启：{}", msg),
-                                );
-                                if let Ok(db_path) = crate::app_paths::app_db_path(&handle) {
-                                    if let Ok(conn) = crate::db::init_db(&db_path) {
-                                        let _ = mgr.cleanup_locks(&conn);
-                                    }
-                                }
-                                match mgr.restart() {
-                                    Ok(()) => {
-                                        project_log::append_log(
-                                            &log_path,
-                                            "应用",
-                                            "INFO",
-                                            "Worker 已自动重启",
-                                        );
-                                    }
-                                    Err(sidecar::SidecarError::MaxRestartsExceeded) => {
-                                        project_log::append_log(
-                                            &log_path,
-                                            "应用",
-                                            "ERROR",
-                                            "Worker 已达最大重启次数上限，请检查日志或重启应用",
-                                        );
-                                    }
-                                    Err(e) => {
-                                        project_log::append_log(
-                                            &log_path,
-                                            "应用",
-                                            "ERROR",
-                                            &format!("Worker 自动重启失败：{}", e),
-                                        );
-                                    }
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let state = handle.state::<sidecar::SharedSidecarManager>();
+                    let mut mgr = match state.lock() {
+                        Ok(m) => m,
+                        Err(_) => break,
+                    };
+                    if !mgr.is_running() {
+                        continue;
+                    }
+                    match mgr.check_heartbeat() {
+                        Ok(()) => {}
+                        Err(sidecar::SidecarError::Crashed(msg)) => {
+                            log::warn!("Worker 心跳超时：{}", msg);
+                            project_log::append_log(
+                                &log_path,
+                                "应用",
+                                "WARN",
+                                &format!("Worker 心跳超时，尝试重启：{}", msg),
+                            );
+                            if let Ok(db_path) = crate::app_paths::app_db_path(&handle) {
+                                if let Ok(conn) = crate::db::init_db(&db_path) {
+                                    let _ = mgr.cleanup_locks(&conn);
                                 }
                             }
-                            Err(_) => {}
+                            match mgr.restart() {
+                                Ok(()) => {
+                                    project_log::append_log(
+                                        &log_path,
+                                        "应用",
+                                        "INFO",
+                                        "Worker 已自动重启",
+                                    );
+                                }
+                                Err(sidecar::SidecarError::MaxRestartsExceeded) => {
+                                    project_log::append_log(
+                                        &log_path,
+                                        "应用",
+                                        "ERROR",
+                                        "Worker 已达最大重启次数上限，请检查日志或重启应用",
+                                    );
+                                }
+                                Err(e) => {
+                                    project_log::append_log(
+                                        &log_path,
+                                        "应用",
+                                        "ERROR",
+                                        &format!("Worker 自动重启失败：{}", e),
+                                    );
+                                }
+                            }
                         }
+                        Err(_) => {}
                     }
                 });
             }
@@ -250,6 +307,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_startup_status,
+            get_runtime_status,
             commands::get_app_version,
             commands::open_app_data_dir,
             commands::open_log_dir,
@@ -302,6 +360,8 @@ pub fn run() {
             commands::add_storyboard_video,
             commands::select_storyboard_video,
             commands::list_storyboard_videos,
+            commands::list_storyboard_video_tasks,
+            commands::delete_storyboard_video_task,
             commands::delete_storyboard_video,
             commands::list_clip_concat_videos,
             commands::concat_clip_videos,

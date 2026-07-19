@@ -1,94 +1,83 @@
-import { useCallback, useState } from "react";
-import type { ProjectInfo } from "../../types/project";
-import { deleteProject } from "../../services/tauri";
-import { useToast } from "../../hooks/useToast";
+import { createPortal } from "react-dom";
+import type { ReactNode } from "react";
 
-type DeleteConfirmModalProps = {
-  project: ProjectInfo;
-  onDeleted: (projectId: string) => void;
-  onClose: () => void;
+type DeleteConfirmCheckbox = {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
 };
 
+type DeleteConfirmModalProps = {
+  title: string;
+  description: ReactNode;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmText?: string;
+  disabled?: boolean;
+  checkbox?: DeleteConfirmCheckbox;
+  /** 遮罩覆盖完整应用内容区，但不遮挡窗口标题栏与控制按钮。 */
+  excludeTitlebar?: boolean;
+};
+
+/**
+ * 统一的破坏性操作确认弹窗。
+ *
+ * 始终挂载到 document.body，避免被工作区容器裁切；业务侧负责删除请求与加载状态。
+ */
 export function DeleteConfirmModal({
-  project,
-  onDeleted,
-  onClose,
+  title,
+  description,
+  onConfirm,
+  onCancel,
+  confirmText = "删除",
+  disabled = false,
+  checkbox,
+  excludeTitlebar = false,
 }: DeleteConfirmModalProps) {
-  const { toast } = useToast();
-  const [deleteFiles, setDeleteFiles] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const handleConfirm = useCallback(async () => {
-    setDeleting(true);
-    try {
-      await deleteProject(project.id, deleteFiles);
-      onDeleted(project.id);
-      toast(`项目「${project.name}」已删除。`, "info");
-    } catch (error) {
-      toast("删除项目失败，请检查日志。", "error");
-    } finally {
-      setDeleting(false);
-    }
-  }, [project, deleteFiles, onDeleted, toast]);
-
-  return (
+  return createPortal(
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${excludeTitlebar ? " delete-batch-backdrop" : ""}`}
       role="alertdialog"
       aria-modal="true"
-      onClick={() => !deleting && onClose()}
+      aria-labelledby="delete-confirm-title"
+      onClick={() => { if (!disabled) onCancel(); }}
     >
-      <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
-        {/* 标题栏 */}
+      <div className="modal-panel delete-panel" onClick={(event) => event.stopPropagation()}>
         <div className="delete-panel-header">
-          <h2 className="delete-panel-title">删除项目</h2>
+          <h2 id="delete-confirm-title" className="delete-panel-title">{title}</h2>
           <button
             type="button"
             className="modal-close"
             aria-label="关闭"
-            onClick={onClose}
-            disabled={deleting}
+            onClick={onCancel}
+            disabled={disabled}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-
-        {/* 正文 */}
-        <p className="delete-panel-desc">
-          将永久移除 <strong>{project.name}</strong> 及其全部关联数据。此操作无法恢复。
-        </p>
-
-        {/* 复选框 */}
-        <label className="delete-panel-check">
-          <input
-            type="checkbox"
-            checked={deleteFiles}
-            onChange={(e) => setDeleteFiles(e.target.checked)}
-          />
-          <span className="delete-panel-check-box" />
-          <span>同时删除本地文件夹</span>
-        </label>
-
-        {/* 按钮 */}
+        <p className="delete-panel-desc">{description}</p>
+        {checkbox && (
+          <label className="delete-panel-check">
+            <input
+              type="checkbox"
+              checked={checkbox.checked}
+              onChange={(event) => checkbox.onChange(event.target.checked)}
+              disabled={disabled}
+            />
+            <span className="delete-panel-check-box" />
+            <span>{checkbox.label}</span>
+          </label>
+        )}
         <div className="delete-panel-actions">
-          <button
-            type="button"
-            className="delete-panel-btn delete-panel-btn--cancel"
-            onClick={onClose}
-            disabled={deleting}
-          >
+          <button type="button" className="delete-panel-btn delete-panel-btn--cancel" onClick={onCancel} disabled={disabled}>
             取消
           </button>
-          <button
-            type="button"
-            className="delete-panel-btn delete-panel-btn--danger"
-            onClick={handleConfirm}
-            disabled={deleting}
-          >
-            {deleting ? "删除中…" : "删除"}
+          <button type="button" className="delete-panel-btn delete-panel-btn--danger" onClick={onConfirm} disabled={disabled}>
+            {confirmText}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

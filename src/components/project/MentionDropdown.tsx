@@ -1,16 +1,13 @@
 /**
- * @mention 资产选择下拉组件
+ * @mention 资产选择下拉组件。
  *
- * 用户在提示词 textarea 中输入 @ 时弹出，从当前片段已关联的资产中选择，
- * 选中后插入 资产名(@图片N) 格式的引用标记。
- * - 已在 prompt 中引用过的资产显示已有序号（复用，不新增）
- * - 尚未引用的资产显示将分配的新序号
- * - 定位跟随光标（由父组件通过 getCaretCoords 计算后传入 position）
+ * 由 Tiptap suggestion 的 clientRect 定位，选中后插入资产引用节点。
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useMenuFlip } from "../../hooks/useMenuFlip";
+import type { MentionAnchor } from "../../types/mention";
 // mention-dropdown.css 已迁移至 styles.css 全局导入
 
 export interface AssetMention {
@@ -22,6 +19,8 @@ export interface AssetMention {
   assetTag: string;
   /** 图片序号 N */
   index: number;
+  /** 资产是否已被删除（仅渲染标记，不持久化） */
+  deleted?: boolean;
 }
 
 interface Props {
@@ -31,8 +30,8 @@ interface Props {
   isOpen: boolean;
   /** 用于过滤的文本（@ 后面的字符） */
   filter: string;
-  /** 下拉显示位置（视口坐标），由父组件通过 getCaretCoords 计算传入 */
-  position: { top: number; left: number } | null;
+  /** 光标位置（视口坐标），top/left/bottom 来自 Tiptap 的 clientRect */
+  position: MentionAnchor | null;
   /** 选中后的回调 */
   onSelect: (asset: AssetMention) => void;
   /** 关闭回调 */
@@ -72,7 +71,7 @@ export function MentionDropdown({
 
   const getAnchorRect = useCallback(() => {
     if (!position) return null;
-    return { top: position.top, left: position.left, width: undefined };
+    return { top: position.top, left: position.left, bottom: position.bottom };
   }, [position]);
 
   const { menuRef, menuElRef } = useMenuFlip(triggerRef, 4, 240, isOpen, getAnchorRect);

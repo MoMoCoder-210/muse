@@ -8,12 +8,14 @@
 import {
   useEffect, useImperativeHandle, useRef, useState, useCallback, forwardRef, type MutableRefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes, type JSONContent } from "@tiptap/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { AssetMention } from "./MentionDropdown";
+import type { MentionAnchor } from "../../types/mention";
 import {
   promptDocToPlainText,
   type PromptDoc,
@@ -41,14 +43,14 @@ interface Props {
   onChange: (change: PromptEditorChange) => void;
   onBlur?: () => void;
   placeholder?: string;
-  onMentionStart?: (query: string, pos: { top: number; left: number }) => void;
+  onMentionStart?: (query: string, pos: MentionAnchor) => void;
   onMentionUpdate?: (query: string) => void;
   onMentionClose?: () => void;
   disabled?: boolean;
 }
 
 type MentionCallbacks = {
-  onStart: (query: string, pos: { top: number; left: number }) => void;
+  onStart: (query: string, pos: MentionAnchor) => void;
   onUpdate: (query: string) => void;
   onClose: () => void;
 };
@@ -83,7 +85,7 @@ function buildMentionExtension(
 
     // 一个 mention 节点只生成一个 .prompt-chip：缩略图、名称和类型色都在同一个 atom 内。
     renderHTML({ node, HTMLAttributes }) {
-      const { label, assetType, imagePath } = node.attrs as PromptMentionAttrs;
+      const { label, assetType, imagePath, deleted } = node.attrs as PromptMentionAttrs;
       const thumbSrc = imagePath ? convertFileSrc(imagePath) : null;
       return [
         "span",
@@ -92,6 +94,7 @@ function buildMentionExtension(
           "data-type": "mention",
           "data-kind": assetType ?? undefined,
           "data-image-src": thumbSrc ?? "",
+          "data-deleted": deleted ? "true" : undefined,
           class: "prompt-chip",
         }),
         thumbSrc
@@ -118,7 +121,7 @@ function buildMentionExtension(
           rangeRef.current = props.range;
           commandRef.current = (attrs) => props.command(attrs as Parameters<typeof props.command>[0]);
           const rect = props.clientRect?.();
-          if (rect) callbacks.current.onStart(props.query, { top: rect.bottom + 4, left: rect.left });
+          if (rect) callbacks.current.onStart(props.query, { top: rect.top, left: rect.left, bottom: rect.bottom });
         },
         onUpdate(props) {
           rangeRef.current = props.range;
@@ -150,8 +153,9 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
     const commandRef = useRef<((attrs: PromptMentionAttrs) => void) | null>(null);
     const rangeRef = useRef<{ from: number; to: number } | null>(null);
     const appliedResetKey = useRef<string | null>(null);
-    const [chipPreview, setChipPreview] = useState<{ src: string; x: number; y: number } | null>(null);
+    const [chipPreview, setChipPreview] = useState<string | null>(null);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const previewRoot = useRef<HTMLElement | null>(null);
 
     const handleChipMouseEnter = useCallback((e: MouseEvent) => {
       const chip = (e.target as HTMLElement).closest?.(".prompt-chip") as HTMLElement | null;
@@ -160,8 +164,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
       if (!src) return;
       if (previewTimer.current) clearTimeout(previewTimer.current);
       previewTimer.current = setTimeout(() => {
-        const rect = chip.getBoundingClientRect();
-        setChipPreview({ src, x: rect.left + rect.width / 2, y: rect.top - 8 });
+        setChipPreview(src);
       }, 400);
     }, []);
 
@@ -176,6 +179,8 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
+      // 悬浮预览直接挂载到 document.body，避免被工作区滚动容器裁切。
+      previewRoot.current = window.document.body;
       el.addEventListener("mouseover", handleChipMouseEnter, { passive: true });
       el.addEventListener("mouseout", handleChipMouseLeave, { passive: true });
       return () => {
@@ -273,13 +278,11 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
     return (
       <div ref={containerRef} className={`prompt-editor${disabled ? " is-disabled" : ""}`}>
         <EditorContent editor={editor} />
-        {chipPreview && (
-          <div
-            className="prompt-chip-preview"
-            style={{ left: chipPreview.x, top: chipPreview.y }}
-          >
-            <img src={chipPreview.src} alt="" />
-          </div>
+        {chipPreview && createPortal(
+          <div className="prompt-chip-preview">
+            <img src={chipPreview} alt="" />
+          </div>,
+          previewRoot.current || window.document.body,
         )}
       </div>
     );

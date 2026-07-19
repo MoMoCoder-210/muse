@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectInfo } from "../../types/project";
+import { deleteProject } from "../../services/tauri";
 import { useProjects } from "../../hooks/useProjects";
+import { useToast } from "../../hooks/useToast";
+import { formatDeleteResult } from "../../utils/delete-result";
 import { ProjectSidebar } from "./ProjectSidebar";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 import { CreateProjectModal } from "./CreateProjectModal";
@@ -14,13 +17,15 @@ type ProjectManagementPageProps = {
  * 项目管理页
  *
  * 集成侧边栏、工作区与弹窗的项目管理主界面。
- *
  */
 export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();
+  const { toast } = useToast();
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectInfo | null>(null);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [projectOverrides, setProjectOverrides] = useState<Record<string, ProjectInfo>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -31,7 +36,7 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
   const selectedProject = (() => {
     if (!selectedProjectId) return null;
     return projectOverrides[selectedProjectId]
-      ?? projects.find((p) => p.id === selectedProjectId)
+      ?? projects.find((project) => project.id === selectedProjectId)
       ?? null;
   })();
 
@@ -39,15 +44,11 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
     setModalOpen(false);
     setProjectOverrides((prev) => ({ ...prev, [project.id]: project }));
     load().then((items) => {
-      if (items.some((p) => p.id === project.id)) {
+      if (items.some((item) => item.id === project.id)) {
         setSelectedProjectId(project.id);
       }
     });
   }, [load]);
-
-  const handleProjectUpdated = useCallback((updated: ProjectInfo) => {
-    setProjectOverrides((prev) => ({ ...prev, [updated.id]: updated }));
-  }, []);
 
   const handleDeleted = useCallback((projectId: string) => {
     if (selectedProjectId === projectId) {
@@ -61,6 +62,22 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
     setDeleteTarget(null);
     load();
   }, [selectedProjectId, load]);
+
+  const confirmProjectDeletion = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const result = await deleteProject(deleteTarget.id, deleteFiles);
+      handleDeleted(deleteTarget.id);
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
+    } catch {
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteFiles, deleteTarget, handleDeleted, toast]);
 
   return (
     <section className={`projects-screen${sidebarOpen ? " projects-screen--sidebar-open" : ""}`}>
@@ -95,31 +112,36 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
             });
           }}
           onCreateProject={() => setModalOpen(true)}
-          onDeleteProject={(project) => setDeleteTarget(project)}
+          onDeleteProject={(project) => {
+            setDeleteFiles(false);
+            setDeleteTarget(project);
+          }}
           onGoHome={onGoHome}
         />
       </div>
 
       <main className="project-workspace">
-        <ProjectWorkspace
-          project={selectedProject}
-        />
+        <ProjectWorkspace project={selectedProject} />
       </main>
 
-      {modalOpen ? (
+      {modalOpen && (
         <CreateProjectModal
           onClose={() => setModalOpen(false)}
           onCreated={handleCreated}
         />
-      ) : null}
+      )}
 
-      {deleteTarget ? (
+      {deleteTarget && (
         <DeleteConfirmModal
-          project={deleteTarget}
-          onDeleted={handleDeleted}
-          onClose={() => setDeleteTarget(null)}
+          title="删除项目"
+          description={<>确认删除 <strong>{deleteTarget.name}</strong> 项目？</>}
+          checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
+          confirmText={deleting ? "删除中…" : "删除"}
+          onConfirm={confirmProjectDeletion}
+          onCancel={() => setDeleteTarget(null)}
+          disabled={deleting}
         />
-      ) : null}
+      )}
     </section>
   );
 }

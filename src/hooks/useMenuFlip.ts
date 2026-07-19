@@ -38,14 +38,14 @@ function getFlipClass(menu: HTMLDivElement): string | null {
  * @param gap - 菜单与触发器之间的间距，默认 6
  * @param maxH - 菜单最大高度（CSS 中需同步设置），默认 220
  * @param open - 菜单是否打开，打开时注册 scroll/resize 监听
- * @param getAnchorRect - 可选的坐标 getter（模式2），返回 {top, left, width}，优先级高于 triggerRef
+ * @param getAnchorRect - 可选的坐标 getter（模式2），返回锚点矩形，优先级高于 triggerRef
  */
 export function useMenuFlip(
   triggerRef: React.RefObject<HTMLElement | null>,
   gap = 6,
   maxH = 220,
   open = true,
-  getAnchorRect?: () => { top: number; left: number; width?: number } | null,
+  getAnchorRect?: () => { top: number; left: number; width?: number; bottom?: number; height?: number } | null,
 ): MenuFlipResult {
   const menuElRef = useRef<HTMLDivElement | null>(null);
 
@@ -53,17 +53,20 @@ export function useMenuFlip(
     const menu = menuElRef.current;
     if (!menu) return;
 
+    // 锚点矩形：top/left 是锚点顶部左角，bottom 是锚点底部
     let anchorTop: number;
     let anchorBottom: number;
     let anchorLeft: number;
     let anchorWidth: number;
 
     if (getAnchorRect) {
-      // 模式2：坐标 getter（MentionDropdown）。top 是光标底部位置，即菜单顶部。
+      // 模式2：坐标 getter（MentionDropdown）
       const rect = getAnchorRect();
       if (!rect) return;
       anchorTop = rect.top;
-      anchorBottom = rect.top;
+      // 如果调用方只传了 top（视为光标顶部），则 bottom = top
+      // 如果调用方传了 bottom（光标底部），翻转时用 bottom 计算
+      anchorBottom = rect.bottom ?? rect.top;
       anchorLeft = rect.left;
       anchorWidth = rect.width ?? 200;
     } else {
@@ -78,18 +81,26 @@ export function useMenuFlip(
     }
 
     const realH = Math.min(menu.scrollHeight, maxH);
+    const menuW = menu.offsetWidth;
 
-    // 默认放下方：模式1 = 触发器底部 + gap，模式2 = 坐标 top + gap
-    const belowTop = (getAnchorRect ? anchorTop : anchorBottom) + gap;
+    // 默认放下方：从锚点底部 + gap 开始
+    const belowTop = anchorBottom + gap;
     const fitsBelow = belowTop + realH <= window.innerHeight;
 
-    // 如果下方放不下，翻到上方：模式1 = 触发器顶部 - realH - gap，模式2 = 坐标 top - realH - gap
+    // 如果下方放不下，翻到上方：菜单底部贴在锚点顶部 - gap
     const aboveTop = anchorTop - realH - gap;
 
     const top = fitsBelow ? belowTop : aboveTop;
 
+    // 水平边界处理：如果右侧超出窗口，向左对齐到窗口右边缘
+    let left = anchorLeft;
+    if (left + menuW > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - 8 - menuW);
+    }
+    if (left < 8) left = 8;
+
     menu.style.top = `${top}px`;
-    menu.style.left = `${anchorLeft}px`;
+    menu.style.left = `${left}px`;
     menu.style.width = `${anchorWidth}px`;
 
     // 翻转 class：根据菜单自身 class 推断对应的 --flip 变体

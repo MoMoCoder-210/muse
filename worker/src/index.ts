@@ -4,7 +4,14 @@
 
 import { randomUUID } from "crypto";
 import { createInterface } from "readline";
-import { initDatabase, getRunningTaskCount } from "./db.js";
+import {
+  initDatabase,
+  getRunningTaskCount,
+  acquireWorkerLease,
+  refreshWorkerLease,
+  releaseWorkerLease,
+  recoverTasksFromInactiveWorkers,
+} from "./db.js";
 import { TaskRunner } from "./task-runner.js";
 import { RateLimiterImpl } from "./rate-limiter.js";
 import { PROTOCOL_VERSION } from "./types.js";
@@ -28,6 +35,7 @@ let logPath = process.env.WORKER_LOG_PATH || "";
 let ffmpegPath = process.env.WORKER_FFMPEG_PATH || "";
 let ffprobePath = process.env.WORKER_FFPROBE_PATH || "";
 let running = true;
+let workerLeaseHeld = false;
 
 // 初始化数据库连接
 let db: ReturnType<typeof initDatabase>;
@@ -69,6 +77,11 @@ function emitEvent(event: TaskEvent): void {
  */
 function sendHeartbeat(): void {
   if (!running) return;
+  if (db && workerLeaseHeld && !refreshWorkerLease(db, workerId)) {
+    sendLog("error", "Worker 单例租约已丢失，正在停止以避免重复执行任务");
+    void handleShutdown(0);
+    return;
+  }
   const activeTasks = db ? getRunningTaskCount(db) : 0;
   sendMessage({ version: PROTOCOL_VERSION, msg: "heartbeat", workerId, activeTasks });
 }
@@ -106,8 +119,9 @@ async function handleCommand(cmd: WorkerCommand): Promise<void> {
       break;
 
     case "reload_config":
-      if (clients) {
+      if (clients && rateLimiter) {
         clients.reload();
+        rateLimiter.configure(settings.getConcurrencyConfig());
         sendLog("info", "配置已重新加载");
       } else {
         sendLog("warn", "重载配置失败：客户端未初始化");
@@ -150,10 +164,13 @@ async function handleShutdown(timeoutMs: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  // 将仍在 running 的任务回退为 pending
+  // 不回退全局 running 任务：另一个仍存活的 Worker 可能正在执行它们。
+  // 超过任务超时阈值的任务由 TaskRunner 的受控恢复流程处理。
   if (db) {
-    db.prepare("UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE status = 'running' AND remote_task_id IS NULL").run();
-    db.prepare("UPDATE tasks SET status = 'waiting_remote', updated_at = datetime('now') WHERE status = 'running' AND remote_task_id IS NOT NULL").run();
+    if (workerLeaseHeld) {
+      releaseWorkerLease(db, workerId);
+      workerLeaseHeld = false;
+    }
     db.close();
   }
 
@@ -186,19 +203,20 @@ async function main(): Promise<void> {
   const shortWs = workspacePath ? workspacePath.split(/[\\/]/).slice(-2).join("/") : "无";
   logLine("主进程", "DEBUG", `Worker 启动 db=${shortDb} workspace=${shortWs}`);
 
-  // 初始化配置和 API 客户端（无论是否有数据库都先初始化）
+  // 始终初始化默认设置和客户端；缺少配置路径时客户端仅因 API Key 为空而不可用，
+  // 但限流与本地任务仍可安全启动。
+  settings = new SettingsManager(configPath);
+  clients = createClients(settings);
   if (configPath) {
     const { existsSync } = await import("fs");
     const configExists = existsSync(configPath);
-    settings = new SettingsManager(configPath);
-    clients = createClients(settings);
     if (configExists) {
       sendLog("info", `配置已加载：${configPath}`);
     } else {
       sendLog("warn", `配置文件不存在，使用默认配置（API Key 为空）：${configPath}`);
     }
   } else {
-    sendLog("warn", "未提供配置路径，API 客户端未初始化");
+    sendLog("warn", "未提供配置路径，使用内置默认配置（API 客户端未配置）");
   }
 
   // 初始化数据库
@@ -212,11 +230,20 @@ async function main(): Promise<void> {
     db = initDatabase(dbPath);
     logLine("主进程", "DEBUG", `数据库已连接：${shortDb}`);
 
-    // 检查启动时是否有遗留的 running 任务（上次崩溃未回退）
-    const staleRunning = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'running'").get() as { cnt: number };
-    if (staleRunning.cnt > 0) {
-      logLine("主进程", "WARN", `发现 ${staleRunning.cnt} 个残留运行任务，已重置为待处理`);
-      db.prepare("UPDATE tasks SET status = 'pending', updated_at = datetime('now') WHERE status = 'running'").run();
+    if (!acquireWorkerLease(db, workerId)) {
+      sendLog("error", "已有其他 Worker 持有运行租约，本实例不会启动以避免重复执行任务");
+      db.close();
+      process.exitCode = 1;
+      return;
+    }
+    workerLeaseHeld = true;
+    logLine("主进程", "INFO", `已获取 Worker 单例租约：${workerId}`);
+
+    // 单例租约已证明没有其他活跃 Worker；因此现在可以原子接管上一实例
+    // 遗留的 running 任务和锁，避免崩溃后任务永久停留在 running。
+    const recoveredTasks = recoverTasksFromInactiveWorkers(db);
+    if (recoveredTasks > 0) {
+      logLine("主进程", "INFO", `已恢复 ${recoveredTasks} 个前一 Worker 遗留任务`);
     }
 
     // 清理已删除片段的孤儿任务
@@ -234,7 +261,7 @@ async function main(): Promise<void> {
     const pendingCount = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number };
     logLine("主进程", "DEBUG", `启动时待处理任务：${pendingCount.cnt}`);
 
-    rateLimiter = new RateLimiterImpl();
+    rateLimiter = new RateLimiterImpl(settings.getConcurrencyConfig());
 
     // 检测 FFmpeg/FFprobe
     if (ffmpegPath && ffprobePath) {
@@ -325,6 +352,10 @@ async function main(): Promise<void> {
   process.on("exit", () => {
     clearInterval(idleHeartbeatTimer);
     if (db?.open) {
+      if (workerLeaseHeld) {
+        releaseWorkerLease(db, workerId);
+        workerLeaseHeld = false;
+      }
       db.close();
     }
   });

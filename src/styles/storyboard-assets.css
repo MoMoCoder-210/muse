@@ -1,5 +1,5 @@
 /* ============================================================
-   分镜管理 — 资产关联 + 资产选择弹窗 + 图片灯箱
+   分镜管理 — 资产关联与资产选择弹窗
    ============================================================ */
 
 /* 通用区块 */
@@ -142,32 +142,3 @@
 .sd-picker-item-name { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .sd-picker-item-desc { font-size: var(--font-size-xxs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sd-picker-empty { text-align: center; color: var(--text-muted); font-size: var(--font-size-sm); padding: var(--spacing-xl); margin: 0; }
-
-/* 资产图片灯箱 */
-.sd-preview-overlay {
-  position: fixed; inset: 0;
-  z-index: var(--z-lightbox);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--overlay-strong);
-  backdrop-filter: blur(8px);
-  animation: sd-preview-in 180ms ease;
-  cursor: pointer;
-}
-@keyframes sd-preview-in { from { opacity: 0; } to { opacity: 1; } }
-.sd-preview-img {
-  max-width: 90vw; max-height: 88vh;
-  object-fit: contain; border-radius: var(--radius-md);
-  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.6);
-  cursor: default;
-}
-.sd-preview-close {
-  position: absolute; top: 20px; right: 20px;
-  display: flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px; padding: 0;
-  border: none; border-radius: var(--radius-full);
-  background: var(--overlay-medium);
-  color: var(--color-white); font-size: var(--font-size-icon-lg); line-height: 1;
-  cursor: pointer; backdrop-filter: blur(6px);
-  transition: background 150ms ease, transform 150ms ease;
-}
-.sd-preview-close:hover { background: rgba(0, 0, 0, 0.75); transform: scale(1.08); }

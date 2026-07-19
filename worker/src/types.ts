@@ -51,7 +51,7 @@ export type TaskEvent =
   /** 片段拆解任务完成/失败（供片段列表即时刷新） */
   | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string }
   /** 分镜视频任务完成/失败（供分镜视频批次即时刷新） */
-  | { type: "storyboard_video_ready"; projectId: string; clipId: string; storyboardId: string; status: "success" | "failed"; errorMessage?: string };
+  | { type: "storyboard_video_ready"; taskId: string; projectId: string; clipId: string; storyboardId: string; status: "success" | "failed"; errorMessage?: string };
 
 // ===== 批量进度事件 =====
 export interface BatchProgressEvent {

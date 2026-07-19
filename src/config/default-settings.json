@@ -2,6 +2,12 @@
   "general": {
     "defaultProjectDir": ""
   },
+  "concurrency": {
+    "text": 2,
+    "image": 2,
+    "arkUpload": 4,
+    "video": 2
+  },
   "text": {
     "channels": [
       {

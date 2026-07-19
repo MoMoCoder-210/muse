@@ -16,6 +16,8 @@ import {
   type ConcatProgressEvent,
 } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
+import { formatDeleteResult } from "../../utils/delete-result";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type SegType = ConcatSegment & { enabled: boolean };
 
@@ -88,16 +90,22 @@ export function VideoEditorPage({ project }: Props) {
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const [outputs, setOutputs] = useState<ConcatResult[]>([]);
+  const [deleteOutputTarget, setDeleteOutputTarget] = useState<ConcatResult | null>(null);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [deletingOutput, setDeletingOutput] = useState(false);
 
-  // ── 自定义鼠标拖拽排序（DOM 直操作 + rAF + 卡片让位动画） ──
-  const [dragState, setDragState] = useState<{ idx: number } | null>(null);
+  // ── 自定义鼠标拖拽排序（absolute 脱离流 + 自动回流，丝滑优雅） ──
+  // 拖动卡片用 position: absolute 跟随鼠标，其他卡片自动回流，占位框自然插入
+  const [dragState, setDragState] = useState<{
+    idx: number;
+    cardWidth: number;
+    startLeft: number; // 拖动卡片初始 left（相对容器，含 scrollLeft）
+  } | null>(null);
   const [insertIdx, setInsertIdx] = useState<number | null>(null);
-  const [shiftMap, setShiftMap] = useState<Record<number, number>>({});
   const dragRef = useRef<{
     idx: number;
     startX: number;
     currentX: number;
-    cardWidth: number;
     el: HTMLDivElement | null;
     rafId: number;
   } | null>(null);
@@ -106,12 +114,19 @@ export function VideoEditorPage({ project }: Props) {
 
   // 单播放控制：同一时刻仅一个 <video> 在播放
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [fullscreenId, setFullscreenId] = useState<string | null>(null);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const setVideoRef = (id: string) => (el: HTMLVideoElement | null) => {
     if (el) videoRefs.current.set(id, el);
     else videoRefs.current.delete(id);
   };
   const cardsRef = useRef<HTMLDivElement | null>(null);
+  const handleCardsWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      e.currentTarget.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }, []);
   const pauseOthers = useCallback((exceptId: string) => {
     videoRefs.current.forEach((el, key) => {
       if (key !== exceptId && !el.paused) el.pause();
@@ -181,21 +196,32 @@ export function VideoEditorPage({ project }: Props) {
   );
 
   const toggleFullscreen = useCallback((id: string) => {
-    const el = videoRefs.current.get(id);
-    if (!el) return;
-    // 对包含 video 与控件条的容器全屏，而非 video 自身，
-    // 否则自定义控件条（video 的兄弟节点）不会进入全屏
-    const container = el.parentElement ?? el;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      container.requestFullscreen?.();
-    }
+    setFullscreenId((prev) => {
+      if (prev === id) return null;
+      // 进入全屏：暂停其他所有视频，避免双播放
+      videoRefs.current.forEach((el, vid) => {
+        if (vid !== id) el.pause();
+      });
+      return id;
+    });
   }, []);
 
-  // 自定义控件条：播放时覆盖在视频底部
+  // 应用内全屏不是浏览器 Fullscreen API，显式支持 Escape 退出。
+  useEffect(() => {
+    if (!fullscreenId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setFullscreenId(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [fullscreenId]);
+
+  // 自定义控件条：播放或全屏时覆盖在视频底部
   const renderControls = (id: string) => {
     const ratio = playDur > 0 ? Math.min(1, playCur / playDur) : 0;
+    const isPlaying = playingId === id;
     return (
       <div
         className="ve-ctrl"
@@ -204,33 +230,41 @@ export function VideoEditorPage({ project }: Props) {
       >
         <div className="ve-ctrl-row">
           <button
+            type="button"
             className="ve-ctrl-btn"
-            title="暂停"
-            onClick={(e) => {
-              e.stopPropagation();
-              togglePlay(id);
-            }}
+            title={isPlaying ? "暂停" : "播放"}
+            onClick={() => togglePlay(id)}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
-            </svg>
+            {isPlaying ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="5" width="4" height="14" rx="1" />
+                <rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            )}
           </button>
           <div className="ve-ctrl-times">
             <span className="ve-ctrl-time">{fmtDur(playCur)}</span>
             <span className="ve-ctrl-time">{fmtDur(playDur)}</span>
           </div>
           <button
+            type="button"
             className="ve-ctrl-btn"
-            title="全屏"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFullscreen(id);
-            }}
+            title={fullscreenId === id ? "退出全屏" : "全屏"}
+            onClick={(e) => { e.stopPropagation(); toggleFullscreen(id); }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
-            </svg>
+            {fullscreenId === id ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 9V4H4v5M15 9V4h5v5M9 15v5H4v-5M15 15v5h5v-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+              </svg>
+            )}
           </button>
         </div>
         <div className="ve-ctrl-track">
@@ -370,20 +404,31 @@ export function VideoEditorPage({ project }: Props) {
 
   // ── 自定义鼠标拖拽排序 ──
 
-  /** 根据鼠标 X 坐标估算拖拽到的目标位置 */
-  function computeInsertIdx(mouseX: number, fromIdx: number): number {
-    let insertAt = fromIdx;
-    const els = cardElRefs.current;
+  /** 根据鼠标 X 坐标计算落点位置
+   *  k = 鼠标左侧的非拖动卡片数量（用 live rect，响应回流）
+   *  - toIdx（reorder 目标，post-removal 索引）= k
+   *  - insertIdx（渲染索引，原数组索引，落点渲染在该索引前）：
+   *      k < from  → insertIdx = k        （拖到左边，落点在卡片 k 前）
+   *      k = from  → insertIdx = from     （未越过任何卡片，落点在原位）
+   *      k > from  → insertIdx = k + 1    （拖到右边，跳过被拖卡片索引）
+   *  始终返回有效 insertIdx，保证落点时刻渲染 */
+  function computeDropPos(clientX: number, fromIdx: number): { insertIdx: number; toIdx: number } {
+    let k = 0;
     for (let j = 0; j < segments.length; j++) {
       if (j === fromIdx) continue;
-      const el = els.get(j);
+      const el = cardElRefs.current.get(j);
       if (!el) continue;
       const r = el.getBoundingClientRect();
       const midX = r.left + r.width / 2;
-      if (j > fromIdx && mouseX > midX) insertAt = j + 1;
-      else if (j < fromIdx && mouseX < midX) insertAt = j;
+      if (midX < clientX) k++;
     }
-    return Math.max(0, Math.min(insertAt, segments.length));
+    const toIdx = Math.max(0, Math.min(k, segments.length - 1));
+    let insertIdx: number;
+    if (k < fromIdx) insertIdx = k;
+    else if (k === fromIdx) insertIdx = fromIdx;
+    else insertIdx = k + 1;
+    insertIdx = Math.max(0, Math.min(insertIdx, segments.length));
+    return { insertIdx, toIdx };
   }
 
   // 文档级鼠标事件监听（保证超出容器也能正常结束）
@@ -399,27 +444,14 @@ export function VideoEditorPage({ project }: Props) {
       const offsetX = d.currentX - d.startX;
       if (d.el) d.el.style.setProperty("--drag-offset-x", `${offsetX}px`);
 
-      // rAF 节流：落点 + 卡片让位计算最多每帧一次
+      // rAF 节流：落点计算最多每帧一次
       if (!d.rafId) {
         d.rafId = requestAnimationFrame(() => {
           d.rafId = 0;
           if (!dragRef.current) return;
           const dr = dragRef.current;
-          const newIdx = computeInsertIdx(dr.currentX, dr.idx);
+          const { insertIdx: newIdx } = computeDropPos(dr.currentX, dr.idx);
           setInsertIdx(newIdx);
-
-          // 计算其他卡片需平移的量（为大厂式"让位"动画）
-          const shifts: Record<number, number> = {};
-          const from = dr.idx;
-          const cw = dr.cardWidth || 0;
-          if (from < newIdx) {
-            // 右拖：收紧左侧缺口，但在落点 card 前留出开口（不含 newIdx）
-            for (let j = from + 1; j < newIdx; j++) shifts[j] = -cw;
-          } else if (from > newIdx) {
-            // 左拖：向右推开，自然形成开口
-            for (let j = newIdx; j < from; j++) shifts[j] = cw;
-          }
-          setShiftMap(shifts);
         });
       }
     };
@@ -434,12 +466,11 @@ export function VideoEditorPage({ project }: Props) {
       // 清除 DOM 偏移
       if (d.el) d.el.style.removeProperty("--drag-offset-x");
 
-      // 执行重排
-      const to = computeInsertIdx(d.currentX, d.idx);
-      if (to !== d.idx) reorder(d.idx, to);
+      // 执行重排（用 toIdx，post-removal 索引）
+      const { toIdx } = computeDropPos(d.currentX, d.idx);
+      if (toIdx !== d.idx) reorder(d.idx, toIdx);
 
-      // 清理状态（shiftMap 先清零让卡片动画回原位，再一次性重排）
-      setShiftMap({});
+      // 清理状态
       dragRef.current = null;
       setDragState(null);
       setInsertIdx(null);
@@ -462,25 +493,37 @@ export function VideoEditorPage({ project }: Props) {
   }, [toast]);
 
   /** 删除某条成片（数据库记录 + 磁盘文件） */
-  const handleDeleteOutput = useCallback(async (out: ConcatResult) => {
+  const handleDeleteOutput = useCallback((out: ConcatResult) => {
     if (!out.id) {
-      toast("该成片暂不可删除（缺少记录 ID）", "error");
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
       return;
     }
-    if (!window.confirm(`确认删除成片 ${out.file_name}？`)) return;
+    setDeleteOutputTarget(out);
+    setDeleteFiles(false);
+  }, [toast]);
+
+  const confirmDeleteOutput = useCallback(async () => {
+    const out = deleteOutputTarget;
+    if (!out?.id) return;
+    setDeletingOutput(true);
     try {
-      await deleteConcatOutput(out.id, true);
-      setOutputs((prev) => prev.filter((o) => o.id !== out.id));
-      // 若该成片正在播放，则停止播放（卡片随列表重排，index 会变化）
+      const result = await deleteConcatOutput(out.id, deleteFiles);
+      setOutputs((prev) => prev.filter((item) => item.id !== out.id));
       if (playingId?.startsWith("output_")) {
-        videoRefs.current.forEach((el) => el.pause());
+        videoRefs.current.forEach((element) => element.pause());
         setPlayingId(null);
       }
-      toast("成片已删除", "success");
-    } catch (err) {
-      toast(`删除失败：${String(err)}`, "error");
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
+    } catch {
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
+    } finally {
+      setDeletingOutput(false);
+      setDeleteOutputTarget(null);
     }
-  }, [toast, playingId]);
+  }, [deleteOutputTarget, deleteFiles, toast, playingId]);
 
   const handleConcat = useCallback(async () => {
     if (!clipId) return;
@@ -601,10 +644,9 @@ export function VideoEditorPage({ project }: Props) {
             <div className="ve-strip-head">
                 <div className="ve-strip-title-wrap">
                   <span className="ve-strip-icon">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                      <line x1="3" y1="9" x2="21" y2="9" />
-                      <line x1="9" y1="21" x2="9" y2="9" />
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="3" width="20" height="14" rx="2" />
+                      <path d="M22 7h-3l-3 3v4l3 3h3M2 7v10" />
                     </svg>
                   </span>
                   <div className="ve-strip-title-texts">
@@ -622,7 +664,7 @@ export function VideoEditorPage({ project }: Props) {
                   </button>
                   <span className="ve-strip-count">{enabledCount}/{segments.length} 段</span>
                   <button
-                    className="primary-button ve-concat-btn"
+                    className="ve-concat-btn"
                     disabled={!canConcat}
                     onClick={handleConcat}
                   >
@@ -651,48 +693,63 @@ export function VideoEditorPage({ project }: Props) {
               ) : segments.length === 0 ? (
                 <div className="ve-strip-empty">暂无分镜视频</div>
               ) : (
-                <div className="ve-cards" ref={cardsRef}>
+                <div className="ve-cards" ref={cardsRef} onWheel={handleCardsWheel}>
                   {segments.map((seg, i) => {
                     const meta = metaMap[seg.storyboard_id];
                     const ar = meta?.ar ?? defaultAR;
                     const dur = meta?.dur ?? seg.duration;
                     const playing = playingId === seg.storyboard_id;
                     const isDragged = dragState?.idx === i;
-                    const isShifted = shiftMap[i] !== undefined;
                     return (
                       <Fragment key={seg.storyboard_id}>
-                        {/* 间隙式落点指示 — 独立于卡片，在两张卡片之间 */}
-                        {insertIdx === i && !isDragged && dragState && (
-                          <div className="ve-card-gap" />
+                        {/* 落点占位 — 始终渲染（含拖动卡片原位幽灵槽），蓝色虚线占位框 + 中心 + 号 */}
+                        {insertIdx === i && dragState && (
+                          <div
+                            className={`ve-card-dropzone${isDragged ? " is-ghost" : ""}`}
+                            style={{ ["--dropzone-width" as string]: `${dragState.cardWidth}px` } as React.CSSProperties}
+                          >
+                            <span className="ve-card-dropzone-icon" aria-label="插入位置">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                              </svg>
+                            </span>
+                          </div>
                         )}
                         <div
                           ref={(el) => {
                             if (el) cardElRefs.current.set(i, el);
                             else cardElRefs.current.delete(i);
                           }}
-                          className={`ve-card${seg.enabled ? " selected" : " off"}${playing ? " playing" : ""}${isDragged ? " dragging" : isShifted ? " shifting" : ""}`}
+                          className={`ve-card${seg.enabled ? " selected" : " off"}${playing ? " playing" : ""}${isDragged ? " dragging" : ""}${fullscreenId === seg.storyboard_id ? " is-fullscreen" : ""}`}
                           style={{
                             ...cardStyle(ar),
                             ...(isDragged
-                              ? { zIndex: 10, cursor: "grabbing" }
-                              : isShifted
-                                ? { transform: `translateX(${shiftMap[i]}px)` }
-                                : {}),
+                              ? {
+                                  ["--drag-start-left" as string]: `${dragState!.startLeft}px`,
+                                  ["--drag-card-width" as string]: `${dragState!.cardWidth}px`,
+                                } as React.CSSProperties
+                              : {}),
                           }}
                           onMouseDown={(e) => {
-                            if ((e.target as HTMLElement).closest("button") || running || !!playingId) return;
+                            if ((e.target as HTMLElement).closest("button") || running || !!playingId || !!fullscreenId) return;
                             justDraggedRef.current = false;
                             e.preventDefault();
                             const el = e.currentTarget as HTMLDivElement;
+                            const container = cardsRef.current;
+                            if (!container) return;
+                            const rect = el.getBoundingClientRect();
+                            const containerRect = container.getBoundingClientRect();
+                            const startLeft = rect.left - containerRect.left + container.scrollLeft;
+                            const cw = rect.width;
                             dragRef.current = {
                               idx: i,
                               startX: e.clientX,
                               currentX: e.clientX,
-                              cardWidth: el.getBoundingClientRect().width,
                               el,
                               rafId: 0,
                             };
-                            setDragState({ idx: i });
+                            setDragState({ idx: i, cardWidth: cw, startLeft });
                           }}
                           onClick={() => {
                             if (justDraggedRef.current) {
@@ -702,7 +759,10 @@ export function VideoEditorPage({ project }: Props) {
                             togglePlay(seg.storyboard_id);
                           }}
                         >
-                        <div className="ve-card-thumb">
+                        <div
+                          className={`ve-card-thumb${fullscreenId === seg.storyboard_id ? " is-fullscreen" : ""}`}
+                          title="拖拽排序"
+                        >
                         <video
                           ref={setVideoRef(seg.storyboard_id)}
                           className="ve-card-video"
@@ -716,8 +776,8 @@ export function VideoEditorPage({ project }: Props) {
                           onTimeUpdate={(e) => onTimeUpdate(seg.storyboard_id, e.currentTarget)}
                           onLoadedMetadata={(e) => onSegMetadata(seg.storyboard_id, e.currentTarget)}
                         />
-                          {playing && renderControls(seg.storyboard_id)}
-                          {!playing && (
+                          {(playing || fullscreenId === seg.storyboard_id) && renderControls(seg.storyboard_id)}
+                          {!playing && fullscreenId !== seg.storyboard_id && (
                             <button
                               className="ve-card-play"
                               title="预览播放"
@@ -734,7 +794,7 @@ export function VideoEditorPage({ project }: Props) {
                           <span className="ve-card-dur-b">{fmtClock(dur)}</span>
                           <span className="ve-card-seq-b">#{String(seg.seq).padStart(2, "0")}</span>
                           <button
-                            className={`ve-card-check${seg.enabled ? " on" : ""}`}
+                            className={`ve-card-select${seg.enabled ? " on" : ""}`}
                             title={seg.enabled ? "取消选择" : "选择拼接"}
                             disabled={running}
                             onClick={(e) => {
@@ -743,7 +803,7 @@ export function VideoEditorPage({ project }: Props) {
                             }}
                           >
                             {seg.enabled && (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
                             )}
@@ -753,17 +813,22 @@ export function VideoEditorPage({ project }: Props) {
                       </Fragment>
                     );
                   })}
-                  {/* 末尾落点指示 */}
+                  {/* 末尾落点占位 */}
                   {insertIdx === segments.length && dragState && (
-                    <div className="ve-card-gap" />
+                    <div
+                      className="ve-card-dropzone"
+                      style={{ ["--dropzone-width" as string]: `${dragState.cardWidth}px` } as React.CSSProperties}
+                    >
+                      <span className="ve-card-dropzone-icon" aria-label="插入位置">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                      </span>
+                    </div>
                   )}
                 </div>
               )}
-                {running && (
-                  <div className="ve-progress">
-                    <div className="ve-progress-bar" style={{ width: `${progress}%` }} />
-                  </div>
-                )}
               </section>
 
             {/* 下：成片展示（不可拖拽） */}
@@ -785,7 +850,7 @@ export function VideoEditorPage({ project }: Props) {
               {outputs.length === 0 ? (
                 <div className="ve-strip-empty">暂无成片</div>
               ) : (
-                <div className="ve-cards">
+                <div className="ve-cards" onWheel={handleCardsWheel}>
                   {outputs.map((out, idx) => {
                     const outId = `output_${idx}`;
                     const ar = metaMap[outId]?.ar ?? defaultAR;
@@ -793,12 +858,12 @@ export function VideoEditorPage({ project }: Props) {
                     const outPlaying = playingId === outId;
                     return (
                       <div
-                        className={`ve-card${outPlaying ? " playing" : ""}`}
+                        className={`ve-card${outPlaying ? " playing" : ""}${fullscreenId === outId ? " is-fullscreen" : ""}`}
                         key={idx}
                         style={cardStyle(ar)}
                         onClick={() => togglePlay(outId)}
                       >
-                          <div className="ve-card-thumb">
+                          <div className={`ve-card-thumb${fullscreenId === outId ? " is-fullscreen" : ""}`}>
                             <video
                               key={`out-v-${idx}`}
                               ref={setVideoRef(outId)}
@@ -814,8 +879,8 @@ export function VideoEditorPage({ project }: Props) {
                                 onSegMetadata(outId, e.currentTarget)
                               }
                             />
-                            {outPlaying && renderControls(outId)}
-                            {!outPlaying && (
+                            {(outPlaying || fullscreenId === outId) && renderControls(outId)}
+                            {!outPlaying && fullscreenId !== outId && (
                               <button
                                 className="ve-card-play"
                                 title="播放成片"
@@ -838,10 +903,11 @@ export function VideoEditorPage({ project }: Props) {
                                 handleDeleteOutput(out);
                               }}
                             >
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                 <line x1="18" y1="6" x2="6" y2="18" />
                                 <line x1="6" y1="6" x2="18" y2="18" />
                               </svg>
+                              删除
                             </button>
                           </div>
                           <div className="ve-card-meta">
@@ -864,13 +930,26 @@ export function VideoEditorPage({ project }: Props) {
                             </span>
                           </div>
                         </div>
-                    );
-                  })}
+                  );
+                })}
                 </div>
               )}
             </section>
         </div>
       </div>
+
+      {/* 删除成片确认弹窗 */}
+      {deleteOutputTarget && (
+        <DeleteConfirmModal
+          title="删除成片"
+          description={<>确认删除 <strong>{deleteOutputTarget.file_name}</strong>？</>}
+          checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
+          confirmText={deletingOutput ? "删除中…" : "删除"}
+          onConfirm={confirmDeleteOutput}
+          onCancel={() => setDeleteOutputTarget(null)}
+          disabled={deletingOutput}
+        />
+      )}
     </div>
   );
 }

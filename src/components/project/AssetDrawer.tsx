@@ -4,6 +4,7 @@ import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
 import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
+import { formatDeleteResult } from "../../utils/delete-result";
 import type { AssetCardData } from "./AssetCard";
 import { AssetImageGallery, type GalleryImage } from "./AssetImageGallery";
 import { AssetPickerDrawer } from "./AssetPickerDrawer";
@@ -264,17 +265,20 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
   const handleDeleteImage = useCallback(async (imageId: string, deleteFile: boolean) => {
     if (!current) return;
     try {
-      await deleteAssetImage({
+      const result = await deleteAssetImage({
         clip_id: current.clipId,
         asset_type: current.type,
         name: current.resource.name,
         image_id: imageId,
         delete_file: deleteFile,
       });
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
       // 刷新图片列表
       setPollKey((k) => k + 1);
     } catch {
-      toast("删除图片失败，请重试", "error");
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
     }
   }, [current, toast]);
 

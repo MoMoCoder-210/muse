@@ -5,6 +5,7 @@ import { useToast } from "../../hooks/useToast";
 import { countResources } from "../../utils/assets";
 import { isClipDecomposed } from "../../utils/clip";
 import { avatarColor } from "../../utils/avatar-colors";
+import { formatDeleteResult, mergeFileDeletionResults } from "../../utils/delete-result";
 import { AssetCard, buildAssetCards, type AssetCardData, type AssetCardId } from "./AssetCard";
 import type { VoiceBinding } from "../../types/project";
 import { DeleteAssetConfirm } from "./DeleteAssetConfirm";
@@ -104,7 +105,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         prev && dec.some((c) => c.id === prev) ? prev : (dec[0]?.id ?? null),
       );
     } catch (err) {
-      toast("资产数据加载失败，请检查后端的日志。", "error");
+      toast("资产数据加载失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -317,13 +318,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
     const appearance = assetOverrides[card.id]?.prompt ?? card.resource.prompt;
     const styleValue = resolveStyle(style);
     if (card.type === "character") {
-      return `[风格:${styleValue}] 角色设定图，纯白背景，无任何文字。画面左侧三分之一为脸部与半身特写，右侧排三分之二布三个全身视图（正面、侧面、背面），比例协调、姿态清晰，4K高清。${appearance.replace(/^角色设定图[。，]\s*/i, "")}`;
+      return `创作一张人物全身三视图，背景是纯白的底色，以下是相关描述:[${styleValue}]${appearance}，4K高清。`;
     }
     if (card.type === "item") {
-      return `[风格:${styleValue}] 产品摄影，纯白背景，无任何文字，居中构图，无遮挡，展现清晰的材质与细节纹理，柔光均匀布光。精致质感，高精度渲染，4K高清。${appearance}`;
+      return `产品摄影，纯白背景，无任何文字，居中构图，无遮挡，以下是相关描述:[${styleValue}] ${appearance}精致质感，高精度渲染，4K高清。`;
     }
     // scene
-    return `[风格:${styleValue}] 场景概念图，全景视角，注重空间层次与氛围营造，电影级构图，不能出现任何一个人物，4K高清。${appearance}`;
+    return `[${styleValue}]${appearance}全景视角，电影级构图，4K高清。`;
   }, [resolveStyle, assetOverrides]);
 
   // 抽屉内单个生成
@@ -345,7 +346,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
       toast(`已为资产「${data.resource.name}」发起图片生成`, "success");
       startPoll(selectedClipId ?? "");
     } catch (_err) {
-      toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
+      toast("图片生成失败。", "error");
     } finally {
       setOperating(false);
     }
@@ -374,7 +375,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
       toast(`已为 ${cards.length} 个资产发起图片生成`, "success");
       startPoll(selectedClipId ?? "");
     } catch (_err) {
-      toast("图片生成失败，请检查图片模型配置与后端日志。", "error");
+      toast("图片生成失败。", "error");
     } finally {
       setOperating(false);
     }
@@ -513,24 +514,33 @@ export function AssetPanel({ project }: AssetPanelProps) {
   }, []);
 
   // 删除确认 → 执行删除
-  const handleDeleteConfirm = useCallback(async (cards: AssetCardData[]) => {
+  const handleDeleteConfirm = useCallback(async (cards: AssetCardData[], deleteFiles: boolean) => {
     setDeleteTarget(null);
     setOperating(true);
     try {
-      await Promise.all(
+      const settled = await Promise.allSettled(
         cards.map((card) =>
           deleteAssetFromClip({
             clip_id: card.clipId,
             asset_type: card.type,
             name: card.resource.name,
+            delete_files: deleteFiles,
           })
         )
       );
-      toast(`已删除 ${cards.length} 个资产`, "success");
+      const fileResult = mergeFileDeletionResults(
+        settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []),
+      );
+      const feedback = formatDeleteResult(
+        fileResult,
+        settled.some((result) => result.status === "rejected"),
+      );
+      toast(feedback.text, feedback.kind);
       setSelectedAssetIds(new Set());
       await load();
     } catch (_err) {
-      toast("删除资产失败，请检查后端的日志。", "error");
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
     } finally {
       setOperating(false);
     }
@@ -552,7 +562,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
       toast(`已添加资产「${input.name}」`, "success");
       await load();
     } catch (_err) {
-      toast("添加资产失败，请检查后端的日志。", "error");
+      toast("添加资产失败。", "error");
     } finally {
       setOperating(false);
     }
@@ -626,7 +636,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
           ) : !parsedResources ? (
             <p className="empty-clip-list">暂无资产数据</p>
           ) : (
-            <div className="asset-display-body">
+            <>
+            <div className="asset-display-head">
               {allAssetCards.length > 0 && (
                 <div className="asset-toolbar">
                   <label className="asset-select-all">
@@ -659,7 +670,9 @@ export function AssetPanel({ project }: AssetPanelProps) {
                   </button>
                 </div>
               )}
+            </div>
 
+            <div className="asset-display-body">
               {ASSET_CATEGORIES.map((cat) => {
                 const resources = parsedResources![TYPE_TO_KEY[cat.type]] ?? [];
                 return (
@@ -711,6 +724,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                 );
               })}
             </div>
+            </>
           )}
         </div>
       </div>

@@ -59,7 +59,7 @@ export class ImageClient {
    */
   async generate(
     prompt: string,
-    options: ImageGenerateOptions = { watermark: false }
+    options: ImageGenerateOptions = {}
   ): Promise<ImageGenerateResult> {
     if (!this.config.apiKey) {
       throw new Error("ImageClient: apiKey is not configured");
@@ -71,14 +71,15 @@ export class ImageClient {
 
     const quality = options.quality ?? "hd";
     const style = options.style ?? "natural";
+    const watermark = options.watermark ?? false;
 
     const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/images/generations`;
-    const reqBody = { model: this.config.model, prompt, n: 1, size, quality, style, response_format: "url" };
+    const reqBody = { model: this.config.model, prompt, n: 1, size, quality, style, watermark, response_format: "url" };
     logRequest("ImageClient", "POST", apiUrl, this.config.apiKey, reqBody);
     const startedAt = Date.now();
 
     try {
-      const response = await this.client.images.generate(
+      const response = await (this.client.images.generate as any)(
         {
           model: this.config.model,
           prompt,
@@ -87,11 +88,8 @@ export class ImageClient {
           quality,
           style,
           response_format: "url",
-          // OpenAI 兼容端点扩展参数：水印
-          ...(options.watermark !== undefined
-            ? { extra_body: { watermark: options.watermark } }
-            : {}),
-        } as Parameters<OpenAI["images"]["generate"]>[0],
+          watermark,
+        },
         { signal: options.signal }
       );
 
@@ -126,7 +124,7 @@ export class ImageClient {
   async generateAndSave(
     prompt: string,
     savePath: string,
-    options: ImageGenerateOptions = { watermark: false }
+    options: ImageGenerateOptions = {}
   ): Promise<string> {
     const { url } = await this.generate(prompt, options);
     await downloadFile(url, savePath, options.signal);

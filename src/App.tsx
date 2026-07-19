@@ -24,6 +24,9 @@ function WorkerStatusMonitor() {
 
   useWorkerStatus((payload: WorkerStatusPayload) => {
     switch (payload.status) {
+      case "ready":
+        // 启动期状态已由标题栏显示，无需额外弹出提示。
+        break;
       case "restarting":
         toast(payload.message, "warning");
         break;

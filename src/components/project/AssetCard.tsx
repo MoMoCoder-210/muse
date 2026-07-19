@@ -55,7 +55,7 @@ export function AssetCard({
 
   return (
     <div
-      className={`asset-card${selected ? " asset-card--selected" : ""}`}
+      className={`asset-card${selected ? " asset-card--selected" : ""}${generating ? " asset-card--generating" : ""}`}
       onClick={() => onToggle(id)}
     >
       <div
@@ -73,13 +73,16 @@ export function AssetCard({
           <span className="asset-card-placeholder">{icon}</span>
         )}
 
+        {/* macOS 风格 shimmer 扫光：生成中时在图片区扫过 */}
+        {generating && <div className="asset-card-shimmer" />}
+
         {/* 选中遮罩 */}
         {selected && <div className="asset-card-overlay" />}
 
-        {/* 生成中状态角标（实时） */}
+        {/* 生成中角标 */}
         {generating && (
-          <div className="asset-card-status asset-card-status--generating">
-            <span className="asset-card-spinner" />
+          <div className="asset-card-generating-badge">
+            <span className="asset-card-generating-dot" />
             生成中
           </div>
         )}

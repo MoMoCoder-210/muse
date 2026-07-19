@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
  * Worker 生命周期事件载荷
  */
 export interface WorkerStatusPayload {
-  status: "crashed" | "restarting" | "restarted" | "max_restarts" | "start_failed";
+  status: "ready" | "crashed" | "restarting" | "restarted" | "max_restarts" | "start_failed";
   worker_id: string;
   message: string;
   attempt: number | null;

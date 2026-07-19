@@ -54,6 +54,9 @@ pub struct DeleteAssetInput {
     pub clip_id: String,
     pub asset_type: String,
     pub name: String,
+    /// 是否同时删除数据库记录所引用的项目工作区内本地文件，默认不删除。
+    #[serde(default)]
+    pub delete_files: bool,
 }
 
 /// 资产查询输入
@@ -297,65 +300,85 @@ pub fn generate_asset_image(
 
     util::ensure_worker_running(&state, &app, &input.project_id)?;
 
-    let task_id = uuid::Uuid::new_v4().to_string();
+    // 一个图片对应一个任务：抽屉可以从提交起就完整展示每个待生成图片。
+    // 所有子任务共享同一 lock_key，Worker 会按顺序生成，仍保持单资产串行。
+    let image_count = input.n.unwrap_or(1).clamp(1, 4) as usize;
+    let batch_id = uuid::Uuid::new_v4().to_string();
+    let task_ids: Vec<String> = (0..image_count)
+        .map(|_| uuid::Uuid::new_v4().to_string())
+        .collect();
     let lock_key = format!(
         "generate_asset_image:{}:{}:{}",
         input.clip_id, input.asset_type, input.name
     );
-    let mut input_json = serde_json::json!({
-        "projectId": input.project_id,
-        "clipId": input.clip_id,
-        "assetType": input.asset_type,
-        "name": input.name,
-        "prompt": input.prompt,
-    });
 
-    if let Some(ref size) = input.size {
-        input_json["size"] = serde_json::Value::String(size.clone());
-    }
-    if let Some(n) = input.n {
-        input_json["n"] = serde_json::Value::Number((n as i64).into());
-    }
-    if let Some(ref style) = input.style {
-        input_json["style"] = serde_json::Value::String(style.clone());
-    }
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (index, task_id) in task_ids.iter().enumerate() {
+        // Worker 每次只处理一张；批次元数据保留在输入中，便于排查和后续扩展。
+        let mut task_input = serde_json::json!({
+            "projectId": &input.project_id,
+            "clipId": &input.clip_id,
+            "assetType": &input.asset_type,
+            "name": &input.name,
+            "prompt": &input.prompt,
+            "n": 1,
+            "batchId": &batch_id,
+            "batchIndex": index + 1,
+            "batchSize": image_count,
+        });
+        if let Some(ref size) = input.size {
+            task_input["size"] = serde_json::Value::String(size.clone());
+        }
+        if let Some(ref style) = input.style {
+            task_input["style"] = serde_json::Value::String(style.clone());
+        }
 
-    let input_json = input_json.to_string();
-
-    let conn = util::open_app_conn(&app)?;
-    conn.execute(
-        "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
-         VALUES (?1, ?2, ?3, 'generate_asset_image', 'pending', ?4, ?5, 3)",
-        rusqlite::params![
-            &task_id,
-            &input.project_id,
-            &input.clip_id,
-            &lock_key,
-            &input_json
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO tasks (id, project_id, clip_id, batch_id, type, status, lock_key, input_json, max_retry)
+             VALUES (?1, ?2, ?3, ?4, 'generate_asset_image', 'pending', ?5, ?6, 3)",
+            rusqlite::params![
+                task_id,
+                &input.project_id,
+                &input.clip_id,
+                &batch_id,
+                &lock_key,
+                task_input.to_string(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
 
     crate::project_log::append_log(
         &log_path,
         "资产生图",
         "INFO",
         &format!(
-            "资产生图已入队 projectId={} clipId={} assetType={} name={} taskId={}",
-            input.project_id, input.clip_id, input.asset_type, input.name, task_id
+            "资产生图批次已入队 projectId={} clipId={} assetType={} name={} batchId={} imageCount={}",
+            input.project_id, input.clip_id, input.asset_type, input.name, batch_id, image_count
         ),
     );
 
-    if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "generate_asset_image") {
-        crate::project_log::append_log(
-            &log_path,
-            "资产生图",
-            "WARN",
-            &format!("发送 enqueue 通知失败（任务仍会被轮询拾取）：{}", e),
-        );
+    for task_id in &task_ids {
+        if let Err(e) = util::send_enqueue_to_worker(&state, task_id, "generate_asset_image") {
+            crate::project_log::append_log(
+                &log_path,
+                "资产生图",
+                "WARN",
+                &format!(
+                    "发送 enqueue 通知失败 taskId={}（任务仍会被轮询拾取）：{}",
+                    task_id, e
+                ),
+            );
+        }
     }
 
-    Ok(serde_json::json!({ "task_id": task_id }))
+    Ok(serde_json::json!({
+        "task_id": task_ids[0],
+        "task_ids": task_ids,
+        "batch_id": batch_id,
+    }))
 }
 
 /// 取消片段拆解任务
@@ -535,66 +558,131 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
     Ok(())
 }
 
-/// 从 clip_scripts 中删除单个资产
+/// 从片段拆解结果中删除单个资产。
 ///
-/// 按 type + name 匹配并从 extracted_resources_json 中移除。
+/// 卡片展示依赖 `clip_scripts.extracted_resources_json`，而分镜、图片和任务依赖
+/// `assets` 记录；两侧必须在同一事务内同步删除，避免 UI 已消失但数据库仍残留资产。
 #[tauri::command]
 pub fn delete_asset_from_clip(
     input: DeleteAssetInput,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+) -> Result<crate::commands::clip::DeleteClipsResult, String> {
+    let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let row = conn
+    // 保持原有语义：只能从已有拆解结果中删除资产。
+    let script_exists: i64 = tx
         .query_row(
-            "SELECT id, extracted_resources_json FROM clip_scripts WHERE clip_id = ?1 ORDER BY created_at DESC LIMIT 1",
+            "SELECT COUNT(*) FROM clip_scripts WHERE clip_id = ?1",
             rusqlite::params![&input.clip_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
+            |row| row.get(0),
         )
-        .map_err(|e| format!("未找到该片段的拆解记录：{}", e))?;
-
-    let (script_id, resources_json) = row;
-
-    let mut parsed: serde_json::Value =
-        serde_json::from_str(&resources_json).map_err(|e| format!("解析资源 JSON 失败：{}", e))?;
-
-    let key = match input.asset_type.as_str() {
-        "character" => "characters",
-        "scene" => "scenes",
-        "item" => "items",
-        _ => return Err(format!("无效的资产类型：{}", input.asset_type)),
-    };
-
-    if let Some(arr) = parsed[key].as_array_mut() {
-        arr.retain(|item| {
-            item.get("name")
-                .and_then(|v| v.as_str())
-                .map(|n| n != input.name)
-                .unwrap_or(true)
-        });
+        .map_err(|error| error.to_string())?;
+    if script_exists == 0 {
+        return Err(format!("未找到该片段的拆解记录：{}", input.clip_id));
     }
 
-    let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
+    // 资产表通过所属片段关联项目；在删除任何记录前一并读取工作区和仅属于该资产的文件。
+    let assets = {
+        let mut statement = tx
+            .prepare(
+                "SELECT a.id, p.workspace_path
+                 FROM assets a
+                 JOIN clips c ON c.id = a.clip_id
+                 JOIN projects p ON p.id = c.project_id
+                 WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(
+                rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
 
-    conn.execute(
-        "UPDATE clip_scripts SET extracted_resources_json = ?, updated_at = datetime('now') WHERE id = ?",
-        rusqlite::params![&updated_json, &script_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let mut file_candidates = Vec::new();
+    if input.delete_files {
+        for (asset_id, workspace_path) in &assets {
+            let file_paths = {
+                let mut statement = tx
+                    .prepare(
+                        "SELECT image_path FROM asset_images WHERE asset_id = ?1
+                         UNION
+                         SELECT reference_image_path FROM assets
+                         WHERE id = ?1 AND reference_image_path IS NOT NULL
+                         UNION
+                         SELECT generated_image_path FROM assets
+                         WHERE id = ?1 AND generated_image_path IS NOT NULL",
+                    )
+                    .map_err(|error| {
+                        format!("读取资产关联文件失败 assetId={}: {}", asset_id, error)
+                    })?;
+                let rows = statement
+                    .query_map(rusqlite::params![asset_id], |row| row.get::<_, String>(0))
+                    .map_err(|error| {
+                        format!("查询资产关联文件失败 assetId={}: {}", asset_id, error)
+                    })?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                    format!("读取资产关联文件失败 assetId={}: {}", asset_id, error)
+                })?
+            };
+            for file_path in file_paths {
+                file_candidates.push(crate::commands::clip::ClipFileCandidate {
+                    workspace_path: std::path::PathBuf::from(workspace_path),
+                    file_path: std::path::PathBuf::from(file_path),
+                });
+            }
+        }
+    }
 
+    // 即使历史数据中没有 assets 行，也要把资源从拆解 JSON 中移除。
+    if assets.is_empty() {
+        crate::commands::clip::remove_asset_from_latest_clip_script(
+            &tx,
+            &input.clip_id,
+            &input.asset_type,
+            &input.name,
+        )?;
+    } else {
+        for (asset_id, _) in &assets {
+            crate::commands::clip::delete_asset_by_id(&tx, asset_id)?;
+        }
+    }
+
+    tx.commit().map_err(|error| error.to_string())?;
+    let result = if input.delete_files {
+        crate::commands::clip::delete_managed_files(file_candidates)
+    } else {
+        crate::commands::clip::DeleteClipsResult {
+            deleted_file_count: 0,
+            skipped_file_count: 0,
+            failed_file_count: 0,
+        }
+    };
     crate::project_log::append_log(
         &log_path,
         "资产",
-        "INFO",
+        if input.delete_files && result.failed_file_count > 0 {
+            "WARN"
+        } else {
+            "INFO"
+        },
         &format!(
-            "已删除资产 clipId={} type={} name={}",
-            input.clip_id, input.asset_type, input.name
+            "已删除资产及其关联数据 clipId={} type={} name={}；文件已删除 {}，跳过 {}，失败 {}",
+            input.clip_id,
+            input.asset_type,
+            input.name,
+            result.deleted_file_count,
+            result.skipped_file_count,
+            result.failed_file_count,
         ),
     );
-
-    Ok(())
+    Ok(result)
 }
 
 /// 更新 clip_scripts 中的单个资产（提示词/描述）。
@@ -1263,20 +1351,23 @@ pub struct DeleteAssetImageInput {
 pub fn delete_asset_image(
     input: DeleteAssetImageInput,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    use std::fs;
-
+) -> Result<crate::commands::clip::DeleteClipsResult, String> {
     let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let asset_id: String = tx
+    let (asset_id, workspace_path): (String, String) = tx
         .query_row(
-            "SELECT id FROM assets WHERE clip_id = ?1 AND type = ?2 AND name = ?3 LIMIT 1",
+            "SELECT a.id, p.workspace_path
+             FROM assets a
+             JOIN clips c ON c.id = a.clip_id
+             JOIN projects p ON p.id = c.project_id
+             WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| format!("未找到资产：{}", e))?;
 
@@ -1291,12 +1382,22 @@ pub fn delete_asset_image(
     if img_result.is_err() {
         let task_exists = tx
             .query_row(
-                "SELECT id FROM tasks WHERE id = ?1 AND type = 'generate_asset_image' AND status IN ('pending', 'running', 'failed')",
-                rusqlite::params![&input.image_id],
+                "SELECT id FROM tasks
+                 WHERE id = ?1
+                   AND asset_id = ?2
+                   AND clip_id = ?3
+                   AND type = 'generate_asset_image'
+                   AND status IN ('pending', 'running', 'failed')",
+                rusqlite::params![&input.image_id, &asset_id, &input.clip_id],
                 |row| row.get::<_, String>(0),
             )
             .map_err(|e| format!("图片/任务记录不存在：{}", e))?;
 
+        tx.execute(
+            "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE id = ?1) OR locked_by = ?1",
+            rusqlite::params![&task_exists],
+        )
+        .map_err(|e| e.to_string())?;
         tx.execute(
             "DELETE FROM tasks WHERE id = ?1",
             rusqlite::params![&task_exists],
@@ -1311,25 +1412,20 @@ pub fn delete_asset_image(
             "INFO",
             &format!("已删除失败任务 taskId={}", input.image_id),
         );
-        return Ok(());
+        return Ok(crate::commands::clip::DeleteClipsResult {
+            deleted_file_count: 0,
+            skipped_file_count: 0,
+            failed_file_count: 0,
+        });
     }
 
     let (image_path, was_selected, ark_file_id) = img_result.unwrap();
 
-    // 删除数据库记录
     tx.execute(
         "DELETE FROM asset_images WHERE id = ?1",
         rusqlite::params![&input.image_id],
     )
     .map_err(|e| e.to_string())?;
-
-    // 删除磁盘文件
-    if input.delete_file {
-        let file_path = std::path::PathBuf::from(&image_path);
-        if file_path.exists() {
-            fs::remove_file(&file_path).map_err(|e| format!("删除文件失败：{}", e))?;
-        }
-    }
 
     // 如果删除的是选中图片，自动选择下一张
     if was_selected {
@@ -1363,19 +1459,42 @@ pub fn delete_asset_image(
 
     tx.commit().map_err(|e| e.to_string())?;
 
+    // 数据库事务已提交后再删除文件，且只能清理该项目工作区内的安全路径。
+    let result = if input.delete_file {
+        crate::commands::clip::delete_managed_files(vec![
+            crate::commands::clip::ClipFileCandidate {
+                workspace_path: std::path::PathBuf::from(workspace_path),
+                file_path: std::path::PathBuf::from(image_path),
+            },
+        ])
+    } else {
+        crate::commands::clip::DeleteClipsResult {
+            deleted_file_count: 0,
+            skipped_file_count: 0,
+            failed_file_count: 0,
+        }
+    };
+
     crate::project_log::append_log(
         &log_path,
         "资产",
-        "INFO",
+        if result.failed_file_count > 0 {
+            "WARN"
+        } else {
+            "INFO"
+        },
         &format!(
-            "已删除资产图片 imageId={} deleteFile={} arkFileId={}",
+            "已删除资产图片 imageId={} deleteFile={} arkFileId={}；本地文件已删除 {}，失败 {}",
             input.image_id,
             input.delete_file,
-            ark_file_id.as_deref().unwrap_or("none")
+            ark_file_id.as_deref().unwrap_or("none"),
+            result.deleted_file_count,
+            result.failed_file_count,
         ),
     );
 
-    // 事务提交后，若有方舟平台 file_id，同步删除（阻塞直到 API 返回）
+    // 事务提交后，若有方舟平台 file_id，同步删除（阻塞直到 API 返回）。远端结果仅写日志，
+    // 不混入本地文件统计，避免用户误以为工作区文件删除失败。
     if let Some(ref file_id) = ark_file_id {
         match util::delete_ark_file_sync(&app, file_id) {
             Ok(()) => {
@@ -1395,7 +1514,7 @@ pub fn delete_asset_image(
                     "资产",
                     "WARN",
                     &format!(
-                        "方舟文件删除失败（本地已删除） imageId={} arkFileId={}: {}",
+                        "方舟文件删除失败（本地记录已删除） imageId={} arkFileId={}: {}",
                         input.image_id, file_id, e
                     ),
                 );
@@ -1403,7 +1522,7 @@ pub fn delete_asset_image(
         }
     }
 
-    Ok(())
+    Ok(result)
 }
 
 /// 导入本地图片输入

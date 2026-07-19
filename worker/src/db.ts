@@ -30,6 +30,93 @@ export function initDatabase(dbPath: string): DatabaseType {
   return db;
 }
 
+const WORKER_LEASE_KEY = "muse:worker";
+const WORKER_LEASE_STALE_MS = 30_000;
+
+type WorkerLeaseRow = {
+  worker_id: string;
+  pid: number;
+  is_stale: number;
+};
+
+/**
+ * PID 未知时宁可拒绝接管也不能假设旧 Worker 已停止；这避免旧版本升级期间
+ * 或 PID 查询失败时对仍在执行的外部模型请求重复消费。
+ */
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function ensureWorkerLeaseSchema(db: DatabaseType): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_leases (
+      lease_key TEXT PRIMARY KEY,
+      worker_id TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL DEFAULT (datetime('now')),
+      pid INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  const columns = db.prepare("PRAGMA table_info(worker_leases)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "pid")) {
+    db.exec("ALTER TABLE worker_leases ADD COLUMN pid INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+/**
+ * 获取全局 Worker 租约。
+ *
+ * 接管过期租约前还会验证旧进程的 PID 已不存在。心跳超时本身不足以证明
+ * handler 已停止；若旧进程仍存活，则拒绝启动新 Worker，避免重复调用模型。
+ */
+export function acquireWorkerLease(db: DatabaseType, workerId: string): boolean {
+  ensureWorkerLeaseSchema(db);
+
+  const acquire = db.transaction(() => {
+    const existing = db.prepare(
+      `SELECT worker_id, pid,
+              (unixepoch(datetime('now')) - unixepoch(heartbeat_at)) * 1000 > ? AS is_stale
+       FROM worker_leases WHERE lease_key = ?`
+    ).get(WORKER_LEASE_STALE_MS, WORKER_LEASE_KEY) as WorkerLeaseRow | undefined;
+
+    if (existing) {
+      if (!existing.is_stale || isProcessAlive(existing.pid)) return false;
+      db.prepare("DELETE FROM worker_leases WHERE lease_key = ? AND worker_id = ?")
+        .run(WORKER_LEASE_KEY, existing.worker_id);
+    }
+
+    const result = db.prepare(
+      "INSERT OR IGNORE INTO worker_leases (lease_key, worker_id, pid) VALUES (?, ?, ?)"
+    ).run(WORKER_LEASE_KEY, workerId, process.pid);
+    return result.changes === 1;
+  });
+
+  return acquire();
+}
+
+/** 刷新指定 Worker 的租约；返回 false 表示该 Worker 已不再拥有租约。 */
+export function refreshWorkerLease(db: DatabaseType, workerId: string): boolean {
+  const result = db.prepare(
+    `UPDATE worker_leases
+     SET heartbeat_at = datetime('now')
+     WHERE lease_key = ? AND worker_id = ? AND pid = ?`
+  ).run(WORKER_LEASE_KEY, workerId, process.pid);
+  return result.changes === 1;
+}
+
+/** 释放指定 Worker 的租约，不会影响其他 Worker。 */
+export function releaseWorkerLease(db: DatabaseType, workerId: string): void {
+  db.prepare(
+    "DELETE FROM worker_leases WHERE lease_key = ? AND worker_id = ? AND pid = ?"
+  ).run(WORKER_LEASE_KEY, workerId, process.pid);
+}
+
 export type PendingTask = {
   id: string;
   project_id: string;
@@ -67,40 +154,53 @@ export function getPendingTasks(db: DatabaseType): PendingTask[] {
 }
 
 /**
- * 尝试获取逻辑锁。
+ * 原子领取待处理任务。
  *
+ * 锁记录与 pending → running 状态转换必须在同一事务中完成。即便多个
+ * Worker 同时观察到同一条 pending 记录，也只有状态更新成功的一方能执行
+ * handler；这不依赖 task_locks 表在旧数据库中是否已经具有唯一约束。
  */
-export function acquireLock(
+export function claimPendingTask(
   db: DatabaseType,
-  lockKey: string,
+  task: Pick<PendingTask, "id" | "lock_key">,
   lockedBy: string
 ): boolean {
-  try {
+  const claim = db.transaction(() => {
+    const lockResult = db.prepare(
+      "INSERT OR IGNORE INTO task_locks (lock_key, locked_by) VALUES (?, ?)"
+    ).run(task.lock_key, lockedBy);
+
+    if (lockResult.changes !== 1) {
+      return false;
+    }
+
+    const result = db.prepare(
+      `UPDATE tasks
+       SET status = 'running', started_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ? AND lock_key = ? AND status = 'pending'`
+    ).run(task.id, task.lock_key);
+
+    if (result.changes === 1) {
+      return true;
+    }
+
+    // 未领取成功时仅删除本次尝试创建的锁，绝不能删除其他 Worker 的锁。
     db.prepare(
-      "INSERT INTO task_locks (lock_key, locked_by) VALUES (?, ?)"
-    ).run(lockKey, lockedBy);
-    return true;
-  } catch {
+      "DELETE FROM task_locks WHERE lock_key = ? AND locked_by = ?"
+    ).run(task.lock_key, lockedBy);
     return false;
-  }
+  });
+
+  return claim();
 }
 
 /**
- * 释放逻辑锁。
- *
+ * 释放本 Worker 持有的逻辑锁。
  */
-export function releaseLock(db: DatabaseType, lockKey: string): void {
-  db.prepare("DELETE FROM task_locks WHERE lock_key = ?").run(lockKey);
-}
-
-/**
- * 标记任务为 running。
- *
- */
-export function markTaskRunning(db: DatabaseType, taskId: string): void {
+export function releaseLock(db: DatabaseType, lockKey: string, lockedBy: string): void {
   db.prepare(
-    "UPDATE tasks SET status = 'running', started_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-  ).run(taskId);
+    "DELETE FROM task_locks WHERE lock_key = ? AND locked_by = ?"
+  ).run(lockKey, lockedBy);
 }
 
 /**
@@ -294,54 +394,75 @@ export function cleanupWorkerLocks(
 }
 
 /**
- * 重启恢复：将 running 状态的任务回退。
+ * 仅恢复指定 Worker 仍持有锁的运行任务。
  *
  */
 export function recoverRunningTasks(
   db: DatabaseType,
   workerId: string
 ): number {
-  // 先清理该 worker 的锁
-  cleanupWorkerLocks(db, workerId);
+  const ownerPattern = `workerId:${workerId}:%`;
+  const recover = db.transaction(() => {
+    const remoteResult = db
+      .prepare(
+        `UPDATE tasks SET status = 'waiting_remote', updated_at = datetime('now')
+         WHERE status = 'running' AND remote_task_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM task_locks tl
+             WHERE tl.lock_key = tasks.lock_key AND tl.locked_by LIKE ?
+           )`
+      )
+      .run(ownerPattern);
+    const localResult = db
+      .prepare(
+        `UPDATE tasks SET status = 'pending', updated_at = datetime('now')
+         WHERE status = 'running' AND remote_task_id IS NULL
+           AND EXISTS (
+             SELECT 1 FROM task_locks tl
+             WHERE tl.lock_key = tasks.lock_key AND tl.locked_by LIKE ?
+           )`
+      )
+      .run(ownerPattern);
+    cleanupWorkerLocks(db, workerId);
+    return remoteResult.changes + localResult.changes;
+  });
 
-  // 远端任务（有 remoteTaskId）：running → waiting_remote
-  const remoteResult = db
-    .prepare(
+  return recover();
+}
+
+export function recoverTasksFromInactiveWorkers(db: DatabaseType): number {
+  // 只能在已获得全局 Worker 租约、且尚未启动 TaskRunner 时调用：此时不存在
+  // 其他活跃消费者，才能安全回收上一个 Worker 遗留的锁并重新排队任务。
+  const recover = db.transaction(() => {
+    const remoteResult = db.prepare(
       `UPDATE tasks SET status = 'waiting_remote', updated_at = datetime('now')
        WHERE status = 'running' AND remote_task_id IS NOT NULL`
-    )
-    .run();
-
-  // 本地任务（无 remoteTaskId）：running → pending
-  const localResult = db
-    .prepare(
+    ).run();
+    const localResult = db.prepare(
       `UPDATE tasks SET status = 'pending', updated_at = datetime('now')
        WHERE status = 'running' AND remote_task_id IS NULL`
-    )
-    .run();
+    ).run();
+    db.prepare("DELETE FROM task_locks").run();
+    return remoteResult.changes + localResult.changes;
+  });
 
-  return remoteResult.changes + localResult.changes;
+  return recover();
 }
 
 /**
  * 恢复超时的 running 任务。
  */
 export function recoverStaleTasks(db: DatabaseType, timeoutMs: number): number {
-  // 先清理超时任务的锁
-  db.prepare(
-    `DELETE FROM task_locks WHERE lock_key IN (
-       SELECT lock_key FROM tasks
-       WHERE status = 'running' AND remote_task_id IS NULL
-         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?
-     )`
-  ).run(timeoutMs);
-
-  // 回退超时任务
+  // 有锁代表 handler 仍由当前 Worker 持有；即使它耗时较长，也不能删锁、回退
+  // 为 pending，否则会被新的并发调度再次领取并重复调用模型。
   const result = db
     .prepare(
       `UPDATE tasks SET status = 'pending', updated_at = datetime('now')
        WHERE status = 'running' AND remote_task_id IS NULL
-         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?`
+         AND (unixepoch(datetime('now')) - unixepoch(updated_at)) * 1000 > ?
+         AND NOT EXISTS (
+           SELECT 1 FROM task_locks tl WHERE tl.lock_key = tasks.lock_key
+         )`
     )
     .run(timeoutMs);
 

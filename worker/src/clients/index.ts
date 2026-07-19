@@ -24,7 +24,7 @@ export function createClients(settings: SettingsManager): ApiClients {
   const text  = new TextClient(settings.getTextConfig());
   const image = new ImageClient(settings.getImageConfig());
   const voice = new VoiceClient(settings.getVoiceConfig());
-  const asset = new AssetClient(settings.getAssetConfig());
+  const asset = new AssetClient(settings.getAssetConfig(), settings.getConcurrencyConfig().arkUpload);
   const video = new VideoClient(settings.getVideoConfig());
 
   return {
@@ -34,7 +34,7 @@ export function createClients(settings: SettingsManager): ApiClients {
       text.updateConfig(settings.getTextConfig());
       image.updateConfig(settings.getImageConfig());
       voice.updateConfig(settings.getVoiceConfig());
-      asset.updateConfig(settings.getAssetConfig());
+      asset.updateConfig(settings.getAssetConfig(), settings.getConcurrencyConfig().arkUpload);
       video.updateConfig(settings.getVideoConfig());
     },
   };

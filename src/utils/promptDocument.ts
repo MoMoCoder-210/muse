@@ -21,6 +21,8 @@ export interface PromptMention {
   type: string;
   imagePath: string | null;
   assetTag: string;
+  /** 资产是否已被删除（纯渲染态标记，不持久化） */
+  deleted?: boolean;
 }
 
 export interface PromptMentionAttrs {
@@ -33,6 +35,8 @@ export interface PromptMentionAttrs {
   assetType: string | null;
   imagePath: string | null;
   assetTag: string;
+  /** 资产是否已被删除，仅用于渲染红色胶囊，不持久化 */
+  deleted?: boolean;
 }
 
 export function createAssetTag(name: string, index: number): string {
@@ -200,6 +204,7 @@ export function plainTextToPromptDoc(text: string, mentions: PromptMention[]): P
           assetType: matched.type,
           imagePath: matched.imagePath,
           assetTag: matched.assetTag,
+          deleted: matched.deleted,
         } satisfies PromptMentionAttrs,
       });
       remaining = remaining.slice(earliest + matched.assetTag.length);

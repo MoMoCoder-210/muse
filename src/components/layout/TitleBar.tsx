@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { APP_NAME } from "../../config/muse";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { detectFFmpeg } from "../../services/tauri";
 import { open } from "@tauri-apps/plugin-shell";
+import { useServiceStatus, type ServiceHealth } from "../../hooks/useServiceStatus";
 
 const HELP_URL = "https://gitee.com/yangtao210/muse";
 
@@ -23,18 +23,27 @@ const isTauri =
  */
 export function TitleBar({ onOpenSettings }: TitleBarProps) {
   const [isMax, setIsMax] = useState(false);
-  const [ffmpegOk, setFfmpegOk] = useState<boolean | null>(null);
+  const services = useServiceStatus();
+  const serviceIndicator = useMemo(() => {
+    const entries: Array<[string, ServiceHealth]> = [
+      ["后端", services.backend],
+      ["数据库", services.database],
+      ["FFmpeg", services.ffmpeg],
+      ["Worker", services.worker],
+    ];
+    const isLoading = entries.some(([, health]) => health === null);
+    const hasError = entries.some(([, health]) => health === false);
+    const state = hasError ? "error" : isLoading ? "loading" : "ok";
+    const label = state === "ok" ? "全部服务已就绪" : state === "error" ? "服务异常" : "服务检测中";
+    const details = entries
+      .map(([name, health]) => `${name}：${health === true ? "已就绪" : health === false ? "异常" : "检测中"}`)
+      .join("\n");
+    return { state, title: `${label}\n${details}` };
+  }, [services]);
 
   useEffect(() => {
     if (!isTauri) return;
     getCurrentWindow().isMaximized().then(setIsMax).catch((e) => console.error("[TitleBar] 读取最大化状态失败:", e));
-  }, []);
-
-  // 检测 FFmpeg 状态（壳级常驻，不需要用户打开设置页）
-  useEffect(() => {
-    detectFFmpeg()
-      .then((s) => setFfmpegOk(s.available))
-      .catch(() => setFfmpegOk(false));
   }, []);
 
   const minimize = () => {
@@ -84,11 +93,11 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
       <div className="tb-spacer" />
 
       <div className="tb-actions">
-        {/* FFmpeg 状态指示器：简约圆点，hover 显示详情，不可点击 */}
+        {/* 单一服务状态标志：悬浮时展示后端、数据库、FFmpeg 与 Worker 明细。 */}
         <span
-          className={`tb-status-dot-indicator${ffmpegOk === null ? " is-loading" : ffmpegOk ? " is-ok" : " is-error"}`}
-          title={ffmpegOk === null ? "FFmpeg服务 检测中…" : ffmpegOk ? "FFmpeg服务 已就绪" : "FFmpeg服务 未检测到"}
-          aria-label="FFmpeg服务 状态"
+          className={`tb-status-dot-indicator is-${serviceIndicator.state}`}
+          title={serviceIndicator.title}
+          aria-label={serviceIndicator.title.replaceAll("\n", "，")}
         />
 
         <button

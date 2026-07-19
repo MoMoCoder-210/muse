@@ -267,8 +267,12 @@ pub fn check_voices_cached(app: AppHandle, voice_ids: Vec<String>) -> Result<Vec
             cached.push(id);
             continue;
         }
-        let p = app_data_dir.join(VOICES_DIR).join(format!("{}.mp3", sanitize_voice_filename(&id)));
-        if p.exists() { cached.push(id); }
+        let p = app_data_dir
+            .join(VOICES_DIR)
+            .join(format!("{}.mp3", sanitize_voice_filename(&id)));
+        if p.exists() {
+            cached.push(id);
+        }
     }
     Ok(cached)
 }
@@ -522,5 +526,7 @@ fn bundled_voice_save_path(app: &AppHandle, voice_id: &str) -> std::path::PathBu
     if let Ok(res_dir) = app.path().resource_dir() {
         return res_dir.join("resources").join("voices").join(&fname);
     }
-    std::path::PathBuf::from("resources").join("voices").join(&fname)
+    std::path::PathBuf::from("resources")
+        .join("voices")
+        .join(&fname)
 }

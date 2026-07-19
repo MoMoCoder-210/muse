@@ -1,9 +1,10 @@
+import { useState } from "react";
 import type { AssetCardData } from "./AssetCard";
 
 type DeleteAssetConfirmProps = {
   /** 待删除的资产列表 */
   cards: AssetCardData[];
-  onConfirm: (cards: AssetCardData[]) => void;
+  onConfirm: (cards: AssetCardData[], deleteFiles: boolean) => void;
   onCancel: () => void;
   disabled?: boolean;
 };
@@ -12,6 +13,7 @@ type DeleteAssetConfirmProps = {
  * 资产删除确认弹窗。
  */
 export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: DeleteAssetConfirmProps) {
+  const [deleteFiles, setDeleteFiles] = useState(false);
   const count = cards.length;
   const first = cards[0];
 
@@ -36,11 +38,21 @@ export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: Del
             : <>确认删除 <strong>{count}</strong> 个资产？</>
           }
         </p>
+        <label className="delete-panel-check">
+          <input
+            type="checkbox"
+            checked={deleteFiles}
+            onChange={(event) => setDeleteFiles(event.target.checked)}
+            disabled={disabled}
+          />
+          <span className="delete-panel-check-box" />
+          <span>同时删除磁盘文件</span>
+        </label>
         <div className="delete-panel-actions">
           <button type="button" className="delete-panel-btn delete-panel-btn--cancel" onClick={onCancel} disabled={disabled}>
             取消
           </button>
-          <button type="button" className="delete-panel-btn delete-panel-btn--danger" onClick={() => onConfirm(cards)} disabled={disabled}>
+          <button type="button" className="delete-panel-btn delete-panel-btn--danger" onClick={() => onConfirm(cards, deleteFiles)} disabled={disabled}>
             删除
           </button>
         </div>

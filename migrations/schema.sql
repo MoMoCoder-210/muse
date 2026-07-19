@@ -373,3 +373,12 @@ CREATE TABLE IF NOT EXISTS concat_outputs (
 
 CREATE INDEX IF NOT EXISTS idx_concat_outputs_clip
     ON concat_outputs(clip_id);
+
+-- ============================================================================
+-- 11.1 worker_leases — Worker 全局单例租约
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS worker_leases (
+    lease_key    TEXT PRIMARY KEY,
+    worker_id    TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

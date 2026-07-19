@@ -5,6 +5,7 @@
 import { useState, useCallback } from "react";
 import { generateId, type ChannelList } from "../../types/settings";
 import { testConnection } from "../../services/tauri";
+import { useToast } from "../../hooks/useToast";
 
 // ── 类型 ────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ export function ChannelManager<T extends ChannelLike>({
   params, paramsFields, onParamsChange,
   onChange, onPersist, enableTest = true, note, fixedSingle = false,
 }: ChannelManagerProps<T>) {
+  const { toast } = useToast();
   const [form, setForm] = useState<ChannelEditor>(() => emptyForm(blank));
   // 展开的渠道 id；"__new__" 表示展开「新增渠道」面板；null 表示全部收起
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -99,6 +101,10 @@ export function ChannelManager<T extends ChannelLike>({
   const addModel = useCallback(() => {
     const id = newModelId.trim();
     if (!id) return;
+    if (resolutionOptions && newModelRes.length === 0) {
+      toast("请至少选择一个支持分辨率", "error");
+      return;
+    }
     const res = [...newModelRes];
     setForm((prev) => {
       const m = { id: generateId(), modelId: id, resolutions: res };
@@ -107,7 +113,7 @@ export function ChannelManager<T extends ChannelLike>({
     setNewModelId("");
     // 添加后重置为空，下一个模型需显式勾选分辨率
     setNewModelRes([]);
-  }, [newModelId, newModelRes]);
+  }, [newModelId, newModelRes, resolutionOptions, toast]);
 
   const delModel = useCallback((mid: string) => {
     setForm((prev) => {
@@ -147,7 +153,33 @@ export function ChannelManager<T extends ChannelLike>({
     setTestState(null);
   }, [blank, hasModels]);
 
+  const getFormValidationError = useCallback((): string | null => {
+    for (const field of fields) {
+      if (!String((form as any)[field.key] ?? "").trim()) {
+        return `请填写${field.label}`;
+      }
+    }
+    if (hasModels && form.models.length === 0) {
+      return "请至少添加一个模型 ID";
+    }
+    if (resolutionOptions && hasModels) {
+      const modelWithoutResolution = form.models.find((model) => !(model.resolutions ?? []).length);
+      if (modelWithoutResolution) {
+        return `模型 ${modelWithoutResolution.modelId} 未选择分辨率`;
+      }
+    }
+    return null;
+  }, [fields, form, hasModels, resolutionOptions]);
+
+  const validateForm = useCallback(() => {
+    const error = getFormValidationError();
+    if (error) toast(error, "error");
+    return !error;
+  }, [getFormValidationError, toast]);
+
   const handleAdd = useCallback(() => {
+    if (!validateForm()) return;
+
     const newCh: any = { ...blank, id: generateId(), name: form.name || `渠道 ${channels.length + 1}` };
     for (const f of fields) newCh[f.key] = (form as any)[f.key] ?? "";
     if (hasModels) { newCh.models = form.models; newCh.activeModelId = form.activeModelId; }
@@ -156,9 +188,11 @@ export function ChannelManager<T extends ChannelLike>({
     onPersist(updated);
     setForm(emptyForm(blank));
     setExpandedId(null);
-  }, [form, blank, channels, hasModels, fields, onChange, onPersist]);
+  }, [form, blank, channels, hasModels, fields, onChange, onPersist, validateForm]);
 
   const handleSave = useCallback(() => {
+    if (!validateForm()) return;
+
     const updated = {
       ...list,
       channels: channels.map((ch: T) =>
@@ -176,7 +210,7 @@ export function ChannelManager<T extends ChannelLike>({
     onPersist(updated);
     setForm(emptyForm(blank));
     setExpandedId(null);
-  }, [form, blank, channels, hasModels, fields, onChange, list, onPersist]);
+  }, [form, blank, channels, hasModels, fields, onChange, list, onPersist, validateForm]);
 
   const cancel = useCallback(() => {
     setForm(emptyForm(blank));
@@ -219,7 +253,7 @@ export function ChannelManager<T extends ChannelLike>({
                 onKeyDown={(e) => { if (e.key === "Enter") addModel(); }}
                 placeholder="输入后回车或点击添加"
               />
-              <button type="button" className="cm-field-add-btn" onClick={addModel} disabled={!newModelId.trim()}>
+              <button type="button" className="cm-field-add-btn" onClick={addModel} disabled={!newModelId.trim() || (!!resolutionOptions && newModelRes.length === 0)}>
                 添加
               </button>
             </div>
@@ -315,7 +349,10 @@ export function ChannelManager<T extends ChannelLike>({
   );
 
   /** 表单底部（测试连接 + 操作按钮），mode 区分保存/新增 */
-  const renderEditorFooter = (mode: "edit" | "add") => (
+  const renderEditorFooter = (mode: "edit" | "add") => {
+    const disabled = getFormValidationError() !== null;
+
+    return (
     <div className="cm-form-footer">
       {enableTest && (
         <div className="cm-test-row">
@@ -334,12 +371,13 @@ export function ChannelManager<T extends ChannelLike>({
         <button type="button" className="ghost-button" onClick={cancel}>
           {mode === "edit" ? "收起" : "取消"}
         </button>
-        <button type="button" className="primary-button" onClick={mode === "edit" ? handleSave : handleAdd}>
+        <button type="button" className="primary-button" onClick={mode === "edit" ? handleSave : handleAdd} disabled={disabled}>
           {mode === "edit" ? "保存" : "新增"}
         </button>
       </div>
     </div>
-  );
+    );
+  };
 
   const handleTest = useCallback(async () => {
     const apiKey = (form as any).apiKey ?? "";

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
 import type {
   ProjectInfo, Clip, Storyboard, StoryboardAssetInfo, AssetType, PromptDoc,
 } from "../../types/project";
@@ -12,13 +11,14 @@ import {
   updateStoryboardAssets, createStoryboard, deleteStoryboard, insertStoryboard,
   updateStoryboardParams, updateStoryboardDuration, getSettings,
   generateStoryboardVideo,
-  importVideoFile, addStoryboardVideo, selectStoryboardVideo, listStoryboardVideos,
-  deleteStoryboardVideo,
+  selectStoryboardVideo, listStoryboardVideos,
+  listStoryboardVideoTasks, deleteStoryboardVideoTask, deleteStoryboardVideo,
 } from "../../services/tauri";
 import type { StoryboardVideoInfo } from "../../services/tauri";
+import type { MentionAnchor } from "../../types/mention";
 import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
-import { DeleteStoryboardConfirm } from "./DeleteStoryboardConfirm";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
 import { StoryboardConfirm } from "./StoryboardConfirm";
 import { MentionDropdown } from "./MentionDropdown";
 import type { AssetMention } from "./MentionDropdown";
@@ -35,6 +35,8 @@ import {
 } from "../../config/muse";
 import { isClipDecomposed } from "../../utils/clip";
 import { avatarColor } from "../../utils/avatar-colors";
+import { formatDeleteResult } from "../../utils/delete-result";
+import { ImageLightbox } from "../common/ImageLightbox";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -52,6 +54,19 @@ const CATS: { type: AssetType; label: string; icon: string }[] = [
 ];
 
 type ClipData = { storyboards: Storyboard[]; assets: StoryboardAssetInfo[]; loaded: boolean };
+type VideoTaskStatus = "pending" | "running" | "failed";
+type VideoTaskState = { taskId: string; status: VideoTaskStatus };
+type VideoTaskTerminalEvent = {
+  task_id: string;
+  clip_id: string;
+  storyboard_id: string;
+  status: "success" | "failed";
+};
+const EMPTY_VIDEO_TASKS: VideoTaskState[] = [];
+type DisplayStoryboardVideo = StoryboardVideoInfo & { taskStatus?: VideoTaskStatus };
+
+const formatStoryboardVideoFailure = () =>
+  `视频生成失败，请检查模型配置`;
 
 const parseIds = (j: string): Set<string> => { try { return new Set(JSON.parse(j) as string[]); } catch { return new Set(); } };
 
@@ -111,6 +126,7 @@ function normalizePromptReferences(
         assetType: mention.type,
         imagePath: mention.imagePath,
         assetTag: mention.assetTag,
+        deleted: mention.deleted,
       },
       ...(content ? { content } : {}),
     };
@@ -194,14 +210,30 @@ export function StoryboardPanel({ project }: Props) {
   const [dataMap, setDataMap] = useState<Record<string, ClipData>>({});
   const dataMapRef = useRef(dataMap); dataMapRef.current = dataMap;
 
-  // 加载所有分镜的视频
+  // 同时恢复已完成视频和未成功落库的任务批次。任务表是 pending/running/failed
+  // 卡片的唯一来源，因此页面重新挂载时不会把默认 video_state 误认为“生成中”。
   const loadAllVideos = useCallback(async (sbs: Storyboard[]) => {
-    const map: Record<string, StoryboardVideoInfo[]> = {};
+    const videos: Record<string, StoryboardVideoInfo[]> = {};
+    const tasks: Record<string, VideoTaskState[]> = {};
     await Promise.all(sbs.map(async (sb) => {
-      try { map[sb.id] = await listStoryboardVideos(sb.id); }
-      catch { map[sb.id] = []; }
+      try { videos[sb.id] = await listStoryboardVideos(sb.id); }
+      catch { videos[sb.id] = []; }
+      try {
+        tasks[sb.id] = (await listStoryboardVideoTasks(sb.id)).map((task) => ({
+          taskId: task.task_id,
+          status: task.status,
+        }));
+      } catch { tasks[sb.id] = []; }
     }));
-    setVideosMap((prev) => ({ ...prev, ...map }));
+    setVideosMap((prev) => ({ ...prev, ...videos }));
+    setVideoTaskStates((prev) => {
+      const next = { ...prev };
+      for (const sb of sbs) {
+        if (tasks[sb.id].length > 0) next[sb.id] = tasks[sb.id];
+        else delete next[sb.id];
+      }
+      return next;
+    });
   }, []);
   // ── 左侧片段栏：手动展开/收起 ──
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -211,6 +243,12 @@ export function StoryboardPanel({ project }: Props) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Storyboard | null>(null);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [videoTaskStates, setVideoTaskStates] = useState<Record<string, VideoTaskState[]>>({});
+  // Worker 的终态事件可能早于 generateStoryboardVideo() 返回 taskId；暂存后在入队回调中协调。
+  const terminalVideoTaskEventsRef = useRef(new Map<string, VideoTaskTerminalEvent>());
+  const videoTaskStatesRef = useRef(videoTaskStates);
+  videoTaskStatesRef.current = videoTaskStates;
   // 新增分镜：undefined=不弹窗, "__end__"=末尾添加, null=最前插入, string=在某分镜后插入
   const [insertAfterId, setInsertAfterId] = useState<string | null | undefined>(undefined);
   // 缩略图条悬停插入位：number=在第i个分镜后插入, "__first__"=在最前插入
@@ -307,24 +345,84 @@ export function StoryboardPanel({ project }: Props) {
     } catch { toast("更新时长失败", "error"); }
   }, [toast]);
 
-  // 视频变更（上传/选中/删除）后同步 dataMap + videosMap，使底部缩略图条即时刷新
-  const refreshVideoState = useCallback(async (sbId: string) => {
-    const cid = clipId;
-    if (!cid) return;
+  // 视频变更（上传/选中/删除/生成终态）后同步 dataMap、videosMap 与任务批次状态。
+  const refreshVideoState = useCallback(async (sbId: string, targetClipId: string | null = clipId) => {
+    if (!targetClipId) return;
     try {
-      // 重新拉取该分镜的视频列表 + 当前片段的分镜列表
-      const [vids, sbs] = await Promise.all([
+      const [vids, sbs, tasks] = await Promise.all([
         listStoryboardVideos(sbId).catch(() => [] as StoryboardVideoInfo[]),
-        listStoryboards(cid).catch(() => [] as Storyboard[]),
+        listStoryboards(targetClipId).catch(() => [] as Storyboard[]),
+        listStoryboardVideoTasks(sbId).catch(() => []),
       ]);
       setVideosMap((prev) => ({ ...prev, [sbId]: vids }));
+      setVideoTaskStates((prev) => {
+        const next = { ...prev };
+        const taskStates = tasks.map((task) => ({ taskId: task.task_id, status: task.status }));
+        if (taskStates.length > 0) next[sbId] = taskStates;
+        else delete next[sbId];
+        return next;
+      });
       setDataMap((prev) => {
-        const d = prev[cid];
+        const d = prev[targetClipId];
         if (!d) return prev;
-        return { ...prev, [cid]: { ...d, storyboards: sbs } };
+        return { ...prev, [targetClipId]: { ...d, storyboards: sbs } };
       });
     } catch { /* 静默 */ }
   }, [clipId]);
+
+  const handleVideoTaskQueued = useCallback((storyboardId: string, taskId: string) => {
+    const terminal = terminalVideoTaskEventsRef.current.get(taskId);
+    if (terminal) terminalVideoTaskEventsRef.current.delete(taskId);
+    setVideoTaskStates((prev) => {
+      const tasks = prev[storyboardId] ?? [];
+      if (tasks.some((task) => task.taskId === taskId) || terminal?.status === "success") return prev;
+      return {
+        ...prev,
+        [storyboardId]: [...tasks, {
+          taskId,
+          status: terminal?.status === "failed" ? "failed" as const : "pending" as const,
+        }],
+      };
+    });
+    void refreshVideoState(storyboardId);
+  }, [refreshVideoState]);
+
+  // 终态事件只在此处监听一次：避免 DetailView 重挂载或 Strict Mode 产生重复失败提示。
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<VideoTaskTerminalEvent>("storyboard-video-ready", ({ payload }) => {
+      // Worker 在 Tauri 调用返回前就完成时，先缓存终态；handleVideoTaskQueued() 收到
+      // taskId 后会立即结算，避免该批次随后被错误地渲染为 pending。
+      const knownTask = (videoTaskStatesRef.current[payload.storyboard_id] ?? [])
+        .some((task) => task.taskId === payload.task_id);
+      if (!knownTask) terminalVideoTaskEventsRef.current.set(payload.task_id, payload);
+
+      void refreshVideoState(payload.storyboard_id, payload.clip_id);
+      setVideoTaskStates((prev) => {
+        const tasks = prev[payload.storyboard_id] ?? [];
+        if (!tasks.some((task) => task.taskId === payload.task_id)) return prev;
+
+        const nextTasks: VideoTaskState[] = payload.status === "success"
+          ? tasks.filter((task) => task.taskId !== payload.task_id)
+          : tasks.map((task) => task.taskId === payload.task_id ? { ...task, status: "failed" } : task);
+        const next = { ...prev };
+        if (nextTasks.length > 0) next[payload.storyboard_id] = nextTasks;
+        else delete next[payload.storyboard_id];
+        return next;
+      });
+      if (payload.status === "failed") {
+        toast(formatStoryboardVideoFailure(), "error");
+      }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refreshVideoState, toast]);
 
   // ── 新增/插入/删除分镜 ────────────────────────
 
@@ -354,16 +452,28 @@ export function StoryboardPanel({ project }: Props) {
 
   const delSb = useCallback(async () => {
     if (!deleteTarget) return;
-    setSaving(deleteTarget.id); setDeleteTarget(null);
+    const target = deleteTarget;
+    const shouldDeleteFiles = deleteFiles;
+    setSaving(target.id);
+    setDeleteTarget(null);
+    setDeleteFiles(false);
     try {
-      await deleteStoryboard({ storyboard_id: deleteTarget.id });
+      const result = await deleteStoryboard({
+        storyboard_id: target.id,
+        delete_files: shouldDeleteFiles,
+      });
       // 删除后重新加载，确保 seq_num 与数据库一致
-      setDataMap((p) => ({ ...p, [deleteTarget.clip_id]: { ...p[deleteTarget.clip_id], loaded: false } }));
-      dataMapRef.current = { ...dataMapRef.current, [deleteTarget.clip_id]: { ...dataMapRef.current[deleteTarget.clip_id], loaded: false } };
-      await loadSb(deleteTarget.clip_id);
+      setDataMap((p) => ({ ...p, [target.clip_id]: { ...p[target.clip_id], loaded: false } }));
+      dataMapRef.current = { ...dataMapRef.current, [target.clip_id]: { ...dataMapRef.current[target.clip_id], loaded: false } };
+      await loadSb(target.clip_id);
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
     }
-    catch { toast("删除失败", "error"); } finally { setSaving(null); }
-  }, [deleteTarget, toast, loadSb]);
+    catch {
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
+    } finally { setSaving(null); }
+  }, [deleteTarget, deleteFiles, toast, loadSb]);
 
   const busy = saving !== null;
 
@@ -424,7 +534,6 @@ export function StoryboardPanel({ project }: Props) {
                   key={activeSb.id}
                   sb={activeSb}
                   assets={assets}
-                  clipId={clipId}
                   busy={busy}
                   saving={saving === activeSb.id}
                   videoModels={videoModels}
@@ -432,6 +541,8 @@ export function StoryboardPanel({ project }: Props) {
                   onBatchToggle={batchToggleLink}
                   onDurationWrite={updateSbDuration}
                   onVideoRefresh={refreshVideoState}
+                  videoTaskStates={videoTaskStates[activeSb.id] ?? EMPTY_VIDEO_TASKS}
+                  onVideoTaskQueued={handleVideoTaskQueued}
                 />
               )}
 
@@ -468,6 +579,10 @@ export function StoryboardPanel({ project }: Props) {
                     const selVid = videosMap[sb.id]?.find((v: StoryboardVideoInfo) => v.id === sb.selected_video_id);
                     const videoSrc = selVid ? convertFileSrc(selVid.file_path) : null;
                     const sec = Math.round(selVid?.duration ?? sb.video_duration ?? sb.voice_duration ?? 0);
+                    const storyboardTasks = videoTaskStates[sb.id] ?? [];
+                    // 仅任务表中真实存在的 pending/running 批次才显示生成状态；
+                    // 新分镜默认 video_state 和历史失败批次都不能影响缩略条。
+                    const isVideoGenerating = storyboardTasks.some((task) => task.status === "pending" || task.status === "running");
                     return (
                       <div key={sb.id} style={{ display: "contents" }}>
                         <div className="sb-strip-group">
@@ -488,16 +603,28 @@ export function StoryboardPanel({ project }: Props) {
                                   <polygon points="38,24 38,36 48,30" fill="rgba(var(--text-muted-rgb),0.25)" />
                                 </svg>
                               )}
+                              {isVideoGenerating && (
+                                <div className="sb-strip-task-state sb-strip-task-state--generating">
+                                  <span className="sd-video-task-orb" aria-hidden />
+                                  <span>生成中</span>
+                                </div>
+                              )}
                               <button
                                 className="sb-strip-del"
-                                onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(sb); }}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setDeleteFiles(false);
+                                  setDeleteTarget(sb);
+                                }}
                                 disabled={busy}
                                 title="删除"
                               >
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                               </button>
                             </div>
-                            <span className="sb-strip-dur">#{String(sb.seq_num).padStart(2, "0")} · {sec > 0 ? `${sec}S` : "--S"}</span>
+                            <span className={`sb-strip-dur${isVideoGenerating ? " is-generating" : ""}`}>
+                              #{String(sb.seq_num).padStart(2, "0")} · {isVideoGenerating ? "生成中" : sec > 0 ? `${sec}S` : "--S"}
+                            </span>
                           </div>
                         </div>
 
@@ -535,12 +662,16 @@ export function StoryboardPanel({ project }: Props) {
         </div>
       </div>
 
-      {/* 删除确认框 */}
       {deleteTarget && (
-        <DeleteStoryboardConfirm
-          sb={deleteTarget}
+        <DeleteConfirmModal
+          title="删除分镜"
+          description={<>确认删除分镜 <strong>「#{deleteTarget.seq_num}」</strong>？</>}
+          checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
           onConfirm={delSb}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() => {
+            setDeleteFiles(false);
+            setDeleteTarget(null);
+          }}
           disabled={busy}
         />
       )}
@@ -578,7 +709,6 @@ export function StoryboardPanel({ project }: Props) {
 
 type DetailProps = {
   sb: Storyboard; assets: StoryboardAssetInfo[];
-  clipId: string | null;
   busy: boolean; saving: boolean;
   /** 设置里配置的视频模型 → 支持分辨率映射；为空表示未配置 */
   videoModels: Record<string, string[]>;
@@ -588,6 +718,10 @@ type DetailProps = {
   onDurationWrite: (sb: Storyboard, duration: number | null) => void;
   /** 视频变更后同步 dataMap/videosMap → 底部缩略图条即时刷新 */
   onVideoRefresh: (sbId: string) => void;
+  /** 当前分镜尚未落库为真实视频的生成批次。 */
+  videoTaskStates: VideoTaskState[];
+  /** 成功入队后立即创建前端临时视频批次。 */
+  onVideoTaskQueued: (storyboardId: string, taskId: string) => void;
 };
 
 /** 视频参数结构 */
@@ -649,7 +783,19 @@ function parseVideoParams(json: string | null, dbDuration: number | null, videoM
   }
 }
 
-function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, onBatchToggle, onDurationWrite, onVideoRefresh }: DetailProps) {
+function DetailView({
+  sb,
+  assets,
+  busy,
+  saving,
+  videoModels,
+  onToggle,
+  onBatchToggle,
+  onDurationWrite,
+  onVideoRefresh,
+  videoTaskStates,
+  onVideoTaskQueued,
+}: DetailProps) {
   const { toast } = useToast();
   const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
   const linked = (a: StoryboardAssetInfo) => a.type === "character" ? cIds.has(a.asset_id) : a.type === "scene" ? sIds.has(a.asset_id) : iIds.has(a.asset_id);
@@ -658,31 +804,37 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   const [videoVer, setVideoVer] = useState(0);
   const [pendingSelect, setPendingSelect] = useState<StoryboardVideoInfo | null>(null);
   const [pendingDelete, setPendingDelete] = useState<StoryboardVideoInfo | null>(null);
+  const [pendingDeleteFailedTask, setPendingDeleteFailedTask] = useState<VideoTaskState | null>(null);
   const [deleteFiles, setDeleteFiles] = useState(false);
   const [previewImg, setPreviewImg] = useState<string | null>(null);
   const [viewingVideoId, setViewingVideoId] = useState<string | null>(null);
+
+  const displayVideos = useMemo<DisplayStoryboardVideo[]>(() => {
+    // 终态刷新与事件可能交错；task_id 已落库的视频优先作为完成批次展示，
+    // 以免同一个 taskId 同时显示“生成中”和最终视频。
+    const completedTaskIds = new Set(videos.flatMap((video) => video.task_id ? [video.task_id] : []));
+    return [
+      ...videos,
+      ...videoTaskStates
+        .filter((task) => !completedTaskIds.has(task.taskId))
+        .map((task) => ({
+          id: `task:${task.taskId}`,
+          storyboard_id: sb.id,
+          file_path: "",
+          file_name: task.status === "failed" ? "视频生成失败" : "视频生成中",
+          source: "generated",
+          task_id: task.taskId,
+          duration: null,
+          taskStatus: task.status,
+        })),
+    ];
+  }, [sb.id, videoTaskStates, videos]);
+
   const loadVideos = useCallback(async () => {
     try { setVideos(await listStoryboardVideos(sb.id)); }
     catch { /* ignore */ }
   }, [sb.id]);
-  useEffect(() => { loadVideos(); }, [loadVideos, videoVer]);
-
-  // Worker 完成或最终失败后由 sidecar 转发事件，立即刷新当前分镜的视频批次。
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void listen<{
-      storyboard_id: string;
-      status: "success" | "failed";
-      error_message?: string | null;
-    }>("storyboard-video-ready", ({ payload }) => {
-      if (payload.storyboard_id !== sb.id) return;
-      setVideoVer((version) => version + 1);
-      void onVideoRefresh(sb.id);
-      if (payload.status === "success") toast("视频生成完成", "success");
-      else toast(`视频生成失败：${payload.error_message || "未知错误"}`, "error");
-    }).then((dispose) => { unlisten = dispose; });
-    return () => { unlisten?.(); };
-  }, [onVideoRefresh, sb.id, toast]);
+  useEffect(() => { loadVideos(); }, [loadVideos, sb.video_state, videoTaskStates, videoVer]);
 
   // 最终视频变更时同步播放到该视频
   useEffect(() => { setViewingVideoId(sb.selected_video_id || null); }, [sb.selected_video_id]);
@@ -690,8 +842,18 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   useEffect(() => { setViewingVideoId(null); }, [sb.id]);
 
   const playerVidId = viewingVideoId ?? sb.selected_video_id;
-  const activeIdx = videos.findIndex((v) => v.id === playerVidId);
-  const currentVideoSrc = activeIdx >= 0 ? convertFileSrc(videos[activeIdx].file_path) : null;
+  const activeVideo = displayVideos.find((video) => video.id === playerVidId) ?? null;
+  const currentVideoSrc = activeVideo?.file_path ? convertFileSrc(activeVideo.file_path) : null;
+  const currentVideoTaskStatus = activeVideo?.taskStatus;
+  // 任务成功后，若正在查看已完成的临时批次则切换至最终视频，避免预览停在空状态。
+  useEffect(() => {
+    const isViewingTask = viewingVideoId?.startsWith("task:");
+    const taskStillVisible = isViewingTask
+      && videoTaskStates.some((task) => `task:${task.taskId}` === viewingVideoId);
+    if (isViewingTask && !taskStillVisible) {
+      setViewingVideoId(sb.selected_video_id ?? videos[videos.length - 1]?.id ?? null);
+    }
+  }, [sb.selected_video_id, videoTaskStates, videos, viewingVideoId]);
 
   // ── 自绘播放控件（绕开 WebView2 原生 controls 命中错位） ──
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -827,6 +989,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         assetTag: typeof value.assetTag === "string" && value.assetTag
           ? value.assetTag
           : createAssetTag(name, index),
+        deleted: !currentAsset,
       });
     }
 
@@ -865,6 +1028,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
     const normalizedMentions: PromptMention[] = mentions.map((m) => ({
       n: m.index, assetId: m.assetId, name: m.name,
       type: m.type, imagePath: m.imagePath, assetTag: m.assetTag,
+      deleted: m.deleted,
     }));
 
     // 动态标注 (@图片N) → 全量重建 Tiptap doc
@@ -950,7 +1114,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   // ── @mention 状态 ────────────────────────────────
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
-  const [mentionPos, setMentionPos] = useState<{ top: number; left: number } | null>(null);
+  const [mentionPos, setMentionPos] = useState<MentionAnchor | null>(null);
   const editorRef = useRef<PromptEditorHandle>(null);
   const mentionMapRef = useRef<Map<number, AssetMention>>(new Map());
   // mentionItems：已分配 index 的资产列表，作为 state 传给 PromptEditor 触发重渲染
@@ -995,7 +1159,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   }, []);
 
   // Tiptap suggestion 回调：@ 触发时打开下拉。
-  const handleMentionStart = useCallback((query: string, pos: { top: number; left: number }) => {
+  const handleMentionStart = useCallback((query: string, pos: MentionAnchor) => {
     setMentionFilter(query);
     setMentionPos(pos);
     setMentionOpen(true);
@@ -1040,6 +1204,14 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const handleGenerateVideo = useCallback(async () => {
     try {
+      // 检查是否有已删除的资产胶囊
+      const deletedEntries = [...mentionMapRef.current.values()].filter((m) => m.deleted);
+      if (deletedEntries.length > 0) {
+        const names = deletedEntries.map((m) => `"${m.name}"`).join("、");
+        toast(`资产${names}已被删除，请先移除提示词中的红色胶囊后再生成视频`, "error");
+        return;
+      }
+
       const doc = editorRef.current?.getPromptDoc() ?? promptDocRef.current;
       const normalized = normalizePromptReferences(doc, mentionMapRef.current);
       const raw = normalized.prompt.trim();
@@ -1068,37 +1240,15 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
         video_param_json: JSON.stringify({ ...params, mention_map: mapEntries, prompt_doc: normalized.promptDoc }),
         video_prompt: raw,
       });
-      await generateStoryboardVideo({ storyboard_id: sb.id });
+      const task = await generateStoryboardVideo({ storyboard_id: sb.id });
+      onVideoTaskQueued(sb.id, task.task_id);
       toast("视频生成任务已提交", "success");
-    } catch (error) {
-      toast(`视频生成失败：${String(error)}`, "error");
+    } catch {
+      toast(formatStoryboardVideoFailure(), "error");
     } finally {
       setGeneratingVideo(false);
     }
-  }, [params, sb.id, toast]);
-
-  const [uploadingVideo, setUploadingVideo] = useState(false);
-  const handleUploadVideo = useCallback(async () => {
-    if (!clipId) return;
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "视频", extensions: ["mp4", "mov", "avi", "mkv", "webm"] }],
-      });
-      if (!selected || typeof selected !== "string") return;
-      setUploadingVideo(true);
-      const result = await importVideoFile(clipId, selected);
-      await addStoryboardVideo({ storyboard_id: sb.id, video_path: result.file_path, file_name: result.file_name });
-      // 同步 dataMap/videosMap → 底部缩略图条即时刷新
-      await onVideoRefresh(sb.id);
-      setVideoVer((v) => v + 1);
-      toast("视频已导入", "success");
-    } catch (e) {
-      toast(`视频导入失败：${String(e)}`, "error");
-    } finally {
-      setUploadingVideo(false);
-    }
-  }, [clipId, sb, toast]);
+  }, [onVideoTaskQueued, params, sb.id, sb.seq_num, toast]);
 
 
   return (
@@ -1187,6 +1337,20 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
               </div>
               {waiting && <div className="sd-player-loading">加载中…</div>}
             </div>
+          ) : currentVideoTaskStatus ? (
+            <div className={`sd-player-task-state sd-player-task-state--${currentVideoTaskStatus}`}>
+              {currentVideoTaskStatus === "failed" ? (
+                <span className="sd-video-task-failure-icon" aria-hidden>×</span>
+              ) : (
+                <span className="sd-video-task-orb" aria-hidden />
+              )}
+              <strong>{currentVideoTaskStatus === "failed" ? "视频生成失败" : "视频生成中"}</strong>
+              <span>
+                {currentVideoTaskStatus === "failed"
+                  ? formatStoryboardVideoFailure()
+                  : "视频批次正在生成，请稍候…"}
+              </span>
+            </div>
           ) : (
             <svg viewBox="0 0 320 180" fill="none" className="sd-detail-video-empty" preserveAspectRatio="xMidYMid meet">
               <defs>
@@ -1255,17 +1419,53 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
       {/* 第二行：视频批次 */}
       <div className="sd-row-card">
         <div className="sd-batch-thumbs">
-          {videos.map((v, i) => {
-            const isSelected = v.id === sb.selected_video_id;
+          {displayVideos.map((v, i) => {
+            const isTaskBatch = Boolean(v.taskStatus);
+            const isSelected = !isTaskBatch && v.id === sb.selected_video_id;
             const isViewing = v.id === playerVidId;
             const batchLabel = `B${i + 1}`;
+            const taskLabel = v.taskStatus === "failed" ? "生成失败" : "生成中";
             return (
-              <div key={v.id} className={`sd-video-thumb-wrap${isSelected ? " on" : ""}${isViewing ? " playing" : ""}`}>
-                <div className="sd-video-thumb-click" onClick={() => setViewingVideoId(v.id)}>
-                  <video src={convertFileSrc(v.file_path)} muted preload="metadata" className="sd-video-thumb-vid" />
+              <div
+                key={v.id}
+                className={`sd-video-thumb-wrap${isSelected ? " on" : ""}${isViewing ? " playing" : ""}${v.taskStatus ? ` is-task is-task--${v.taskStatus}` : ""}`}
+              >
+                <div
+                  className="sd-video-thumb-click"
+                  onClick={() => setViewingVideoId(v.id)}
+                  title={isTaskBatch ? taskLabel : v.file_name}
+                >
+                  {isTaskBatch ? (
+                    <div className="sd-video-task-thumb" aria-label={taskLabel}>
+                      {v.taskStatus === "failed" ? (
+                        <span className="sd-video-task-failure-icon" aria-hidden>×</span>
+                      ) : (
+                        <span className="sd-video-task-orb" aria-hidden />
+                      )}
+                      {v.taskStatus !== "failed" && <span>{taskLabel}</span>}
+                    </div>
+                  ) : (
+                    <video src={convertFileSrc(v.file_path)} muted preload="metadata" className="sd-video-thumb-vid" />
+                  )}
                 </div>
                 <span className="sd-video-thumb-label">{batchLabel}</span>
-                {!isSelected && (
+                {v.taskStatus === "failed" && v.task_id && (
+                  <button
+                    className="sd-video-thumb-delete"
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingDeleteFailedTask({ taskId: v.task_id!, status: "failed" });
+                    }}
+                    title="删除失败批次"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
+                {!isTaskBatch && !isSelected && (
                   <button
                     className="sd-video-thumb-select"
                     onClick={(e) => { e.stopPropagation(); setPendingSelect(v); }}
@@ -1276,34 +1476,25 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
                     </svg>
                   </button>
                 )}
-                <button
-                  className="sd-video-thumb-delete"
-                  onClick={(e) => { e.stopPropagation(); setPendingDelete(v); }}
-                  title="删除该批次"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                {!isTaskBatch && !isSelected && (
+                  <button
+                    className="sd-video-thumb-delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteFiles(false);
+                      setPendingDelete(v);
+                    }}
+                    title="删除该批次"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
               </div>
             );
           })}
-          <button
-            className="sd-video-thumb sd-video-thumb--add"
-            disabled={uploadingVideo}
-            onClick={handleUploadVideo}
-            title="手动上传视频"
-          >
-            {uploadingVideo ? (
-              <span className="sd-video-thumb-spinner" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            )}
-          </button>
         </div>
       </div>
 
@@ -1328,7 +1519,7 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
                           <span
                             key={a.asset_id}
                             className={`sd-detail-chip on${!img ? " sd-detail-chip--nogen" : ""}`}
-                            title={!img ? `${a.name}（图片未生成，点击去生成）` : (a.description || a.name)}
+                            title={!img ? `${a.name}（图片未生成）` : (a.description || a.name)}
                             onClick={() => { if (img) setPreviewImg(img); }}
                           >
                             {img ? (
@@ -1560,41 +1751,64 @@ function DetailView({ sb, assets, clipId, busy, saving, videoModels, onToggle, o
 
       {/* 删除批次视频确认 */}
       {pendingDelete && (
-        <StoryboardConfirm
+        <DeleteConfirmModal
           title="删除批次"
-          message={`确认删除 ${pendingDelete.file_name}？`}
-          confirmText="删除"
-          checkbox={{
-            label: "同时删除视频文件",
-            checked: deleteFiles,
-            onChange: setDeleteFiles,
-          }}
+          description={<>确认删除 <strong>{pendingDelete.file_name}</strong>？</>}
+          checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
           onConfirm={async () => {
-            const v = pendingDelete;
-            const df = deleteFiles;
+            const video = pendingDelete;
+            const shouldDeleteFile = deleteFiles;
             setPendingDelete(null);
-            if (!v) return;
+            setDeleteFiles(false);
+            if (!video) return;
             try {
-              await deleteStoryboardVideo({ storyboard_id: sb.id, video_id: v.id, delete_file: df });
+              const result = await deleteStoryboardVideo({
+                storyboard_id: sb.id,
+                video_id: video.id,
+                delete_file: shouldDeleteFile,
+              });
               await onVideoRefresh(sb.id);
-              setVideoVer((x) => x + 1);
-              toast("已删除", "success");
-            } catch (e) {
-              toast(`删除失败：${String(e)}`, "error");
+              setVideoVer((version) => version + 1);
+              const feedback = formatDeleteResult(result);
+              toast(feedback.text, feedback.kind);
+            } catch (error) {
+              const feedback = formatDeleteResult(undefined, true);
+              toast(feedback.text, feedback.kind);
             }
           }}
-          onCancel={() => setPendingDelete(null)}
+          onCancel={() => {
+            setDeleteFiles(false);
+            setPendingDelete(null);
+          }}
           disabled={busy}
+          excludeTitlebar
+        />
+      )}
+
+      {pendingDeleteFailedTask && (
+        <DeleteConfirmModal
+          title="删除批次"
+          description={<>确认删除 <strong>生成失败批次</strong>？</>}
+          onConfirm={async () => {
+            const task = pendingDeleteFailedTask;
+            setPendingDeleteFailedTask(null);
+            try {
+              await deleteStoryboardVideoTask({ storyboard_id: sb.id, task_id: task.taskId });
+              onVideoRefresh(sb.id);
+              setVideoVer((version) => version + 1);
+              toast("失败视频批次已删除", "success");
+            } catch {
+              toast("删除失败视频批次失败", "error");
+            }
+          }}
+          onCancel={() => setPendingDeleteFailedTask(null)}
+          disabled={busy}
+          excludeTitlebar
         />
       )}
 
       {/* 资产图片灯箱 */}
-      {previewImg && (
-        <div className="sd-preview-overlay" onClick={() => setPreviewImg(null)}>
-          <img src={previewImg} alt="" className="sd-preview-img" onClick={(e) => e.stopPropagation()} />
-          <button className="sd-preview-close" onClick={() => setPreviewImg(null)} aria-label="关闭">×</button>
-        </div>
-      )}
+      {previewImg && <ImageLightbox src={previewImg} alt="" onClose={() => setPreviewImg(null)} />}
 
     </div>
   );

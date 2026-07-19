@@ -95,10 +95,19 @@ export interface GeneralSettings {
   defaultProjectDir: string;
 }
 
+/** Worker 运行时并发上限；默认值由 default-settings.json 统一管理。 */
+export interface ConcurrencySettings {
+  text: number;
+  image: number;
+  arkUpload: number;
+  video: number;
+}
+
 // ── 复合设置 ─────────────────────────────────────────────
 
 export interface AppSettings {
   general: GeneralSettings;
+  concurrency: ConcurrencySettings;
   text: ChannelList<TextChannel>;
   textParams: TextParams;
   image: ChannelList<ImageChannel>;

@@ -4,6 +4,78 @@ use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 
+/// 删除项目工作区中的文件并统计实际结果；目录本身不计入文件数量。
+///
+/// 仅用于删除该项目所属工作区。符号链接按文件删除，不会递归进入其指向的位置。
+fn delete_project_workspace_files(
+    workspace_path: &str,
+) -> crate::commands::clip::DeleteClipsResult {
+    fn delete_contents(
+        directory: &std::path::Path,
+        result: &mut crate::commands::clip::DeleteClipsResult,
+    ) {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => {
+                result.failed_file_count += 1;
+                return;
+            }
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    result.failed_file_count += 1;
+                    continue;
+                }
+            };
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(_) => {
+                    result.failed_file_count += 1;
+                    continue;
+                }
+            };
+
+            if file_type.is_dir() {
+                delete_contents(&path, result);
+                if let Err(error) = std::fs::remove_dir(&path) {
+                    if error.kind() != std::io::ErrorKind::NotFound && result.failed_file_count == 0
+                    {
+                        result.failed_file_count += 1;
+                    }
+                }
+                continue;
+            }
+
+            match std::fs::remove_file(&path) {
+                Ok(()) => result.deleted_file_count += 1,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => result.failed_file_count += 1,
+            }
+        }
+    }
+
+    let mut result = crate::commands::clip::DeleteClipsResult {
+        deleted_file_count: 0,
+        skipped_file_count: 0,
+        failed_file_count: 0,
+    };
+    let workspace = std::path::Path::new(workspace_path);
+    if workspace.exists() {
+        delete_contents(workspace, &mut result);
+        if let Err(error) = std::fs::remove_dir(workspace) {
+            if error.kind() != std::io::ErrorKind::NotFound && result.failed_file_count == 0 {
+                result.failed_file_count += 1;
+            }
+        }
+    }
+    result
+}
+
 /// 创建项目输入参数
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
@@ -211,7 +283,7 @@ pub fn delete_project(
     delete_files: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, SharedSidecarManager>,
-) -> Result<(), String> {
+) -> Result<crate::commands::clip::DeleteClipsResult, String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
 
@@ -281,9 +353,11 @@ pub fn delete_project(
             )
             .unwrap_or(0);
 
-        // 1. task_locks（依赖 tasks.lock_key）
+        // 1. task_locks（任务锁可按 lock_key 或 locked_by 关联，二者均清理）
         tx.execute(
-            "DELETE FROM task_locks WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)",
+            "DELETE FROM task_locks
+             WHERE lock_key IN (SELECT lock_key FROM tasks WHERE project_id = ?1)
+                OR locked_by IN (SELECT id FROM tasks WHERE project_id = ?1)",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
@@ -424,23 +498,31 @@ pub fn delete_project(
         ),
     );
 
-    // 可选：删除工作区文件
-    if delete_files {
-        let ws = std::path::Path::new(&workspace_path);
-        if ws.exists() {
-            std::fs::remove_dir_all(ws).map_err(|e| {
-                let msg = format!("删除工作区失败：{}", e);
-                crate::project_log::append_log(&log_path, "项目", "ERROR", &msg);
-                msg
-            })?;
-            crate::project_log::append_log(
-                &log_path,
-                "项目",
-                "INFO",
-                &format!("工作区已删除：{}", workspace_path),
-            );
+    // 可选：删除工作区文件。数据库删除已提交，文件清理错误通过结果返回而不回滚记录。
+    let result = if delete_files {
+        let result = delete_project_workspace_files(&workspace_path);
+        let level = if result.failed_file_count > 0 {
+            "WARN"
+        } else {
+            "INFO"
+        };
+        crate::project_log::append_log(
+            &log_path,
+            "项目",
+            level,
+            &format!(
+                "工作区文件清理完成：已删除 {}，失败 {}，workspace={}",
+                result.deleted_file_count, result.failed_file_count, workspace_path
+            ),
+        );
+        result
+    } else {
+        crate::commands::clip::DeleteClipsResult {
+            deleted_file_count: 0,
+            skipped_file_count: 0,
+            failed_file_count: 0,
         }
-    }
+    };
 
-    Ok(())
+    Ok(result)
 }

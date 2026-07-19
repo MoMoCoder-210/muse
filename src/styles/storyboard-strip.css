@@ -4,14 +4,21 @@
 
 .sb-strip-wrap {
   flex-shrink: 0;
-  overflow-x: auto; overflow-y: hidden;
-  padding: 0;
   height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  /* 滚动条贴近组件底边；不保留内部避让空间。 */
+  padding: 0;
+  scrollbar-gutter: stable;
 }
 
 .sb-strip {
-  display: flex; align-items: center;
-  padding: var(--spacing-xs) 0;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 2px;
+  min-height: 100%;
 }
 
 .sb-strip-group {
@@ -21,20 +28,32 @@
 /* 缩略图卡片 */
 .sb-strip-item {
   position: relative;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 0; border: none; background: transparent;
-  color: var(--text-muted); font-size: var(--font-size-xxs);
-  cursor: pointer; flex-shrink: 0; width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-xxs);
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 96px;
 }
 
 .sb-strip-item--add {
-  width: 88px; aspect-ratio: 4/3;
+  /* 与普通卡片的缩略图区域等宽等高，避免尾部添加框在交叉轴上偏移。 */
+  width: 96px;
+  height: 64px;
+  align-self: flex-start;
   justify-content: center;
   background: rgba(255, 255, 255, 0.03);
   border: 1.5px dashed rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
   color: var(--text-muted);
   transition: border-color 160ms ease, color 160ms ease, background 160ms ease, transform 160ms ease;
+  margin: 10px 0 0 0;
 }
 .sb-strip-item--add:hover:not(:disabled) {
   border-color: rgba(var(--accent-primary-rgb), 0.45);
@@ -54,11 +73,14 @@
   transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
 }
 
-/* 底部文字脱离文档流，使 sb-strip-item 高度 = thumb 高度 */
+/* 编号与时长按普通文档流排列，不额外为水平滚动条保留安全区。 */
 .sb-strip-dur {
-  position: absolute; bottom: -20px; left: 0; right: 0;
-  font-size: var(--font-size-xxs); color: var(--text-muted); font-variant-numeric: tabular-nums;
-  text-align: center; line-height: 1.2;
+  flex-shrink: 0;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-align: center;
 }
 .sb-strip-del {
   position: absolute; top: 4px; right: 4px;
@@ -92,40 +114,101 @@
   display: none;
 }
 
-/* 分镜间悬停间隙：默认不可见，hover 时展开显示 + 按钮 */
+/* 分镜间悬停插入：与普通卡片的缩略图区域（96×72）同一基线。 */
 .sb-strip-gap {
   flex-shrink: 0;
   width: 12px;
-  align-self: stretch;
+  height: 72px;
+  align-self: flex-start;
   position: relative;
   transition: width 180ms ease;
+  margin: 10px 0 0 0;
 }
 .sb-strip-gap.on { width: 52px; }
 
 .sb-strip-gap-btn {
   position: absolute;
-  top: 50%;
+  top: 0;
   left: 50%;
-  width: 40px; height: 57px;
+  width: 40px;
+  height: 64px;
   padding: 0;
   border: 1.5px dashed rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.03);
   color: var(--text-muted);
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0; transform: translate(-50%, -50%) scale(0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.5);
   transition: opacity 160ms ease, transform 160ms cubic-bezier(0.25, 0, 0, 1), border-color 160ms ease, color 160ms ease, background 160ms ease;
   pointer-events: none;
 }
 .sb-strip-gap.on .sb-strip-gap-btn {
-  opacity: 1; transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
   pointer-events: auto;
 }
 .sb-strip-gap-btn:hover:not(:disabled) {
   border-color: rgba(var(--accent-primary-rgb), 0.5);
   color: rgb(var(--accent-primary-rgb));
   background: rgba(var(--accent-primary-rgb), 0.08);
-  transform: translate(-50%, -50%) scale(1.08);
+  transform: translateX(-50%) scale(1.08);
 }
 .sb-strip-gap-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+
+/* ── 分镜视频任务状态（mac 风格半透明覆盖） ── */
+.sb-strip-task-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  background: rgba(12, 16, 24, 0.64);
+  backdrop-filter: blur(7px) saturate(130%);
+  -webkit-backdrop-filter: blur(7px) saturate(130%);
+}
+.sb-strip-task-state--generating {
+  background:
+    radial-gradient(circle at 50% 36%, rgba(var(--accent-primary-rgb), 0.28), transparent 48%),
+    rgba(12, 16, 24, 0.68);
+}
+.sb-strip-task-state--failed {
+  background:
+    radial-gradient(circle at 50% 36%, rgba(var(--color-danger-rgb), 0.25), transparent 48%),
+    rgba(37, 17, 22, 0.72);
+}
+.sb-strip-task-state .sd-video-task-orb {
+  width: 15px;
+  height: 15px;
+  border-width: 1.7px;
+}
+.sb-strip-task-fail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(var(--color-danger-rgb), 0.84);
+  box-shadow: 0 0 0 3px rgba(var(--color-danger-rgb), 0.16);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 300;
+  line-height: 1;
+}
+.sb-strip-thumb > .sb-strip-del {
+  z-index: 2;
+}
+.sb-strip-dur.is-generating { color: rgb(var(--accent-primary-rgb)); }
+.sb-strip-dur.is-failed { color: var(--color-danger); }

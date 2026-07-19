@@ -23,6 +23,7 @@ export type {
   VideoParams,
   ChannelList,
   GeneralSettings,
+  ConcurrencySettings,
   AppSettings,
 } from "./settings-types";
 

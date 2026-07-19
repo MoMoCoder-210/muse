@@ -1,3 +1,8 @@
+/* 删除批次遮罩：覆盖整个内容区，窗口标题栏和控制按钮保持可操作。 */
+.delete-batch-backdrop {
+  inset: var(--titlebar-height) 0 0;
+}
+
 /* ── 删除确认弹窗 ── */
 
 .delete-panel {

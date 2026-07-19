@@ -81,6 +81,7 @@ export function SettingsPage({ onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [appVersion, setAppVersion] = useState("unknown");
   const [closing, setClosing] = useState(false);
+  const clickInsideRef = useRef(false);
 
   const closeWithAnimation = useCallback(() => {
     setClosing(true);
@@ -193,8 +194,8 @@ export function SettingsPage({ onClose }: Props) {
                 </svg>
               </div>
               <div className="sk-action-body">
-                <span className="sk-action-title">应用数据目录</span>
-                <span className="sk-action-desc">设置、工作区与项目缓存</span>
+                <span className="sk-action-title">配置文件目录</span>
+                <span className="sk-action-desc">配置文件与软件缓存</span>
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="sk-action-arrow"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
@@ -208,7 +209,7 @@ export function SettingsPage({ onClose }: Props) {
               </div>
               <div className="sk-action-body">
                 <span className="sk-action-title">日志目录</span>
-                <span className="sk-action-desc">运行日志与任务日志</span>
+                <span className="sk-action-desc">软件运行日志</span>
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="sk-action-arrow"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
@@ -281,13 +282,16 @@ export function SettingsPage({ onClose }: Props) {
   // ── 主体 ──────────────────────────────────────────
 
   return (
-    <div
+      <div
         className={`sk-overlay${closing ? " sk-overlay--closing" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="应用设置"
+        onMouseDown={(e) => {
+          clickInsideRef.current = e.target === e.currentTarget;
+        }}
         onClick={(e) => {
-          if ((e.target as HTMLElement).classList.contains("sk-overlay")) closeWithAnimation();
+          if (clickInsideRef.current && e.target === e.currentTarget) closeWithAnimation();
         }}
       >
       <div className={`sk-panel${closing ? " sk-panel--closing" : ""}`}>

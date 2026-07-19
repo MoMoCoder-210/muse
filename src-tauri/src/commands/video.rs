@@ -654,45 +654,66 @@ fn default_delete_concat_file() -> bool {
 pub fn delete_concat_output(
     input: DeleteConcatOutputInput,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<crate::commands::clip::DeleteClipsResult, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 仅在需要删除文件时取回路径
-    let file_path = if input.delete_file {
-        conn.query_row(
-            "SELECT output_path FROM concat_outputs WHERE id = ?1",
-            rusqlite::params![&input.id],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
+    // 在删记录前读取所属项目工作区；提交后仅清理该工作区内的输出文件。
+    let file_candidate = if input.delete_file {
+        let (file_path, workspace_path): (String, String) = conn
+            .query_row(
+                "SELECT co.output_path, p.workspace_path
+                 FROM concat_outputs co
+                 JOIN projects p ON p.id = co.project_id
+                 WHERE co.id = ?1",
+                rusqlite::params![&input.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| "成片记录不存在".to_string())?;
+        Some(crate::commands::clip::ClipFileCandidate {
+            workspace_path: std::path::PathBuf::from(workspace_path),
+            file_path: std::path::PathBuf::from(file_path),
+        })
     } else {
         None
     };
 
-    conn.execute(
-        "DELETE FROM concat_outputs WHERE id = ?1",
-        rusqlite::params![&input.id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    if let Some(p) = file_path {
-        let _ = std::fs::remove_file(&p);
+    let affected = conn
+        .execute(
+            "DELETE FROM concat_outputs WHERE id = ?1",
+            rusqlite::params![&input.id],
+        )
+        .map_err(|e| e.to_string())?;
+    if affected != 1 {
+        return Err("成片记录不存在".to_string());
     }
+
+    let result = match file_candidate {
+        Some(candidate) => crate::commands::clip::delete_managed_files(vec![candidate]),
+        None => crate::commands::clip::DeleteClipsResult {
+            deleted_file_count: 0,
+            skipped_file_count: 0,
+            failed_file_count: 0,
+        },
+    };
 
     if let Ok(app_data_dir) = crate::app_paths::resolve_app_data_dir(&app) {
         let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
         crate::project_log::append_log(
             &log_path,
             "视频拼接",
-            "INFO",
+            if result.failed_file_count > 0 {
+                "WARN"
+            } else {
+                "INFO"
+            },
             &format!(
-                "已删除成片记录 id={} deleteFile={}",
-                input.id, input.delete_file
+                "已删除成片记录 id={} deleteFile={}；本地文件已删除 {}，失败 {}",
+                input.id, input.delete_file, result.deleted_file_count, result.failed_file_count,
             ),
         );
     }
 
-    Ok(())
+    Ok(result)
 }
 
 /// 查询指定片段的所有拼接成片

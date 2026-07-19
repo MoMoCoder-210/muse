@@ -30,6 +30,25 @@ export async function getAppVersion(): Promise<string> {
   return invoke<string>("get_app_version");
 }
 
+/** 应用运行时服务健康状态（由 Tauri 启动流程维护）。 */
+export interface StartupStatusPayload {
+  status: "ready" | "error";
+  db_ok: boolean;
+  ffmpeg_ok: boolean;
+  worker_ok: boolean;
+  message: string;
+}
+
+/** 查询最近一次启动健康检查结果。 */
+export async function getStartupStatus(): Promise<StartupStatusPayload | null> {
+  return invoke<StartupStatusPayload | null>("get_startup_status");
+}
+
+/** 实时检查后端、数据库、FFmpeg 与 Worker 的运行状态。 */
+export async function getRuntimeStatus(): Promise<StartupStatusPayload> {
+  return invoke<StartupStatusPayload>("get_runtime_status");
+}
+
 /** 打开应用数据目录（settings.json / workspace / logs 等） */
 export async function openAppDataDir(): Promise<void> {
   return invoke<void>("open_app_data_dir");
@@ -116,18 +135,29 @@ export async function listScriptSources(projectId: string): Promise<ScriptSource
  * 删除项目
  *
  */
-export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<void> {
-  return invoke<void>("delete_project", { projectId, deleteFiles });
+export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<FileDeletionResult> {
+  return invoke<FileDeletionResult>("delete_project", { projectId, deleteFiles });
 }
 
 /** 新增片段级写操作 IPC */
 
+/** 所有删除命令共用的本地文件清理统计。 */
+export interface FileDeletionResult {
+  deleted_file_count: number;
+  skipped_file_count: number;
+  failed_file_count: number;
+}
+
+export type DeleteClipsResult = FileDeletionResult;
+
 /**
- * 批量软删除片段，支持单条（传长度1数组）或多条
- *
+ * 批量软删除片段，支持单条（传长度1数组）或多条。
+ * `deleteFiles` 默认关闭；开启时仅删除数据库记录引用的项目工作区内文件。
  */
-export async function deleteClips(clipIds: string[]): Promise<void> {
-  return invoke<void>("delete_clips", { input: { clip_ids: clipIds } });
+export async function deleteClips(clipIds: string[], deleteFiles = false): Promise<DeleteClipsResult> {
+  return invoke<DeleteClipsResult>("delete_clips", {
+    input: { clip_ids: clipIds, delete_files: deleteFiles },
+  });
 }
 
 /**
@@ -420,20 +450,22 @@ export async function deleteAssetImage(input: {
   name: string;
   image_id: string;
   delete_file: boolean;
-}): Promise<void> {
-  return invoke("delete_asset_image", { input });
+}): Promise<FileDeletionResult> {
+  return invoke<FileDeletionResult>("delete_asset_image", { input });
 }
 
+export type ManagedFileDeletionResult = FileDeletionResult;
+
 /**
- * 从片段拆解结果中删除资产
- *
+ * 从片段拆解结果中删除资产，可选清理项目工作区内关联的本地文件。
  */
 export async function deleteAssetFromClip(input: {
   clip_id: string;
   asset_type: string;
   name: string;
-}): Promise<void> {
-  return invoke<void>("delete_asset_from_clip", { input });
+  delete_files?: boolean;
+}): Promise<ManagedFileDeletionResult> {
+  return invoke<ManagedFileDeletionResult>("delete_asset_from_clip", { input });
 }
 
 /**
@@ -519,13 +551,13 @@ export async function insertStoryboard(input: {
 }
 
 /**
- * 删除一个分镜，同时清理关联记录
- *
+ * 删除一个分镜及其关联记录；可选清理关联视频批次的工作区文件。
  */
 export async function deleteStoryboard(input: {
   storyboard_id: string;
-}): Promise<void> {
-  return invoke<void>("delete_storyboard", { input });
+  delete_files?: boolean;
+}): Promise<FileDeletionResult> {
+  return invoke<FileDeletionResult>("delete_storyboard", { input });
 }
 
 /**
@@ -540,7 +572,7 @@ export async function updateStoryboardParams(input: {
   return invoke<void>("update_storyboard_params", { input });
 }
 
-/** 提交一个分镜视频生成任务。Worker 会读取已持久化的 promptDoc 序列化文本和 mention_map。 */
+/** 提交一个分镜视频生成任务。入队时后端会冻结当前提示词和参数快照。 */
 export async function generateStoryboardVideo(input: {
   storyboard_id: string;
 }): Promise<{ task_id: string }> {
@@ -579,11 +611,23 @@ export interface StoryboardVideoInfo {
   file_path: string;
   file_name: string;
   source: string;
+  /** 生成该视频的任务；手动上传视频为 null。 */
+  task_id: string | null;
   duration: number | null;
+}
+
+/** 分镜视频的未完成或失败任务，可在组件重挂载后恢复批次状态。 */
+export interface StoryboardVideoTaskInfo {
+  task_id: string;
+  status: "pending" | "running" | "failed";
 }
 
 export async function listStoryboardVideos(storyboardId: string): Promise<StoryboardVideoInfo[]> {
   return invoke<StoryboardVideoInfo[]>("list_storyboard_videos", { storyboardId });
+}
+
+export async function listStoryboardVideoTasks(storyboardId: string): Promise<StoryboardVideoTaskInfo[]> {
+  return invoke<StoryboardVideoTaskInfo[]>("list_storyboard_video_tasks", { storyboardId });
 }
 
 export async function addStoryboardVideo(input: {
@@ -594,12 +638,19 @@ export async function addStoryboardVideo(input: {
   return invoke<StoryboardVideoInfo>("add_storyboard_video", { input });
 }
 
+export async function deleteStoryboardVideoTask(input: {
+  storyboard_id: string;
+  task_id: string;
+}): Promise<void> {
+  return invoke<void>("delete_storyboard_video_task", { input });
+}
+
 export async function deleteStoryboardVideo(input: {
   storyboard_id: string;
   video_id: string;
   delete_file?: boolean;
-}): Promise<void> {
-  return invoke("delete_storyboard_video", { input });
+}): Promise<ManagedFileDeletionResult> {
+  return invoke<ManagedFileDeletionResult>("delete_storyboard_video", { input });
 }
 
 // ── 视频拼接 ─────────────────────────────────────────────
@@ -650,8 +701,8 @@ export async function saveConcatOutput(input: SaveConcatOutputInput): Promise<st
 }
 
 /** 删除一条拼接成片（数据库记录，可选同时删除文件） */
-export async function deleteConcatOutput(id: string, deleteFile = true): Promise<void> {
-  return invoke<void>("delete_concat_output", { input: { id, delete_file: deleteFile } });
+export async function deleteConcatOutput(id: string, deleteFile = true): Promise<FileDeletionResult> {
+  return invoke<FileDeletionResult>("delete_concat_output", { input: { id, delete_file: deleteFile } });
 }
 
 /** 成片列表行 */

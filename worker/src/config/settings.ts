@@ -8,7 +8,7 @@ import {
   DEFAULT_SETTINGS, getActiveChannel,
   resolveTextConfig, resolveImageConfig, resolveVoiceConfig, resolveVideoConfig,
   type AppSettings, type TextModelConfig, type ImageModelConfig,
-  type VoiceModelConfig, type AssetModelConfig, type VideoModelConfig,
+  type VoiceModelConfig, type AssetModelConfig, type VideoModelConfig, type ConcurrencySettings,
 } from "./defaults.js";
 import { logLine } from "../logger.js";
 
@@ -34,6 +34,10 @@ export class SettingsManager {
 
   get(): AppSettings { return this.cache; }
   reload(): AppSettings { this.cache = this.load(); return this.cache; }
+
+  getConcurrencyConfig(): ConcurrencySettings {
+    return this.cache.concurrency;
+  }
 
   save(settings: AppSettings): void {
     mkdirSync(dirname(this.configPath), { recursive: true });

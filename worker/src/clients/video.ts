@@ -11,7 +11,6 @@
  * 提示词中引用素材格式：图片1、图片2、音频1、视频1（按 content 数组中出现顺序从 1 计数）
  */
 
-import OpenAI from "openai";
 import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
@@ -75,27 +74,23 @@ interface TaskInfo {
 // ── 客户端 ────────────────────────────────────────────────
 
 export class VideoClient {
-  private client: OpenAI;
   private config: VideoModelConfig;
 
   constructor(config: VideoModelConfig) {
     this.config = config;
-    this.client = new OpenAI({
-      apiKey: config.apiKey || FALLBACK_API_KEY,
-      baseURL: config.baseUrl,
-      timeout: config.timeoutMs,
-      maxRetries: 0,
-    });
   }
 
   updateConfig(config: VideoModelConfig): void {
     this.config = config;
-    this.client = new OpenAI({
-      apiKey: config.apiKey || FALLBACK_API_KEY,
-      baseURL: config.baseUrl,
-      timeout: config.timeoutMs,
-      maxRetries: 0,
-    });
+  }
+
+  // ── 公共请求头 ────────────────────────────────────
+
+  private get headers(): Record<string, string> {
+    return {
+      "Authorization": `Bearer ${this.config.apiKey || FALLBACK_API_KEY}`,
+      "Content-Type": "application/json",
+    };
   }
 
   // ── 创建任务 ──────────────────────────────────────
@@ -105,7 +100,7 @@ export class VideoClient {
     references: VideoReference[],
     options: VideoGenerateOptions = {},
   ): Promise<string> {
-    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/content_generation/tasks`;
+    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/contents/generations/tasks`;
 
     const content: unknown[] = [
       { type: "text", text: prompt },
@@ -126,26 +121,50 @@ export class VideoClient {
       ratio: options.ratio ?? "16:9",
       duration: options.duration ?? 5,
       ...(options.resolution ? { resolution: options.resolution } : {}),
-      generate_audio: options.generateAudio ?? false,
+      generate_audio: options.generateAudio ?? true,
       watermark: options.watermark ?? false,
     };
 
-    // 记录实际交给 SDK 的完整业务请求体，便于验证提示词、参考资源和模型参数。
-    // reqBody 不包含 Authorization/API Key；通过 l 双写到 Worker 日志文件和应用实时日志。
-    l("VideoClient", `最终模型请求（完整参数，无凭据）\n${JSON.stringify({ method: "POST", url: apiUrl, body: reqBody }, null, 2)}`);
-    logRequest("VideoClient", "POST", apiUrl, this.config.apiKey, reqBody);
+    // 日志脱敏：Base64 数据 URL 体积巨大，替换为类型占位符
+    const sanitizedContent = content.map((item: any) => {
+      const field = item.image_url ? "image_url" : item.audio_url ? "audio_url" : item.video_url ? "video_url" : null;
+      if (field && typeof item[field]?.url === "string" && item[field].url.startsWith("data:")) {
+        return { ...item, [field]: { url: `[base64:${item.type}]` } };
+      }
+      return item;
+    });
+    const logBody = { ...reqBody, content: sanitizedContent };
+    l("VideoClient", `最终模型请求（完整参数，无凭据）\n${JSON.stringify({ method: "POST", url: apiUrl, body: logBody }, null, 2)}`);
+    logRequest("VideoClient", "POST", apiUrl, this.config.apiKey, logBody);
     const startedAt = Date.now();
 
     try {
-      const response = await (this.client as any).content_generation.tasks.create(
-        reqBody,
-        { signal: options.signal },
-      );
+      const httpRes = await fetch(apiUrl, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify(reqBody),
+        signal: options.signal,
+      });
 
-      const taskId = response?.id;
-      if (!taskId) throw new Error("VideoClient: 未获取到任务 ID");
+      const resText = await httpRes.text();
+      l("VideoClient", `创建任务 HTTP ${httpRes.status}\n${resText}`);
 
-      logResponse("VideoClient", apiUrl, Date.now() - startedAt, { task_id: taskId, status: response?.status });
+      let resBody: any;
+      try {
+        resBody = JSON.parse(resText);
+      } catch {
+        throw new Error(`VideoClient: 创建任务返回非 JSON — HTTP ${httpRes.status}\n${resText}`);
+      }
+
+      if (!httpRes.ok || resBody.error) {
+        const errDetail = resBody.error?.message || resBody.error?.code || JSON.stringify(resBody.error || resBody);
+        throw new Error(`VideoClient: 创建任务失败 HTTP ${httpRes.status} — ${errDetail}`);
+      }
+
+      const taskId = resBody?.id;
+      if (!taskId) throw new Error(`VideoClient: 未获取到任务 ID — 返回体:\n${resText}`);
+
+      logResponse("VideoClient", apiUrl, Date.now() - startedAt, { task_id: taskId, status: resBody?.status });
       return taskId;
     } catch (err) {
       logFailure("VideoClient", apiUrl, Date.now() - startedAt, err);
@@ -156,14 +175,33 @@ export class VideoClient {
   // ── 查询任务状态 ──────────────────────────────────
 
   private async getTask(taskId: string): Promise<TaskInfo> {
-    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/content_generation/tasks/${taskId}`;
+    const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/contents/generations/tasks/${taskId}`;
 
-    const response = await (this.client as any).content_generation.tasks.retrieve(taskId);
+    const httpRes = await fetch(apiUrl, {
+      method: "GET",
+      headers: this.headers,
+    });
+
+    const resText = await httpRes.text();
+    l("VideoClient", `查询任务 HTTP ${httpRes.status}\n${resText}`);
+
+    let resBody: any;
+    try {
+      resBody = JSON.parse(resText);
+    } catch {
+      throw new Error(`VideoClient: 查询任务返回非 JSON — HTTP ${httpRes.status}\n${resText}`);
+    }
+
+    if (!httpRes.ok || resBody.error) {
+      const errDetail = resBody.error?.message || resBody.error?.code || JSON.stringify(resBody.error || resBody);
+      throw new Error(`VideoClient: 查询任务失败 HTTP ${httpRes.status} — ${errDetail}`);
+    }
+
     return {
-      id: response.id,
-      status: response.status as TaskStatus,
-      output_url: response.output?.video_url,
-      error: response.error,
+      id: resBody.id,
+      status: resBody.status as TaskStatus,
+      output_url: resBody.content?.video_url,
+      error: resBody.error,
     };
   }
 

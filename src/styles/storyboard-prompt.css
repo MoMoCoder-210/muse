@@ -87,27 +87,30 @@
   margin: 0;
 }
 
-/* ── prompt-chip 悬浮资产图片预览 ── */
+/* ── prompt-chip 悬浮图片预览 ── */
+/* 居中显示，原始尺寸（限制最大不超过窗口） */
 .prompt-chip-preview {
   position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: var(--z-lightbox);
-  transform: translate(-50%, -100%);
   pointer-events: none;
   animation: chip-preview-in 200ms cubic-bezier(0.25, 0, 0, 1);
 }
 .prompt-chip-preview img {
   display: block;
-  width: 160px;
-  height: 160px;
-  object-fit: cover;
+  max-width: min(80vw, 640px);
+  max-height: min(80vh, 640px);
+  object-fit: contain;
   border-radius: var(--radius-lg);
   border: 0.5px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
   background: var(--bg-surface-deep);
 }
 @keyframes chip-preview-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% + 6px)); }
-  to { opacity: 1; transform: translate(-50%, -100%); }
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 /* ── @mention 胶囊 chip ── */
@@ -208,6 +211,21 @@
 .prompt-chip[data-kind='character'] [data-mention-dot] { background: var(--asset-character-dot); }
 .prompt-chip[data-kind='scene']     [data-mention-dot] { background: var(--asset-scene-dot); }
 .prompt-chip[data-kind='item']      [data-mention-dot] { background: var(--asset-item-dot); }
+
+/* 已删除资产：红色警告胶囊 */
+.prompt-chip[data-deleted='true'] {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  text-decoration: line-through;
+}
+.prompt-chip[data-deleted='true']:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.prompt-chip[data-deleted='true'] [data-mention-dot] {
+  background: #fca5a5;
+}
 
 /* 段落块：每个 \n 分隔的段落 */
 .prompt-para {

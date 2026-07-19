@@ -8,8 +8,15 @@ import {
 import type { Clip, ProjectInfo } from "../../types/project";
 import { useToast } from "../../hooks/useToast";
 import { useClipPolling } from "../../hooks/useClipPolling";
-
 import { avatarColor } from "../../utils/avatar-colors";
+import { formatDeleteResult } from "../../utils/delete-result";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
+
+type ClipListPanelProps = {
+  project: ProjectInfo;
+  onCreateClip: () => void;
+  refreshKey: number;
+};
 
 /** 取序号数字作为头像文字 */
 function avatarLabel(index: number): string {
@@ -41,6 +48,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const [operating, setOperating] = useState(false);
   const [deleteConfirmClipId, setDeleteConfirmClipId] = useState<string | null>(null);
   const [batchDeletePending, setBatchDeletePending] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(false);
   const editingTitleRef = useRef("");
 
   // 数据变化时清理已失效的选中项
@@ -91,6 +99,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
+    setDeleteFiles(false);
     setBatchDeletePending(true);
   }, [selectedIds]);
 
@@ -99,19 +108,22 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     setBatchDeletePending(false);
     setOperating(true);
     try {
-      const count = selectedIds.size;
-      await deleteClips([...selectedIds]);
-      toast(`已删除 ${count} 个片段`, "success");
+      const result = await deleteClips([...selectedIds], deleteFiles);
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
       setSelectedIds(new Set());
       await refresh();
     } catch (err) {
-      toast("删除失败，请重试", "error");
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
     } finally {
+      setDeleteFiles(false);
       setOperating(false);
     }
-  }, [selectedIds, refresh, toast]);
+  }, [deleteFiles, selectedIds, refresh, toast]);
 
   const handleDeleteOne = (clip: Clip) => {
+    setDeleteFiles(false);
     setDeleteConfirmClipId(clip.id);
   };
 
@@ -121,8 +133,9 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     setDeleteConfirmClipId(null);
     setOperating(true);
     try {
-      await deleteClips([clipId]);
-      toast("已删除片段", "success");
+      const result = await deleteClips([clipId], deleteFiles);
+      const feedback = formatDeleteResult(result);
+      toast(feedback.text, feedback.kind);
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(clipId);
@@ -130,11 +143,13 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
       });
       await refresh();
     } catch (err) {
-      toast("删除失败，请重试", "error");
+      const feedback = formatDeleteResult(undefined, true);
+      toast(feedback.text, feedback.kind);
     } finally {
+      setDeleteFiles(false);
       setOperating(false);
     }
-  }, [deleteConfirmClipId, refresh, toast]);
+  }, [deleteConfirmClipId, deleteFiles, refresh, toast]);
 
   const handleExtract = useCallback(async (clipIds: string[]) => {
     // 过滤掉已拆解的片段（仅拆解 pending/failed 状态的片段）
@@ -203,6 +218,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     : null;
 
   return (
+    <>
     <div className="clip-list-panel">
       <div className="panel-header">
         <h3>片段列表</h3>
@@ -443,98 +459,40 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
           })}
         </div>
       )}
+    </div>
 
       {/* 单个删除确认弹窗 — 复用项目列表的 DeleteConfirmModal 样式 */}
       {deletingClip && (
-        <div
-          className="modal-backdrop"
-          role="alertdialog"
-          aria-modal="true"
-          onClick={() => !operating && setDeleteConfirmClipId(null)}
-        >
-          <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-panel-header">
-              <h2 className="delete-panel-title">删除片段</h2>
-              <button
-                type="button"
-                className="modal-close"
-                aria-label="关闭"
-                onClick={() => setDeleteConfirmClipId(null)}
-                disabled={operating}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <p className="delete-panel-desc">
-              将永久移除 <strong>第 {deletingClip.sort_index} 集</strong> 及其全部关联数据。此操作无法恢复。
-            </p>
-            <div className="delete-panel-actions">
-              <button
-                type="button"
-                className="delete-panel-btn delete-panel-btn--cancel"
-                onClick={() => setDeleteConfirmClipId(null)}
-                disabled={operating}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="delete-panel-btn delete-panel-btn--danger"
-                onClick={confirmDeleteOne}
-                disabled={operating}
-              >
-                {operating ? "删除中…" : "删除"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          title="删除片段"
+          description={<>确认删除 <strong>第 {deletingClip.sort_index} 集</strong> ？</>}
+          checkbox={{
+            label: "同时删除磁盘文件",
+            checked: deleteFiles,
+            onChange: setDeleteFiles,
+          }}
+          confirmText={operating ? "删除中…" : "删除"}
+          onConfirm={confirmDeleteOne}
+          onCancel={() => { setDeleteFiles(false); setDeleteConfirmClipId(null); }}
+          disabled={operating}
+        />
       )}
 
-      {/* 批量删除确认弹窗 — 复用项目列表的 DeleteConfirmModal 样式 */}
       {batchDeletePending && (
-        <div
-          className="modal-backdrop"
-          role="alertdialog"
-          aria-modal="true"
-          onClick={() => !operating && setBatchDeletePending(false)}
-        >
-          <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-panel-header">
-              <h2 className="delete-panel-title">批量删除片段</h2>
-              <button
-                type="button"
-                className="modal-close"
-                aria-label="关闭"
-                onClick={() => setBatchDeletePending(false)}
-                disabled={operating}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <p className="delete-panel-desc">
-              将永久移除选中的 <strong>{selectedIds.size} 个片段</strong> 及其全部关联数据。此操作无法恢复。
-            </p>
-            <div className="delete-panel-actions">
-              <button
-                type="button"
-                className="delete-panel-btn delete-panel-btn--cancel"
-                onClick={() => setBatchDeletePending(false)}
-                disabled={operating}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="delete-panel-btn delete-panel-btn--danger"
-                onClick={confirmBatchDelete}
-                disabled={operating}
-              >
-                {operating ? "删除中…" : "删除"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          title="批量删除片段"
+          description={<>确认删除 <strong>{selectedIds.size} 个片段</strong> ？</>}
+          checkbox={{
+            label: "同时删除磁盘文件",
+            checked: deleteFiles,
+            onChange: setDeleteFiles,
+          }}
+          confirmText={operating ? "删除中…" : "删除"}
+          onConfirm={confirmBatchDelete}
+          onCancel={() => { setDeleteFiles(false); setBatchDeletePending(false); }}
+          disabled={operating}
+        />
       )}
-    </div>
+    </>
   );
 }
