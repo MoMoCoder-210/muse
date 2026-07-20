@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -31,7 +29,6 @@ import {
 } from "../../utils/promptDocument";
 import {
   VIDEO_DURATION_MIN, VIDEO_DURATION_MAX, VIDEO_ASPECT_OPTIONS,
-  VIDEO_DEFAULT_MODEL, VIDEO_DEFAULT_DURATION, VIDEO_DEFAULT_RESOLUTION, VIDEO_DEFAULT_ASPECT,
   VIDEO_RESOLUTION_OPTIONS,
 } from "../../config/muse";
 import { isClipDecomposed } from "../../utils/clip";
@@ -39,6 +36,16 @@ import { avatarColor } from "../../utils/avatar-colors";
 import { formatDeleteResult } from "../../utils/delete-result";
 import { ImageLightbox } from "../common/ImageLightbox";
 import { pickVideoFile } from "../../services/dialog";
+import { ParamSelect } from "./ParamSelect";
+import {
+  CATS, EMPTY_VIDEO_TASKS,
+  type ClipData, type VideoTaskState,
+  type VideoTaskTerminalEvent, type DisplayStoryboardVideo, type DetailProps, type VideoParams,
+} from "./storyboard-types";
+import {
+  parseIds, formatStoryboardVideoFailure, normalizePromptReferences,
+  parseVideoParams, getResolutions, clampDuration,
+} from "./storyboard-helpers";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -48,158 +55,6 @@ import { pickVideoFile } from "../../services/dialog";
    ======================================================================== */
 
 type Props = { project: ProjectInfo };
-
-const CATS: { type: AssetType; label: string; icon: string }[] = [
-  { type: "character", label: "角色", icon: "👤" },
-  { type: "scene", label: "场景", icon: "🏞" },
-  { type: "item", label: "物品", icon: "📦" },
-];
-
-type ClipData = { storyboards: Storyboard[]; assets: StoryboardAssetInfo[]; loaded: boolean };
-type VideoTaskStatus = "pending" | "running" | "failed";
-type VideoTaskState = { taskId: string; status: VideoTaskStatus };
-type VideoTaskTerminalEvent = {
-  task_id: string;
-  clip_id: string;
-  storyboard_id: string;
-  status: "success" | "failed";
-};
-const EMPTY_VIDEO_TASKS: VideoTaskState[] = [];
-type DisplayStoryboardVideo = StoryboardVideoInfo & { taskStatus?: VideoTaskStatus };
-
-const formatStoryboardVideoFailure = () =>
-  `视频生成失败，请检查模型配置`;
-
-const parseIds = (j: string): Set<string> => { try { return new Set(JSON.parse(j) as string[]); } catch { return new Set(); } };
-
-/**
- * Derive the reference map from the mention atoms that remain in the prompt.
- * Reindexing keeps Seedance's positional reference array aligned after a chip is removed.
- */
-function normalizePromptReferences(
-  doc: PromptDoc,
-  mentionMap: Map<number, AssetMention>,
-): { promptDoc: PromptDoc; prompt: string; mentions: AssetMention[] } {
-  const activeIndexes = new Set<number>();
-  const collectIndexes = (node: PromptDoc) => {
-    if (node.type === "mention") {
-      const index = Number(node.attrs?.index);
-      if (Number.isInteger(index) && index > 0) activeIndexes.add(index);
-    }
-    node.content?.forEach(collectIndexes);
-  };
-  collectIndexes(doc);
-
-  const activeMentions = [...activeIndexes]
-    .sort((a, b) => a - b)
-    .map((index) => {
-      const mention = mentionMap.get(index);
-      if (!mention) {
-        throw new Error(`@图片${index} 没有对应资产，请删除该引用后重新插入`);
-      }
-      return mention;
-    });
-  const newIndexByOldIndex = new Map(activeMentions.map((mention, position) => [mention.index, position + 1]));
-  const mentions = activeMentions.map((mention, position) => ({
-    ...mention,
-    index: position + 1,
-    assetTag: createAssetTag(mention.name, position + 1),
-  }));
-  const mentionByIndex = new Map(mentions.map((mention) => [mention.index, mention]));
-
-  const rewriteIndexes = (node: PromptDoc): PromptDoc => {
-    const content = node.content?.map(rewriteIndexes);
-    if (node.type !== "mention") return { ...node, ...(content ? { content } : {}) };
-
-    const oldIndex = Number(node.attrs?.index);
-    const index = newIndexByOldIndex.get(oldIndex);
-    const mention = index ? mentionByIndex.get(index) : undefined;
-    if (!mention) throw new Error("提示词中存在无效图片引用，请删除后重新插入");
-
-    return {
-      ...node,
-      attrs: {
-        ...node.attrs,
-        id: mention.assetId,
-        index,
-        kind: "图片",
-        label: mention.name,
-        assetId: mention.assetId,
-        assetType: mention.type,
-        imagePath: mention.imagePath,
-        assetTag: mention.assetTag,
-        deleted: mention.deleted,
-      },
-      ...(content ? { content } : {}),
-    };
-  };
-
-  const promptDoc = rewriteIndexes(doc);
-  const prompt = promptDocToPlainText(promptDoc);
-  const tagIndexes = [...new Set(
-    [...prompt.matchAll(/\(@图片(\d+)\)/g)].map((match) => Number(match[1])),
-  )].sort((a, b) => a - b);
-  const mentionIndexes = mentions.map((mention) => mention.index);
-  const tagsMatchMentions = tagIndexes.length === mentionIndexes.length
-    && tagIndexes.every((index, position) => index === mentionIndexes[position]);
-  if (!tagsMatchMentions) {
-    throw new Error("提示词中的图片引用必须与资产胶囊一一对应，请删除手工输入的无效 @图片N 后重试");
-  }
-
-  return { promptDoc, prompt, mentions };
-}
-
-/* ── 参数区自定义下拉（macOS 浮层菜单） ── */
-function ParamSelect<T extends string>({
-  value,
-  options,
-  disabled,
-  onChange,
-  onBlur,
-}: {
-  value: T;
-  options: readonly { label: string; value: T }[];
-  disabled?: boolean;
-  onChange: (v: T) => void;
-  onBlur?: () => void;
-}) {
-  const triggerRef = useRef<HTMLDivElement | null>(null);
-  const { menuElementProps, open, openMenu, closeMenu } = useDropdownMenu(
-    triggerRef,
-    { gap: 6, maxH: 220, menuClass: "sd-param-menu" },
-  );
-
-  const sel = options.find((o) => o.value === value);
-
-  return (
-    <div className="sd-param-select-shell" ref={triggerRef}>
-      <button
-        type="button"
-        className={`sd-param-select-btn${open ? " open" : ""}`}
-        disabled={disabled}
-        onClick={() => { if (open) closeMenu(); else openMenu(); }}
-      >
-        <span className="sd-param-select-label">{sel?.label ?? value}</span>
-        <span className="sd-param-select-caret" />
-      </button>
-      {createPortal(
-        <div {...menuElementProps} style={{ ...menuElementProps.style, zIndex: 2000 }}>
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className={`select-option${o.value === value ? " active" : ""}`}
-              onClick={() => { onChange(o.value); closeMenu(); if (onBlur) setTimeout(onBlur, 0); }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
 
 export function StoryboardPanel({ project }: Props) {
   const { toast } = useToast();
@@ -703,82 +558,6 @@ export function StoryboardPanel({ project }: Props) {
      右侧：视频生成参数（模型/时长/分辨率/宽高比 + 生成按钮）
    所有参数失焦保存。
    ======================================================================== */
-
-type DetailProps = {
-  sb: Storyboard; assets: StoryboardAssetInfo[];
-  busy: boolean; saving: boolean;
-  /** 设置里配置的视频模型 → 支持分辨率映射；为空表示未配置 */
-  videoModels: Record<string, string[]>;
-  onToggle: (a: StoryboardAssetInfo) => void;
-  onBatchToggle: (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => Promise<void>;
-  /** 实时写回分镜时长的回调（分镜记录上的秒数，可编辑） */
-  onDurationWrite: (sb: Storyboard, duration: number | null) => void;
-  /** 视频变更后同步 dataMap/videosMap → 底部缩略图条即时刷新 */
-  onVideoRefresh: (sbId: string) => void;
-  /** 当前分镜尚未落库为真实视频的生成批次。 */
-  videoTaskStates: VideoTaskState[];
-  /** 成功入队后立即创建前端临时视频批次。 */
-  onVideoTaskQueued: (storyboardId: string, taskId: string) => void;
-};
-
-/** 视频参数结构 */
-interface VideoParams {
-  model: string;
-  duration: number;
-  resolution: string;
-  aspect_ratio: string;
-}
-
-const DEFAULT_VIDEO_PARAMS: VideoParams = {
-  model: VIDEO_DEFAULT_MODEL,
-  duration: VIDEO_DEFAULT_DURATION,
-  resolution: VIDEO_DEFAULT_RESOLUTION,
-  aspect_ratio: VIDEO_DEFAULT_ASPECT,
-};
-
-/** 根据模型 ID 获取支持的分辨率列表（取设置里配置的支持分辨率；未配置则回退到全部分辨率选项） */
-function getResolutions(modelId: string, modelResMap: Record<string, string[]>): string[] {
-  return (modelResMap[modelId] && modelResMap[modelId].length)
-    ? modelResMap[modelId]
-    : [...VIDEO_RESOLUTION_OPTIONS];
-}
-
-/** 将任意时长值夹取到合法范围内的整数 */
-function clampDuration(v: number | null | undefined): number | null {
-  if (v == null || !Number.isFinite(v) || v <= 0) return null;
-  return Math.min(VIDEO_DURATION_MAX, Math.max(VIDEO_DURATION_MIN, Math.round(v)));
-}
-
-/**
- * 解析视频参数。
- * @param json         已保存的 video_param_json
- * @param dbDuration   分镜数据库中存储的时长（video_duration ?? voice_duration），用作时长回退
- * @param videoModels  设置里配置的视频模型 → 分辨率映射，用于校验/回退模型与分辨率；为空表示未配置
- */
-function parseVideoParams(json: string | null, dbDuration: number | null, videoModels: Record<string, string[]>): VideoParams {
-  const fallbackDuration = clampDuration(dbDuration) ?? DEFAULT_VIDEO_PARAMS.duration;
-  // 默认模型取用户配置的第一个；未配置则为空字符串（下拉展示空）
-  const defaultModel = Object.keys(videoModels)[0] ?? "";
-  const base: VideoParams = { ...DEFAULT_VIDEO_PARAMS, model: defaultModel, duration: fallbackDuration };
-  if (!json) return base;
-  try {
-    const obj = JSON.parse(json);
-    // 模型：不在用户配置的模型映射中则回退到第一个（无配置则为空）
-    const model = Object.prototype.hasOwnProperty.call(videoModels, obj.model) ? obj.model : defaultModel;
-    // 分辨率：不在该模型支持列表中则取第一个
-    const allowed = getResolutions(model, videoModels);
-    const resolution = allowed.includes(obj.resolution) ? obj.resolution : allowed[0];
-    return {
-      model,
-      // 时长以分镜记录本身（模型拆解出来的秒数）为准，忽略参数 JSON 中的值
-      duration: base.duration,
-      resolution,
-      aspect_ratio: VIDEO_ASPECT_OPTIONS.includes(obj.aspect_ratio) ? obj.aspect_ratio : base.aspect_ratio,
-    };
-  } catch {
-    return base;
-  }
-}
 
 function DetailView({
   sb,

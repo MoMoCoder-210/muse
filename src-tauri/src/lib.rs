@@ -340,7 +340,8 @@ pub fn run() {
                 });
             }
 
-            // ── 自动打开开发者工具（调试用，打包后可通过 F12 触发）──
+            // ── 自动打开开发者工具（仅 debug 构建，打包后通过 F12 触发）──
+            #[cfg(debug_assertions)]
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
