@@ -359,13 +359,28 @@ function saveResults(
   }
 
   // ── 将拆解出的资产写入 assets 表，并建立 name → assetId 映射 ──
+  // 同片段内去重
   const findAsset = db.prepare(`
     SELECT id FROM assets
     WHERE clip_id = ? AND type = ? AND name = ?
   `);
+  // 项目级同名资产复用：查找其他片段中已有的同名资产，继承其图片绑定
+  const findProjectAsset = db.prepare(`
+    SELECT id, selected_image_id, generated_image_path, reference_image_path, status, voice_binding_json
+    FROM assets
+    WHERE project_id = ? AND type = ? AND name = ? AND clip_id != ?
+    ORDER BY CASE WHEN selected_image_id IS NOT NULL THEN 0 ELSE 1 END, updated_at DESC
+    LIMIT 1
+  `);
   const insertAsset = db.prepare(`
     INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'model', 'draft')
+  `);
+  // 复用项目资产时继承图片绑定数据
+  const insertAssetWithImage = db.prepare(`
+    INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status,
+      selected_image_id, generated_image_path, reference_image_path, voice_binding_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'model', ?, ?, ?, ?, ?)
   `);
 
   // type → name → assetId
@@ -379,15 +394,39 @@ function saveResults(
       : type === "scene" ? resources.scenes : resources.items;
     const map = idMap.get(type)!;
     for (const r of list) {
+      // 1. 同片段内已有 → 直接复用
       const existing = findAsset.get(clipId, type, r.name) as { id: string } | undefined;
       if (existing) {
         map.set(r.name, existing.id);
-      } else {
-        const id = randomUUID();
-        insertAsset.run(id, projectId, clipId, type, r.name, r.description, r.prompt);
-        map.set(r.name, id);
-        l("拆解", `  新增资产: ${type} "${r.name}" id=${id.slice(0, 8)}`);
+        continue;
       }
+      // 2. 项目内其他片段已有同名资产 → 新建当前片段记录并继承图片绑定
+      const projectAsset = findProjectAsset.get(projectId, type, r.name, clipId) as {
+        id: string;
+        selected_image_id: string | null;
+        generated_image_path: string | null;
+        reference_image_path: string | null;
+        status: string;
+        voice_binding_json: string | null;
+      } | undefined;
+      if (projectAsset) {
+        const id = randomUUID();
+        const inheritStatus = projectAsset.selected_image_id ? "image_ready" : "draft";
+        insertAssetWithImage.run(
+          id, projectId, clipId, type, r.name, r.description, r.prompt,
+          inheritStatus,
+          projectAsset.selected_image_id, projectAsset.generated_image_path,
+          projectAsset.reference_image_path, projectAsset.voice_binding_json
+        );
+        map.set(r.name, id);
+        l("拆解", `  复用资产: ${type} "${r.name}" id=${id.slice(0, 8)} (源自 ${projectAsset.id.slice(0, 8)})`);
+        continue;
+      }
+      // 3. 全新资产
+      const id = randomUUID();
+      insertAsset.run(id, projectId, clipId, type, r.name, r.description, r.prompt);
+      map.set(r.name, id);
+      l("拆解", `  新增资产: ${type} "${r.name}" id=${id.slice(0, 8)}`);
     }
   }
 

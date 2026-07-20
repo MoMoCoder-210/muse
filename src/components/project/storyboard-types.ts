@@ -58,4 +58,6 @@ export type DetailProps = {
   videoTaskStates: VideoTaskState[];
   /** 成功入队后立即创建前端临时视频批次。 */
   onVideoTaskQueued: (storyboardId: string, taskId: string) => void;
+  /** 片段中已有绑定视频时锁定的分辨率+宽高比；null 表示未锁定 */
+  lockedRatio: { resolution: string; aspect_ratio: string } | null;
 };

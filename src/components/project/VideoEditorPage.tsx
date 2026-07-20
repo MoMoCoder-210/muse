@@ -279,7 +279,7 @@ export function VideoEditorPage({ project }: Props) {
   };
 
   // ── 加载片段列表（仅已拆解） ──
-  useEffect(() => {
+  const loadClips = useCallback(() => {
     if (!project) return;
     setLoadingClips(true);
     listClips(project.id)
@@ -295,6 +295,17 @@ export function VideoEditorPage({ project }: Props) {
       .catch(() => toast("加载片段失败", "error"))
       .finally(() => setLoadingClips(false));
   }, [project?.id, toast]);
+
+  useEffect(() => { loadClips(); }, [loadClips]);
+
+  // 监听拆解完成事件，实时刷新片段列表
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
+      if (e.payload.project_id === project?.id) loadClips();
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [project?.id, loadClips]);
 
   // ── 检测 ffmpeg ──
   useEffect(() => {

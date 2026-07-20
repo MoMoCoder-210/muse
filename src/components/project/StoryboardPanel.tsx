@@ -126,6 +126,15 @@ export function StoryboardPanel({ project }: Props) {
   }, [project?.id]);
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // 监听拆解完成事件，实时刷新片段列表
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
+      if (e.payload.project_id === project?.id) loadAll();
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [project?.id, loadAll]);
+
   // 读取设置里「视频」激活渠道配置的模型 → 支持分辨率映射，供模型 / 分辨率下拉使用
   useEffect(() => {
     getSettings()
@@ -167,6 +176,23 @@ export function StoryboardPanel({ project }: Props) {
   // 确保 activeIdx 不越界
   const safeIdx = Math.min(activeIdx, Math.max(sbList.length - 1, 0));
   const activeSb = sbList[safeIdx] ?? null;
+
+  // 片段中已有绑定视频时，锁定分辨率+宽高比，避免拼接时比例不一致
+  const lockedRatio = useMemo(() => {
+    const bound = sbList
+      .filter((s) => s.selected_video_id != null)
+      .sort((a, b) => a.seq_num - b.seq_num);
+    for (const s of bound) {
+      if (!s.video_param_json) continue;
+      try {
+        const obj = JSON.parse(s.video_param_json);
+        if (obj.resolution && obj.aspect_ratio) {
+          return { resolution: obj.resolution as string, aspect_ratio: obj.aspect_ratio as string };
+        }
+      } catch { /* skip */ }
+    }
+    return null;
+  }, [sbList]);
 
   // ── 资产关联 ────────────────────────────────────
 
@@ -400,6 +426,7 @@ export function StoryboardPanel({ project }: Props) {
                   onVideoRefresh={refreshVideoState}
                   videoTaskStates={videoTaskStates[activeSb.id] ?? EMPTY_VIDEO_TASKS}
                   onVideoTaskQueued={handleVideoTaskQueued}
+                  lockedRatio={lockedRatio}
                 />
               )}
 
@@ -463,7 +490,6 @@ export function StoryboardPanel({ project }: Props) {
                               {isVideoGenerating && (
                                 <div className="sb-strip-task-state sb-strip-task-state--generating">
                                   <span className="sd-video-task-orb" aria-hidden />
-                                  <span>生成中</span>
                                 </div>
                               )}
                               <button
@@ -480,7 +506,7 @@ export function StoryboardPanel({ project }: Props) {
                               </button>
                             </div>
                             <span className={`sb-strip-dur${isVideoGenerating ? " is-generating" : ""}`}>
-                              #{String(sb.seq_num).padStart(2, "0")} · {isVideoGenerating ? "生成中" : sec > 0 ? `${sec}S` : "--S"}
+                              #{String(sb.seq_num).padStart(2, "0")} · {sec > 0 ? `${sec}S` : "--S"}
                             </span>
                           </div>
                         </div>
@@ -571,6 +597,7 @@ function DetailView({
   onVideoRefresh,
   videoTaskStates,
   onVideoTaskQueued,
+  lockedRatio,
 }: DetailProps) {
   const { toast } = useToast();
   const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
@@ -833,7 +860,8 @@ function DetailView({
 
     mentionMapRef.current = new Map(mentions.map((m) => [m.index, m]));
     setMentionItems(mentions);
-    setParams(parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
+    const parsedParams = parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels);
+    setParams(lockedRatio ? { ...parsedParams, resolution: lockedRatio.resolution, aspect_ratio: lockedRatio.aspect_ratio } : parsedParams);
     setPrompt(nextPrompt);
     setPromptDoc(nextDoc);
 
@@ -856,6 +884,17 @@ function DetailView({
       }).catch(() => { /* 下次编辑/失焦时重试 */ });
     }
   }, [assets, sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
+
+  // lockedRatio 变化时（如其他分镜新绑定了视频），同步锁定当前参数
+  useEffect(() => {
+    if (lockedRatio) {
+      setParams((prev) => ({
+        ...prev,
+        resolution: lockedRatio.resolution,
+        aspect_ratio: lockedRatio.aspect_ratio,
+      }));
+    }
+  }, [lockedRatio]);
 
   // 失焦保存：只持久化当前提示词中实际存在的胶囊，并保持编号与文本标签连续一致。
   const saveParams = useCallback(async () => {
@@ -997,6 +1036,7 @@ function DetailView({
   }, [nextMentionIndex, closeMention]);
 
   const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [confirmGenerate, setConfirmGenerate] = useState(false);
   const handleGenerateVideo = useCallback(async () => {
     try {
       // 检查是否有已删除的资产胶囊
@@ -1146,7 +1186,12 @@ function DetailView({
           ) : currentVideoTaskStatus ? (
             <div className={`sd-player-task-state sd-player-task-state--${currentVideoTaskStatus}`}>
               {currentVideoTaskStatus === "failed" ? (
-                <span className="sd-video-task-failure-icon" aria-hidden>×</span>
+                <span className="sd-video-task-failure-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                  </svg>
+                </span>
               ) : (
                 <span className="sd-video-task-orb" aria-hidden />
               )}
@@ -1244,11 +1289,15 @@ function DetailView({
                   {isTaskBatch ? (
                     <div className="sd-video-task-thumb" aria-label={taskLabel}>
                       {v.taskStatus === "failed" ? (
-                        <span className="sd-video-task-failure-icon" aria-hidden>×</span>
+                        <span className="sd-video-task-failure-icon" aria-hidden>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                          </svg>
+                        </span>
                       ) : (
                         <span className="sd-video-task-orb" aria-hidden />
                       )}
-                      {v.taskStatus !== "failed" && <span>{taskLabel}</span>}
                     </div>
                   ) : (
                     <video src={convertFileSrc(v.file_path)} muted preload="metadata" className="sd-video-thumb-vid" />
@@ -1408,18 +1457,20 @@ function DetailView({
                 />
               </label>
               <label className="sd-param-field">
-                <span className="sd-param-label">分辨率</span>
+                <span className="sd-param-label">分辨率{lockedRatio ? <span title="为保证最终视频合成效果，分辨率已锁定"> 🔒</span> : ""}</span>
                 <ParamSelect
                   value={params.resolution}
+                  disabled={!!lockedRatio}
                   options={getResolutions(params.model, videoModels).map((r) => ({ label: r, value: r }))}
                   onChange={(v) => updateParam("resolution", v)}
                   onBlur={saveParams}
                 />
               </label>
               <label className="sd-param-field">
-                <span className="sd-param-label">宽高比</span>
+                <span className="sd-param-label">宽高比{lockedRatio ? <span title="为保证最终视频合成效果，宽高比已锁定"> 🔒</span> : ""}</span>
                 <ParamSelect
                   value={params.aspect_ratio}
+                  disabled={!!lockedRatio}
                   options={VIDEO_ASPECT_OPTIONS.map((a) => ({ label: a, value: a }))}
                   onChange={(v) => updateParam("aspect_ratio", v)}
                   onBlur={saveParams}
@@ -1430,7 +1481,7 @@ function DetailView({
               className="sd-generate-btn primary-button"
               type="button"
               disabled={generatingVideo}
-              onClick={handleGenerateVideo}
+              onClick={() => { if (lockedRatio) { handleGenerateVideo(); } else { setConfirmGenerate(true); } }}
               title="按当前提示词和参考图片生成视频"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21"/></svg>
@@ -1549,11 +1600,23 @@ function DetailView({
         );
       })()}
 
+      {/* 首次生成确认：片段尚无绑定视频时锁定比例 */}
+      {confirmGenerate && (
+        <DeleteConfirmModal
+          title="确认生成"
+          description={<>确定生成 <strong>{params.resolution}</strong> 分辨率、<strong>{params.aspect_ratio}</strong> 比例的视频？生成后此片段分辨率、比例将不能更改！（删除全部视频后方可更改）</>}
+          confirmText="生成"
+          onConfirm={() => { setConfirmGenerate(false); handleGenerateVideo(); }}
+          onCancel={() => setConfirmGenerate(false)}
+          disabled={generatingVideo}
+        />
+      )}
+
       {/* 设为最终视频确认 */}
       {pendingSelect && (
-        <StoryboardConfirm
+        <DeleteConfirmModal
           title="确定视频"
-          message={`将当前视频设为分镜最终视频？`}
+          description="将当前视频设为分镜最终视频？"
           confirmText="确认"
           onConfirm={() => {
             const v = pendingSelect;

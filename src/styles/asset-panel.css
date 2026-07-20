@@ -407,8 +407,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
-  padding: 0 var(--spacing-xl) var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
   overflow-y: auto;
+  overflow-x: clip;
 }
 
 /* 面板头部常驻区域：全选工具栏，不随卡片滚动 */
@@ -781,7 +782,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: clip;
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
   display: flex;
   flex-direction: column;
@@ -1472,28 +1473,70 @@
 
 .asset-gallery-status--failed {
   color: var(--color-danger);
+  padding: 20px 16px;
+  border-radius: var(--radius-md);
 }
 
-.asset-gallery-status-icon {
-  font-size: var(--font-size-icon-lg);
-  line-height: 1;
+/* 自包含光晕图标 — 80px 容器，渐变 75% 处已透明（距边界 10px 安全余量）
+   任何祖先 overflow 裁切的都是完全透明区域，光晕永不丢失 */
+.asset-gallery-status--failed .asset-gallery-status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border: none;
+  box-shadow: none;
+  border-radius: 50%;
+  font-size: 20px;
+  color: var(--color-danger);
+  /* 三层自包含背景（closest-side: 100% = 40px）
+     1. 光晕 — 75% 处透明（30px），距边界 10px
+     2. 圆环描边 — 44%-49% 处（17.6-19.6px 半径 ≈ 35-39px 直径）
+     3. 内部柔填充 */
+  background:
+    radial-gradient(circle closest-side,
+      rgba(var(--color-danger-rgb), 0.30) 0%,
+      rgba(var(--color-danger-rgb), 0.12) 42%,
+      rgba(var(--color-danger-rgb), 0.04) 60%,
+      transparent 75%
+    ),
+    radial-gradient(circle closest-side,
+      transparent 41%,
+      rgba(var(--color-danger-rgb), 0.55) 44%,
+      rgba(var(--color-danger-rgb), 0.55) 49%,
+      transparent 53%
+    ),
+    radial-gradient(circle closest-side,
+      rgba(var(--color-danger-rgb), 0.12) 0%,
+      rgba(var(--color-danger-rgb), 0.05) 36%,
+      transparent 46%
+    );
+}
+
+.asset-gallery-status--failed > span:nth-child(2) {
+  max-width: 220px;
+  text-align: center;
+  line-height: 1.5;
+  font-size: var(--font-size-xs);
+  color: rgba(var(--text-secondary-rgb), 0.9);
 }
 
 .asset-gallery-retry {
   margin-top: var(--spacing-xs);
-  padding: 4px 12px;
-  border: 1px solid var(--border-base);
+  padding: 5px 14px;
+  border: 1px solid rgba(var(--accent-primary-rgb), 0.3);
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
+  background: rgba(var(--accent-primary-rgb), 0.08);
+  color: var(--accent-primary);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .asset-gallery-retry:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: rgba(var(--accent-primary-rgb), 0.15);
+  border-color: rgba(var(--accent-primary-rgb), 0.5);
 }
 
 .asset-gallery-failed-actions {
@@ -1619,13 +1662,13 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
-/* 选中预览 — Apple 紫色光环 + 浮起 */
+/* 选中预览 — 蓝色光环 + 浮起 */
 .asset-gallery-thumb--active {
-  border-color: var(--accent-purple);
+  border-color: var(--accent-primary);
   border-style: solid;
-  background: rgba(191, 90, 242, 0.06);
+  background: rgba(var(--accent-primary-rgb), 0.06);
   box-shadow:
-    0 0 0 3px rgba(191, 90, 242, 0.22),
+    0 0 0 3px rgba(var(--accent-primary-rgb), 0.22),
     0 5px 18px rgba(0, 0, 0, 0.3);
   transform: scale(1.12) translateY(-1px);
   z-index: 2;
@@ -1634,9 +1677,9 @@
 /* 悬浮在预览图上不缩小 */
 .asset-gallery-thumb--active:hover {
   transform: scale(1.12) translateY(-2px);
-  border-color: var(--accent-purple);
+  border-color: var(--accent-primary);
   box-shadow:
-    0 0 0 3px rgba(191, 90, 242, 0.28),
+    0 0 0 3px rgba(var(--accent-primary-rgb), 0.28),
     0 7px 22px rgba(0, 0, 0, 0.35);
 }
 
@@ -1649,11 +1692,11 @@
 
 /* 同时绑定 + 预览 */
 .asset-gallery-thumb--selected.asset-gallery-thumb--active {
-  border-color: var(--accent-purple);
+  border-color: var(--accent-primary);
   border-style: solid;
   background: rgba(var(--accent-primary-rgb), 0.06);
   box-shadow:
-    0 0 0 3px rgba(191, 90, 242, 0.22),
+    0 0 0 3px rgba(var(--accent-primary-rgb), 0.22),
     inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.18),
     0 5px 18px rgba(0, 0, 0, 0.3);
   transform: scale(1.12) translateY(-1px);
@@ -1662,9 +1705,9 @@
 }
 .asset-gallery-thumb--selected.asset-gallery-thumb--active:hover {
   transform: scale(1.12) translateY(-2px);
-  border-color: var(--accent-purple);
+  border-color: var(--accent-primary);
   box-shadow:
-    0 0 0 3px rgba(191, 90, 242, 0.28),
+    0 0 0 3px rgba(var(--accent-primary-rgb), 0.28),
     inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.18),
     0 7px 22px rgba(0, 0, 0, 0.35);
 }
@@ -1672,8 +1715,8 @@
 /* 缩略图选中标记 */
 .asset-gallery-thumb-check {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 4px;
+  right: 4px;
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -1681,7 +1724,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 4px;
 }
 
 .asset-gallery-thumb-check::after {
@@ -2115,6 +2157,7 @@
   gap: 2px;
   padding: 10px 12px 12px;
   background: rgba(0, 0, 0, 0.12);
+  height: 80px;
 }
 
 .asset-card-name {

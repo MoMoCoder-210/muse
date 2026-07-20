@@ -380,6 +380,7 @@ pub fn run() {
             commands::split_clip,
             commands::generate_clip_script,
             commands::generate_asset_image,
+            commands::retry_asset_image_task,
             commands::add_asset_to_clip,
             commands::delete_asset_from_clip,
             commands::update_asset_in_clip,

@@ -381,6 +381,72 @@ pub fn generate_asset_image(
     }))
 }
 
+/// 重试失败的资产生图任务
+///
+/// 将已有的 failed 任务重置为 pending 并重新入队 Worker，
+/// 而非创建新任务——在原记录上重试，不会新增图片生成记录。
+#[derive(Debug, Deserialize)]
+pub struct RetryAssetImageTaskInput {
+    pub task_id: String,
+}
+
+#[tauri::command]
+pub fn retry_asset_image_task(
+    input: RetryAssetImageTaskInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
+) -> Result<(), String> {
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+
+    let mut conn = util::open_app_conn(&app)?;
+
+    // 校验任务存在且为 failed 状态的 generate_asset_image 任务
+    let (task_type, status): (String, String) = conn
+        .query_row(
+            "SELECT type, status FROM tasks WHERE id = ?1",
+            rusqlite::params![&input.task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| format!("任务不存在：{}", input.task_id))?;
+
+    if task_type != "generate_asset_image" {
+        return Err(format!("任务类型不匹配：{}", task_type));
+    }
+    if status != "failed" {
+        return Err(format!("只能重试失败的任务，当前状态：{}", status));
+    }
+
+    // 重置任务状态
+    conn.execute(
+        "UPDATE tasks SET status = 'pending', error_message = NULL, started_at = NULL, finished_at = NULL, retry_count = 0, updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![&input.task_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    crate::project_log::append_log(
+        &log_path,
+        "资产生图",
+        "INFO",
+        &format!("重试失败任务 taskId={}", input.task_id),
+    );
+
+    // 通知 Worker 立即调度
+    if let Err(e) = util::send_enqueue_to_worker(&state, &input.task_id, "generate_asset_image") {
+        crate::project_log::append_log(
+            &log_path,
+            "资产生图",
+            "WARN",
+            &format!(
+                "重试发送 enqueue 通知失败 taskId={}（任务仍会被轮询拾取）：{}",
+                input.task_id, e
+            ),
+        );
+    }
+
+    Ok(())
+}
+
 /// 取消片段拆解任务
 #[tauri::command]
 pub fn cancel_clip_script(

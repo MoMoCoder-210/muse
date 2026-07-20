@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
-import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip } from "../../services/tauri";
+import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip, retryAssetImageTask } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 import { formatDeleteResult } from "../../utils/delete-result";
 import type { AssetCardData } from "./AssetCard";
@@ -428,7 +428,14 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
             assetTypeLabel={typeLabel}
             onSelect={handleSelectImage}
             onDelete={handleDeleteImage}
-            onRegenerate={() => handleGenerateClick(() => onGenerate(current, { size, style, n: imageCount }))}
+            onRetry={async (taskId) => {
+              try {
+                await retryAssetImageTask({ task_id: taskId });
+                setPollKey((k) => k + 1);
+              } catch {
+                toast("重试失败，请稍后再试", "error");
+              }
+            }}
             onSelectLocal={onSelectLocal ? async () => {
               setImporting(true);
               try {

@@ -3,6 +3,7 @@
 # ─────────────────────────────────────────────
 node_modules/
 worker/node_modules/
+outputs/
 
 # ─────────────────────────────────────────────
 # 捆绑的 Node.js 运行时（由 scripts/fetch-node.mjs 下载）

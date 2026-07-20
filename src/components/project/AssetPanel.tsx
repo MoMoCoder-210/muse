@@ -115,6 +115,15 @@ export function AssetPanel({ project }: AssetPanelProps) {
     load();
   }, [load]);
 
+  // 监听拆解完成事件，实时刷新片段列表
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
+      if (e.payload.project_id === project?.id) load();
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [project?.id, load]);
+
   // 已拆解的片段（与分镜管理 / 视频编辑统一口径：按片段状态判定）
   const disassembledClips = clips.filter((c) => isClipDecomposed(c.status));
 

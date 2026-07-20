@@ -237,6 +237,17 @@ export async function generateAssetImage(input: {
 }
 
 /**
+ * 重试失败的资产生图任务
+ *
+ * 将已有 failed 任务重置为 pending 并重新入队，在原记录上重试。
+ */
+export async function retryAssetImageTask(input: {
+  task_id: string;
+}): Promise<void> {
+  return invoke<void>("retry_asset_image_task", { input });
+}
+
+/**
  * 添加资产到片段拆解结果
  *
  */

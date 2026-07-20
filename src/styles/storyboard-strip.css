@@ -169,9 +169,11 @@
     rgba(37, 17, 22, 0.72);
 }
 .sb-strip-task-state .sd-video-task-orb {
-  width: 15px;
-  height: 15px;
-  border-width: 1.7px;
+  width: 24px;   /* 16px 环 + 4px 光晕余量 ×2 */
+  height: 24px;
+}
+.sb-strip-task-state .sd-video-task-orb::before {
+  inset: 4px;    /* 24 − 4×2 = 16px 环区 */
 }
 .sb-strip-task-fail {
   display: flex;

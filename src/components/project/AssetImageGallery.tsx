@@ -3,6 +3,24 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { ImageLightbox } from "../common/ImageLightbox";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
+/** 将后端原始错误信息映射为用户友好的中文提示 */
+function friendlyError(raw?: string): string {
+  if (!raw) return "图片生成失败";
+  const s = raw.toLowerCase();
+  if (s.includes("404") || s.includes("not found")) return "生成服务不可用，请检查模型配置";
+  if (s.includes("401") || s.includes("403") || s.includes("unauthorized") || s.includes("forbidden"))
+    return "API Key 无效或权限不足";
+  if (s.includes("429") || s.includes("rate limit")) return "请求过于频繁，请稍后重试";
+  if (s.includes("500") || s.includes("502") || s.includes("503") || s.includes("504"))
+    return "服务暂时不可用，请稍后重试";
+  if (s.includes("timeout") || s.includes("timed out")) return "请求超时，请检查网络后重试";
+  if (s.includes("network") || s.includes("connection") || s.includes("econnrefused"))
+    return "网络连接失败，请检查网络设置";
+  // 去掉原始技术细节，只保留简短描述
+  if (s.includes("status code")) return "生成服务异常，请检查模型配置";
+  return "图片生成失败";
+}
+
 export type GalleryImage = {
   id: string;
   path: string | null;       // null for pending/running/failed tasks
@@ -26,8 +44,8 @@ type AssetImageGalleryProps = {
   onSelect?: (imageId: string) => void;
   /** 删除图片回调：imageId + 是否同时删除文件 */
   onDelete?: (imageId: string, deleteFile: boolean) => void;
-  /** 重新生成回调 */
-  onRegenerate?: () => void;
+  /** 重试失败任务回调（传递失败任务 ID，在原记录上重试） */
+  onRetry?: (taskId: string) => void;
   /** 选择本地图片回调 */
   onSelectLocal?: () => Promise<void>;
   /** 从项目内其他资产选择图片回调 */
@@ -49,7 +67,7 @@ export function AssetImageGallery({
   assetTypeLabel,
   onSelect,
   onDelete,
-  onRegenerate,
+  onRetry,
   onSelectLocal,
   onSelectFromProject,
   importing,
@@ -196,13 +214,13 @@ export function AssetImageGallery({
       return (
         <div className="asset-gallery-status asset-gallery-status--failed">
           <span className="asset-gallery-status-icon">✕</span>
-          <span>{currentImage.error_message ?? "生成失败"}</span>
+          <span>{friendlyError(currentImage.error_message)}</span>
           <div className="asset-gallery-failed-actions">
-            {onRegenerate && (
+            {onRetry && (
               <button
                 type="button"
                 className="asset-gallery-retry"
-                onClick={onRegenerate}
+                onClick={() => onRetry(currentImage.id)}
                 disabled={disabled}
               >
                 重试
