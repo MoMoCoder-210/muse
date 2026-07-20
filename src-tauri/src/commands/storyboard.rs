@@ -672,6 +672,39 @@ pub fn generate_storyboard_video(
         return Err("提示词为空，无法生成视频".to_string());
     }
 
+    // 同步检查：分镜绑定的资产必须已选择参考图片
+    if let Some(ref param_json) = video_param_json {
+        if let Ok(param_value) = serde_json::from_str::<serde_json::Value>(param_json) {
+            if let Some(mention_map) = param_value.get("mention_map").and_then(|v| v.as_array()) {
+                let mut missing_names: Vec<String> = Vec::new();
+                for entry in mention_map {
+                    let asset_id = entry.get("assetId").and_then(|v| v.as_str()).unwrap_or("");
+                    let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    if asset_id.is_empty() || name.is_empty() {
+                        continue;
+                    }
+                    let has_image: bool = conn
+                        .query_row(
+                            "SELECT CASE WHEN a.selected_image_id IS NOT NULL AND a.selected_image_id != '' THEN 1 ELSE 0 END
+                             FROM assets a WHERE a.id = ?1",
+                            rusqlite::params![asset_id],
+                            |row| row.get::<_, bool>(0),
+                        )
+                        .unwrap_or(false);
+                    if !has_image {
+                        missing_names.push(format!("\"{}\"", name));
+                    }
+                }
+                if !missing_names.is_empty() {
+                    return Err(format!(
+                        "资产{}尚未绑定图片，请先在资产详情中选择参考图片",
+                        missing_names.join("、")
+                    ));
+                }
+            }
+        }
+    }
+
     // 每次点击都是一个独立视频批次。lock_key 必须绑定 task_id，避免同一分镜的
     // 多次生成互相视为重复消费；实际并发仍由 Worker 的 video 限流器控制。
     let task_id = uuid::Uuid::new_v4().to_string();

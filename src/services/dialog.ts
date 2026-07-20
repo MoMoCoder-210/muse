@@ -15,3 +15,19 @@ export async function pickTxtFile(options?: { title?: string }): Promise<string 
   }
   return null;
 }
+
+/**
+ * 弹出文件选择器，选择单个视频文件。
+ */
+export async function pickVideoFile(options?: { title?: string }): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "视频文件", extensions: ["mp4", "mov", "avi", "mkv", "webm"] }],
+    title: options?.title ?? "选择本地视频",
+  });
+
+  if (typeof selected === "string" && selected.trim()) {
+    return selected;
+  }
+  return null;
+}

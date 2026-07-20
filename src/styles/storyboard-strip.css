@@ -42,26 +42,6 @@
   width: 96px;
 }
 
-.sb-strip-item--add {
-  /* 与普通卡片的缩略图区域等宽等高，避免尾部添加框在交叉轴上偏移。 */
-  width: 96px;
-  height: 64px;
-  align-self: flex-start;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1.5px dashed rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  transition: border-color 160ms ease, color 160ms ease, background 160ms ease, transform 160ms ease;
-  margin: 10px 0 0 0;
-}
-.sb-strip-item--add:hover:not(:disabled) {
-  border-color: rgba(var(--accent-primary-rgb), 0.45);
-  color: rgb(var(--accent-primary-rgb));
-  background: rgba(var(--accent-primary-rgb), 0.08);
-  transform: scale(1.03);
-}
-
 /* 缩略图 */
 .sb-strip-thumb {
   position: relative;

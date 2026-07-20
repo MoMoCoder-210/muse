@@ -107,12 +107,13 @@
 
 /* ── 视频批次（全宽横排） ── */
 .sd-batch-thumbs {
-  display: flex; gap: var(--spacing-xs);
-  overflow-x: auto;
+  display: flex; gap: 8px;
+  overflow-x: clip; overflow-y: visible;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  min-height: 70px;
+  min-height: 74px;
   align-items: center;
+  padding: 10px 12px;
 }
 .sd-batch-thumbs:hover { scrollbar-color: var(--scrollbar-thumb) transparent; }
 .sd-batch-thumbs::-webkit-scrollbar { height: 4px; }
@@ -125,13 +126,56 @@
   position: relative;
   flex-shrink: 0;
   width: 76px; aspect-ratio: 4/3;
-  border-radius: var(--radius-sm); overflow: hidden;
+  border-radius: 7px; overflow: hidden;
   border: 2px solid transparent;
   background: var(--bg-input);
-  transition: border-color 140ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.sd-video-thumb-wrap.on { border-color: var(--accent-primary); }
-.sd-video-thumb-wrap.playing { border-color: rgba(var(--accent-primary-rgb), 0.45); }
+/* 绑定批次（分镜最终视频）— Mac 风格实心填充 */
+.sd-video-thumb-wrap.on {
+  border-color: var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.25);
+}
+/* 选中预览批次 — Apple 紫色光环 + 微放大 */
+.sd-video-thumb-wrap.playing {
+  border-color: var(--accent-purple);
+  border-style: solid;
+  box-shadow:
+    0 0 0 3px rgba(191, 90, 242, 0.25),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: scale(1.1);
+  z-index: 2;
+  overflow: visible;
+}
+/* 绑定 + 同时预览 */
+.sd-video-thumb-wrap.on.playing {
+  border-color: var(--accent-purple);
+  border-style: solid;
+  box-shadow:
+    0 0 0 3px rgba(191, 90, 242, 0.25),
+    inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: scale(1.1);
+  z-index: 2;
+  overflow: visible;
+}
+/* 绑定徽章（始终可见） */
+.sd-video-thumb-bound-badge {
+  position: absolute; top: 2px; right: 2px; z-index: 2;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.sd-video-thumb-bound-badge::after {
+  content: "";
+  width: 4px; height: 7px;
+  border: solid #fff; border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
 .sd-video-thumb-vid {
   width: 100%; height: 100%; object-fit: cover; pointer-events: none;
 }
@@ -170,6 +214,30 @@
 .sd-video-thumb-click {
   position: relative;
   width: 100%; height: 100%; cursor: pointer;
+}
+
+/* 选择本地视频按钮 */
+.sd-video-thumb-add {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 44px;
+  margin-left: 6px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+.sd-video-thumb-add:hover:not(:disabled) {
+  border-color: rgba(var(--accent-primary-rgb), 0.5);
+  color: var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.06);
+  transform: scale(1.04);
+}
+.sd-video-thumb-add:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── 视频任务状态（mac 风格玻璃卡片） ── */

@@ -5,6 +5,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use serde::Deserialize;
 use serde::Serialize;
 use tauri::Emitter;
@@ -111,18 +114,21 @@ struct ProbeInfo {
 
 /// 用 ffprobe 读取单个文件的时长、是否含音轨与原生分辨率
 fn probe_file(ffprobe: &Path, path: &str) -> Result<ProbeInfo, String> {
-    let out = Command::new(ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-show_entries",
-            "stream=codec_type,width,height",
-            "-of",
-            "json",
-            path,
-        ])
+    let mut probe_cmd = Command::new(ffprobe);
+    probe_cmd.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-show_entries",
+        "stream=codec_type,width,height",
+        "-of",
+        "json",
+        path,
+    ]);
+    #[cfg(target_os = "windows")]
+    probe_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let out = probe_cmd
         .output()
         .map_err(|e| format!("执行 ffprobe 失败：{}", e))?;
 
@@ -405,6 +411,8 @@ pub fn concat_clip_videos(
     ]);
     cmd.arg(&out_str);
     cmd.stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
     let mut child = cmd
         .spawn()

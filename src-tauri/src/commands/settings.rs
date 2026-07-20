@@ -79,12 +79,26 @@ pub fn save_settings(
     state: tauri::State<'_, SharedSidecarManager>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app)?;
+    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| {
+        let msg = format!("resolve_app_data_dir 失败: {}", e);
+        log::error!("[save_settings] {}", msg);
+        msg
+    })?;
     let settings_path = app_data_dir.join("settings.json");
     let normalized_settings = util::sanitize_settings(settings);
 
-    let content = serde_json::to_string_pretty(&normalized_settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_path, content).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&normalized_settings).map_err(|e| {
+        let msg = format!("JSON 序列化失败: {}", e);
+        log::error!("[save_settings] {}", msg);
+        msg
+    })?;
+
+    std::fs::write(&settings_path, &content).map_err(|e| {
+        let msg = format!("写入文件失败 ({:?}): {}", settings_path, e);
+        log::error!("[save_settings] {}", msg);
+        msg
+    })?;
+
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
         &log_path,
@@ -93,29 +107,34 @@ pub fn save_settings(
         &format!("配置已保存到 {:?}", settings_path),
     );
 
-    let mut manager = state.lock().map_err(|e| e.to_string())?;
+    let mut manager = match state.lock() {
+        Ok(m) => m,
+        Err(e) => {
+            let msg = format!("Mutex 锁定失败 (可能已被中毒): {}", e);
+            log::error!("[save_settings] {}", msg);
+            crate::project_log::append_log(&log_path, "设置", "ERROR", &msg);
+            // 配置已写入成功，Mutex 失败不影响保存结果
+            return Ok(());
+        }
+    };
+
     if manager.is_running() {
-        // Worker 在运行：热重载配置，立即生效，无需重启应用
         if let Err(e) = manager.send_reload_config() {
             crate::project_log::append_log(
                 &log_path,
                 "设置",
                 "WARN",
-                &format!(
-                    "配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}",
-                    e
-                ),
+                &format!("配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}", e),
             );
         }
     } else {
-        // Worker 未运行（可能因故停止）：用已保存的启动参数重新拉起，让新配置生效
         match manager.force_restart() {
             Ok(_) => {
                 crate::project_log::append_log(
                     &log_path,
                     "设置",
                     "INFO",
-                    "配置已保存，Worker 已重新拉起以加载新配置（无需重启应用）",
+                    "配置已保存，Worker 已重新拉起以加载新配置",
                 );
             }
             Err(e) => {
@@ -123,10 +142,7 @@ pub fn save_settings(
                     &log_path,
                     "设置",
                     "WARN",
-                    &format!(
-                        "Worker 未运行且无法自动拉起（配置已保存，请重启应用生效）：{}",
-                        e
-                    ),
+                    &format!("Worker 未运行且无法自动拉起（配置已保存）：{}", e),
                 );
             }
         }

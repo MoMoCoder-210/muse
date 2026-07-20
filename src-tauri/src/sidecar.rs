@@ -10,6 +10,9 @@ use tauri::Emitter;
 use tauri::Manager;
 use thiserror::Error;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[allow(dead_code)]
 const HEARTBEAT_TIMEOUT_SECS: u64 = 30;
 #[allow(dead_code)]
@@ -528,8 +531,8 @@ impl SidecarManager {
             &format!("Node 运行时路径：{}", node_binary.display()),
         );
 
-        let mut child = Command::new(&node_binary)
-            .arg(&worker_path)
+        let mut cmd = Command::new(&node_binary);
+        cmd.arg(&worker_path)
             .args(["--db", db_path])
             .args(["--workspace", workspace_path])
             .args(["--config", config_path])
@@ -539,7 +542,13 @@ impl SidecarManager {
             .env("LOG_LEVEL", "debug")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        // Windows 下隐藏子进程控制台窗口
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node ({}): {}", node_binary.display(), e)))?;
 
@@ -619,6 +628,7 @@ impl SidecarManager {
                 "timeoutMs": timeout_ms
             });
             let _ = writeln!(stdin, "{}", cmd.to_string());
+            let _ = stdin.flush();
         }
 
         // 等待退出或超时
@@ -880,6 +890,7 @@ impl SidecarManager {
         if let Some(stdin) = child.stdin.as_mut() {
             let cmd = serde_json::json!({ "version": 1, "cmd": "reload_config" });
             let _ = writeln!(stdin, "{}", cmd);
+            let _ = stdin.flush();
         }
         Ok(())
     }
@@ -891,6 +902,7 @@ impl SidecarManager {
         if let Some(stdin) = child.stdin.as_mut() {
             let cmd = serde_json::json!({ "version": 1, "cmd": "enqueue", "taskId": task_id, "taskType": task_type });
             let _ = writeln!(stdin, "{}", cmd);
+            let _ = stdin.flush();
         }
         Ok(())
     }
@@ -902,6 +914,7 @@ impl SidecarManager {
         if let Some(stdin) = child.stdin.as_mut() {
             let cmd = serde_json::json!({ "version": 1, "cmd": "cancel", "taskId": task_id });
             let _ = writeln!(stdin, "{}", cmd);
+            let _ = stdin.flush();
         }
         Ok(())
     }
@@ -922,6 +935,7 @@ impl SidecarManager {
                 "filePath": file_path
             });
             let _ = writeln!(stdin, "{}", cmd);
+            let _ = stdin.flush();
         }
         Ok(())
     }
@@ -937,6 +951,7 @@ impl SidecarManager {
                 "fileId": file_id
             });
             let _ = writeln!(stdin, "{}", cmd);
+            let _ = stdin.flush();
         }
         Ok(())
     }

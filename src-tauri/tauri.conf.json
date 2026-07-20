@@ -25,11 +25,22 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; media-src 'self' asset: https://asset.localhost; connect-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; connect-src 'self' asset: http://asset.localhost https://asset.localhost http://ipc.localhost https://ipc.localhost; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**"
+          "$HOME/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$APPDATA/**",
+          "$LOCALDATA/**",
+          "$APPLOCALDATA/**",
+          "D:/**",
+          "E:/**",
+          "F:/**",
+          "G:/**",
+          "H:/**"
         ]
       }
     }

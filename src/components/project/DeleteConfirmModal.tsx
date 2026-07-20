@@ -32,7 +32,7 @@ export function DeleteConfirmModal({
   confirmText = "删除",
   disabled = false,
   checkbox,
-  excludeTitlebar = false,
+  excludeTitlebar = true,
 }: DeleteConfirmModalProps) {
   return createPortal(
     <div

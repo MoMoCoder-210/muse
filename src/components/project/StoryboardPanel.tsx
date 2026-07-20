@@ -13,6 +13,7 @@ import {
   generateStoryboardVideo,
   selectStoryboardVideo, listStoryboardVideos,
   listStoryboardVideoTasks, deleteStoryboardVideoTask, deleteStoryboardVideo,
+  importVideoFile, addStoryboardVideo,
 } from "../../services/tauri";
 import type { StoryboardVideoInfo } from "../../services/tauri";
 import type { MentionAnchor } from "../../types/mention";
@@ -37,6 +38,7 @@ import { isClipDecomposed } from "../../utils/clip";
 import { avatarColor } from "../../utils/avatar-colors";
 import { formatDeleteResult } from "../../utils/delete-result";
 import { ImageLightbox } from "../common/ImageLightbox";
+import { pickVideoFile } from "../../services/dialog";
 
 /* ========================================================================
    StoryboardPanel — 分镜管理（含视频生成）
@@ -649,11 +651,6 @@ export function StoryboardPanel({ project }: Props) {
                       </div>
                     );
                   })}
-
-                  {/* 尾部固定添加 */}
-                  <button className="sb-strip-item sb-strip-item--add" onClick={() => setInsertAfterId(null)} disabled={busy} title="追加到末尾">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  </button>
                 </div>
               </div>
             </div>
@@ -835,6 +832,25 @@ function DetailView({
     catch { /* ignore */ }
   }, [sb.id]);
   useEffect(() => { loadVideos(); }, [loadVideos, sb.video_state, videoTaskStates, videoVer]);
+
+  // 选择本地视频导入为批次
+  const [importingVideo, setImportingVideo] = useState(false);
+  const handleImportLocalVideo = useCallback(async () => {
+    const filePath = await pickVideoFile();
+    if (!filePath) return;
+    setImportingVideo(true);
+    try {
+      const imported = await importVideoFile(sb.clip_id, filePath);
+      await addStoryboardVideo({ storyboard_id: sb.id, video_path: imported.file_path, file_name: imported.file_name });
+      onVideoRefresh(sb.id);
+      setVideoVer((x) => x + 1);
+      toast("本地视频已导入", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "导入失败", "error");
+    } finally {
+      setImportingVideo(false);
+    }
+  }, [sb.clip_id, sb.id, onVideoRefresh, toast]);
 
   // 最终视频变更时同步播放到该视频
   useEffect(() => { setViewingVideoId(sb.selected_video_id || null); }, [sb.selected_video_id]);
@@ -1224,6 +1240,16 @@ function DetailView({
       setMentionItems(normalized.mentions);
       setPromptDoc(normalized.promptDoc);
       setPrompt(normalized.prompt);
+
+      // 同步检查：所有绑定资产必须已选择参考图片
+      const missingImageNames = normalized.mentions
+        .filter((m) => !m.imagePath)
+        .map((m) => `"${m.name}"`);
+      if (missingImageNames.length > 0) {
+        toast(`资产${missingImageNames.join("、")}尚未绑定图片，请先在资产详情中选择参考图片`, "error");
+        return;
+      }
+
       const mapEntries = normalized.mentions.map((mention) => ({
         n: mention.index,
         assetId: mention.assetId,
@@ -1243,8 +1269,9 @@ function DetailView({
       const task = await generateStoryboardVideo({ storyboard_id: sb.id });
       onVideoTaskQueued(sb.id, task.task_id);
       toast("视频生成任务已提交", "success");
-    } catch {
-      toast(formatStoryboardVideoFailure(), "error");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : (typeof err === "string" ? err : "");
+      toast(msg || formatStoryboardVideoFailure(), "error");
     } finally {
       setGeneratingVideo(false);
     }
@@ -1449,6 +1476,7 @@ function DetailView({
                   )}
                 </div>
                 <span className="sd-video-thumb-label">{batchLabel}</span>
+                {isSelected && <span className="sd-video-thumb-bound-badge" title="分镜绑定视频" />}
                 {v.taskStatus === "failed" && v.task_id && (
                   <button
                     className="sd-video-thumb-delete"
@@ -1495,6 +1523,18 @@ function DetailView({
               </div>
             );
           })}
+          {/* 选择本地视频按钮 */}
+          <button
+            className="sd-video-thumb-add"
+            disabled={importingVideo || busy}
+            onClick={handleImportLocalVideo}
+            title="选择本地视频导入"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
         </div>
       </div>
 

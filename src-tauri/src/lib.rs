@@ -79,15 +79,33 @@ pub fn run() {
             // ── 扩展 asset 协议作用域，确保前端能加载项目目录中的图片/视频 ──
             let asset_scope = app.handle().asset_protocol_scope();
             let projects_root = app_paths::default_projects_root();
-            if let Err(e) = asset_scope.allow_directory(&projects_root, true) {
-                log::warn!("asset scope: 无法添加项目根目录 {:?}: {}", projects_root, e);
+            log::info!("asset scope: 项目根目录 = {:?}", projects_root);
+            match asset_scope.allow_directory(&projects_root, true) {
+                Ok(_) => log::info!("asset scope: 已添加项目根目录 {:?}", projects_root),
+                Err(e) => log::warn!("asset scope: 无法添加项目根目录 {:?}: {}", projects_root, e),
             }
             if let Some(home) = dirs::home_dir() {
-                let _ = asset_scope.allow_directory(&home, true);
+                log::info!("asset scope: 用户主目录 = {:?}", home);
+                match asset_scope.allow_directory(&home, true) {
+                    Ok(_) => log::info!("asset scope: 已添加用户主目录"),
+                    Err(e) => log::warn!("asset scope: 无法添加用户主目录: {}", e),
+                }
             }
             if let Some(docs) = dirs::document_dir() {
-                let _ = asset_scope.allow_directory(&docs, true);
+                log::info!("asset scope: 文档目录 = {:?}", docs);
+                match asset_scope.allow_directory(&docs, true) {
+                    Ok(_) => log::info!("asset scope: 已添加文档目录"),
+                    Err(e) => log::warn!("asset scope: 无法添加文档目录: {}", e),
+                }
             }
+            // 允许所有常见磁盘驱动器（Windows: C:/D:/E:/F: 等）
+            for drive_letter in b'A'..=b'Z' {
+                let drive_path = std::path::PathBuf::from(format!("{}:\\", drive_letter as char));
+                if drive_path.exists() {
+                    let _ = asset_scope.allow_directory(&drive_path, true);
+                }
+            }
+            log::info!("asset scope: 初始化完成");
 
             let log_path = project_log::log_path_for_app_data(&app_data_dir);
             project_log::append_log(&log_path, "应用", "INFO", "应用启动");
@@ -318,6 +336,18 @@ pub fn run() {
                             }
                         }
                         Err(_) => {}
+                    }
+                });
+            }
+
+            // ── 自动打开开发者工具（调试用，打包后可通过 F12 触发）──
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    if let Some(win) = handle.get_webview_window("main") {
+                        win.open_devtools();
+                        log::info!("开发者工具已自动打开");
                     }
                 });
             }

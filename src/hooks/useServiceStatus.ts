@@ -76,6 +76,8 @@ export function useServiceStatus(): ServiceStatus {
           case "start_failed":
           case "max_restarts":
             return { ...current, worker: false };
+          default:
+            return current;
         }
       });
     });

@@ -519,7 +519,7 @@ export function ChannelManager<T extends ChannelLike>({
 
       {/* 删除确认 */}
       {deleteTarget && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setDeleteTarget(null)}>
+        <div className="modal-backdrop delete-batch-backdrop" role="dialog" aria-modal="true" onClick={() => setDeleteTarget(null)}>
           <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="delete-confirm-title">删除渠道</h2>

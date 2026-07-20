@@ -15,7 +15,7 @@ type StoryboardConfirmProps = {
  */
 export function StoryboardConfirm({ title, message, confirmText, onConfirm, onCancel, disabled, checkbox }: StoryboardConfirmProps) {
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
+    <div className="modal-backdrop delete-batch-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
       <div className="modal-panel clip-delete-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="delete-confirm-title">{title}</h2>
