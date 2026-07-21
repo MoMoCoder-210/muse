@@ -399,7 +399,7 @@ pub fn retry_asset_image_task(
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
 
-    let mut conn = util::open_app_conn(&app)?;
+    let conn = util::open_app_conn(&app)?;
 
     // 校验任务存在且为 failed 状态的 generate_asset_image 任务
     let (task_type, status): (String, String) = conn

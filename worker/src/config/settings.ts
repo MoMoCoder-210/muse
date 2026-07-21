@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import {
-  DEFAULT_SETTINGS, getActiveChannel,
+  DEFAULT_SETTINGS, DEFAULT_MODEL_ENTRY, getActiveChannel,
   resolveTextConfig, resolveImageConfig, resolveVoiceConfig, resolveVideoConfig,
   type AppSettings, type TextModelConfig, type ImageModelConfig,
   type VoiceModelConfig, type AssetModelConfig, type VideoModelConfig, type ConcurrencySettings,
@@ -47,19 +47,44 @@ export class SettingsManager {
 
   getTextConfig(): TextModelConfig {
     const ch = getActiveChannel(this.cache.text);
-    if (!ch) throw new Error("文本渠道缺失");
+    if (!ch) {
+      return {
+        apiKey: "",
+        baseUrl: "",
+        model: DEFAULT_MODEL_ENTRY.modelId,
+        maxTokens: this.cache.textParams.maxTokens,
+        temperature: this.cache.textParams.temperature,
+        timeoutMs: this.cache.textParams.timeoutMs,
+      };
+    }
     return resolveTextConfig(ch, this.cache.textParams);
   }
 
   getImageConfig(): ImageModelConfig {
     const ch = getActiveChannel(this.cache.image);
-    if (!ch) throw new Error("生图渠道缺失");
+    if (!ch) {
+      return {
+        apiKey: "",
+        baseUrl: "",
+        model: DEFAULT_MODEL_ENTRY.modelId,
+        timeoutMs: this.cache.imageParams.timeoutMs,
+      };
+    }
     return resolveImageConfig(ch, this.cache.imageParams);
   }
 
   getVoiceConfig(): VoiceModelConfig {
     const ch = getActiveChannel(this.cache.voice);
-    if (!ch) throw new Error("语音渠道缺失");
+    if (!ch) {
+      return {
+        apiKey: "",
+        resourceId: "seed-tts-2.0",
+        baseUrl: "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+        sampleRate: 24000,
+        speed: this.cache.voiceParams.speed,
+        timeoutMs: this.cache.voiceParams.timeoutMs,
+      };
+    }
     return resolveVoiceConfig(ch, this.cache.voiceParams);
   }
 
@@ -75,7 +100,14 @@ export class SettingsManager {
 
   getVideoConfig(): VideoModelConfig {
     const ch = getActiveChannel(this.cache.video);
-    if (!ch) throw new Error("视频渠道缺失");
+    if (!ch) {
+      return {
+        apiKey: "",
+        baseUrl: "",
+        model: DEFAULT_MODEL_ENTRY.modelId,
+        timeoutMs: this.cache.videoParams.timeoutMs,
+      };
+    }
     const cfg = resolveVideoConfig(ch, this.cache.videoParams);
     // 视频与素材共用火山方舟密钥，未配置时复用 asset 渠道（直接读 asset 渠道，避免与 getAssetConfig 互相递归）
     if (!cfg.apiKey.trim()) {

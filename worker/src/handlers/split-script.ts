@@ -18,8 +18,8 @@ import { l, lw, le, stripCodeFences, createPromptLoader } from "../utils/utils.j
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
 const EPISODE_PATTERNS = [
-  // 第X集/章/幕/场/回/节（中文数字或阿拉伯数字）
-  /(?:^|\n)\s*【*\[*第\s*[一二三四五六七八九十百零\d]+\s*[集章幕场回节]/,
+  // 第X集/章/幕/场/回/节（中文数字或阿拉伯数字），支持 Markdown ### 标题前缀
+  /(?:^|\n)\s*[【\[#*\-]*第\s*[一二三四五六七八九十百零\d]+\s*[集章幕场回节]/,
   // (X) 括号编号（全角/半角）
   /(?:^|\n)\s*[（(]\s*[一二三四五六七八九十\d]+\s*[)）]/,
   // EP.X / Ep.X
@@ -114,8 +114,9 @@ function hasEpisodeMarkers(text: string): boolean {
  */
 function extractTitle(markerLine: string): string {
   if (!markerLine) return "";
-  // 去掉前导的 第X集/第X章/Chapter N 等标记
+  // 去掉前导 Markdown 标记（#、**、*）、然后是 第X集/第X章/Chapter N 等标记
   const cleaned = markerLine
+    .replace(/^[#*\-|\s]+/, "")
     .replace(/^第[0-9零一二三四五六七八九十百千]+[集章节回卷篇]?\s*[:：\s]?/, "")
     .replace(/^Chapter\s*\d+\s*[:：\s]?/i, "")
     .replace(/^Part\s*\d+\s*[:：\s]?/i, "")

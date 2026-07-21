@@ -218,6 +218,17 @@ async function main(): Promise<void> {
   } else {
     sendLog("warn", "未提供配置路径，使用内置默认配置（API 客户端未配置）");
   }
+  // 诊断：报告各模型渠道的配置状态
+  {
+    const unavailable: string[] = [];
+    if (!settings.isTextConfigured()) unavailable.push("文本");
+    if (!settings.isImageConfigured()) unavailable.push("生图");
+    if (!settings.isVoiceConfigured()) unavailable.push("语音");
+    if (!settings.isVideoConfigured()) unavailable.push("视频");
+    if (unavailable.length > 0) {
+      sendLog("warn", `以下模型渠道未配置：${unavailable.join("、")}（相关功能将不可用）`);
+    }
+  }
 
   // 初始化数据库
   if (dbPath) {

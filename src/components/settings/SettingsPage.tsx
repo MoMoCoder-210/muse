@@ -6,7 +6,6 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_TEXT_CHANNEL,
   DEFAULT_IMAGE_CHANNEL,
-  DEFAULT_VOICE_CHANNEL,
   DEFAULT_VIDEO_CHANNEL,
   type AppSettings,
 } from "../../types/settings";
@@ -22,12 +21,11 @@ const TABS = [
   { key: "models" as const, label: "模型", icon: "cpu" },
 ];
 
-type ModelTab = "text" | "image" | "voice" | "video";
+type ModelTab = "text" | "image" | "video";
 
 const MODEL_TABS: Array<{ key: ModelTab; label: string }> = [
   { key: "text",  label: "语言模型" },
   { key: "image", label: "生图模型" },
-  { key: "voice", label: "语音模型" },
   { key: "video", label: "视频模型" },
 ];
 
@@ -37,13 +35,6 @@ const CHANNEL_FIELDS = [
   { key: "name",   label: "名称",  type: "text" as const,     placeholder: "请输入名称" },
   { key: "apiKey", label: "API Key",  type: "password" as const, placeholder: "请输入Api Key" },
   { key: "baseUrl",label: "Base URL", type: "text" as const,     placeholder: "请输入URL" },
-];
-
-const VOICE_FIELDS = [
-  { key: "name",       label: "名称",     type: "text" as const,     placeholder: "请输入名称" },
-  { key: "apiKey",     label: "API Key", type: "password" as const, placeholder: "火山控制台 语音合成 → API Key" },
-  { key: "resourceId", label: "Resource ID", type: "text" as const, placeholder: "如 seed-tts-2.0 或 seed-icl-2.0" },
-  { key: "baseUrl",    label: "Base URL", type: "text" as const, placeholder: "https://openspeech.bytedance.com/api/v3/tts/unidirectional" },
 ];
 
 // ── 全局参数字段 ──────────────────────────────────────
@@ -56,11 +47,6 @@ const TEXT_PARAMS_FIELDS = [
 
 const IMAGE_PARAMS_FIELDS = [
   { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 600000, step: 1000 },
-];
-
-const VOICE_PARAMS_FIELDS = [
-  { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 600000, step: 1000 },
-  { key: "speed",     label: "语速",     type: "number" as const, min: 0.5, max: 2.0, step: 0.1 },
 ];
 
 const VIDEO_PARAMS_FIELDS = [
@@ -251,16 +237,6 @@ export function SettingsPage({ onClose }: Props) {
               onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as unknown as AppSettings["imageParams"] })}
               onChange={(next) => updateState({ ...settingsRef.current, image: next as unknown as AppSettings["image"] })}
               onPersist={(u) => persist({ ...settingsRef.current, image: u as unknown as AppSettings["image"] })}
-            />
-          )}
-          {modelTab === "voice" && (
-            <ChannelManager
-              list={settings.voice} blank={DEFAULT_VOICE_CHANNEL}
-              fields={VOICE_FIELDS} hasModels={false} enableTest={false} fixedSingle
-              params={settings.voiceParams as unknown as Record<string, number>} paramsFields={VOICE_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, voiceParams: p as unknown as AppSettings["voiceParams"] })}
-              onChange={(next) => updateState({ ...settingsRef.current, voice: next as unknown as AppSettings["voice"] })}
-              onPersist={(u) => persist({ ...settingsRef.current, voice: u as unknown as AppSettings["voice"] })}
             />
           )}
           {modelTab === "video" && (
