@@ -6,19 +6,15 @@
 
   **AI 视频创作桌面工具**
 
-  <span class="zh">从剧本导入到完整视频产出，全链路 AI 辅助创作</span>
-  <span class="en" style="display:none">From script import to full video output — AI-assisted end-to-end creation</span>
+  从剧本导入到完整视频产出，全链路 AI 辅助创作
 
   <br/>
 
-  <button class="lang-btn active" onclick="switchLang('zh')">中</button>
-  <button class="lang-btn" onclick="switchLang('en')">EN</button>
+  [English](README_EN.md)
 
 </div>
 
 ---
-
-<div class="zh">
 
 ## 简介
 
@@ -26,21 +22,9 @@ Muse 是一款本地优先的桌面 AI 视频创作工具。基于剧本导入 �
 
 所有数据默认存储在本地，无需云端依赖，保障创作隐私与数据安全。
 
-</div>
-
-<div class="en" style="display:none">
-
-## Introduction
-
-Muse is a local-first desktop AI video creation tool. It follows a main pipeline — script import → clip decomposition → asset management → storyboard generation → video synthesis — deeply integrating AI model capabilities into the creative workflow to help you quickly turn text scripts into complete videos.
-
-All data is stored locally by default with no cloud dependency, ensuring creative privacy and data security.
-
-</div>
+由于资金问题，目前只做了Windows-64位的兼容测试，视频模型只做了Seedance-2.0-mini模型的测试，后续如果有大佬赞助可做多端适配，多视频模型支持。
 
 ---
-
-<div class="zh">
 
 ## 核心功能
 
@@ -63,36 +47,7 @@ All data is stored locally by default with no cloud dependency, ensuring creativ
 分辨率：`480p` `720p` `1080p` `2K` `4K`
 比例：`16:9` `9:16` `1:1` `4:3` `3:4` `21:9`
 
-</div>
-
-<div class="en" style="display:none">
-
-## Core Features
-
-| Module | Description |
-|---|---|
-| 📖 **Script Import** | Import text scripts and auto-split into independent clips by scene/paragraph |
-| 🎬 **Clip Decomposition** | AI parses characters, scenes, items, and storyboards for each clip |
-| 🎨 **Asset Management** | Manage character images, scene environments, and props with AI image generation |
-| 🖼️ **Storyboard Editing** | Generate multiple storyboards per clip with prompt editing and parameter adjustment |
-| 🎙️ **Voice Generation** | Generate TTS voiceovers for storyboard narration with built-in voice library |
-| 🎥 **Video Generation** | Synthesize video clips from storyboard frames + voice, supporting multiple resolutions and aspect ratios |
-| ✂️ **Video Concatenation** | Merge all videos within a clip into a single final export |
-
-### Supported Art Styles
-
-`Chinese Anime` `Anime` `Japanese Anime` `Korean Manhwa` `ACG` `Live Action`
-
-### Supported Video Specs
-
-Resolution: `480p` `720p` `1080p` `2K` `4K`
-Aspect Ratio: `16:9` `9:16` `1:1` `4:3` `3:4` `21:9`
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 创作工作流
 
@@ -100,21 +55,7 @@ Aspect Ratio: `16:9` `9:16` `1:1` `4:3` `3:4` `21:9`
 剧本导入 ──→ 分集管理 ──→ 素材管理 ──→ 镜头管理 ──→ 视频编辑 ──→ 导出成片
 ```
 
-</div>
-
-<div class="en" style="display:none">
-
-## Creative Workflow
-
-```
-Script Import ──→ Clip Management ──→ Asset Management ──→ Storyboard Editing ──→ Video Editing ──→ Export
-```
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 技术栈
 
@@ -128,27 +69,7 @@ Script Import ──→ Clip Management ──→ Asset Management ──→ Sto
 | 🎞️ 视频处理 | **FFmpeg** | 视频拼接、格式转换 |
 | 📦 状态管理 | **Zustand** + **TanStack Query** | 本地 UI 状态与服务端数据缓存 |
 
-</div>
-
-<div class="en" style="display:none">
-
-## Tech Stack
-
-| Layer | Technology | Description |
-|---|---|---|
-| 🖥️ Desktop Shell | **Tauri 2.x** | Cross-platform desktop framework for windowing, IPC, and native APIs |
-| 🎨 Frontend | **React 18 + TypeScript + Vite** | UI rendering, invokes backend commands via `@tauri-apps/api` |
-| ⚙️ Backend | **Rust** (edition 2021) | File system ops, database management, process lifecycle |
-| 🗄️ Database | **SQLite** (WAL mode) | Local storage with concurrent access from Rust and Node worker |
-| 🔧 Task Engine | **Node.js 22** (sidecar) | Independent process communicating via stdio JSON-line protocol; handles task scheduling and AI API calls |
-| 🎞️ Video | **FFmpeg** | Video concatenation and format conversion |
-| 📦 State | **Zustand** + **TanStack Query** | Local UI state and server-data caching |
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 架构设计
 
@@ -183,48 +104,7 @@ Script Import ──→ Clip Management ──→ Asset Management ──→ Sto
 - **本地优先**：全部数据默认存于用户本机，无云端依赖
 - **崩溃恢复**：Worker 异常退出后自动接管遗留任务，保证任务不丢失
 
-</div>
-
-<div class="en" style="display:none">
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│             React Frontend              │
-│   (UI Rendering · Interaction · State)  │
-└──────────────┬──────────────────────────┘
-               │ Tauri IPC (invoke)
-┌──────────────┴──────────────────────────┐
-│              Rust Backend               │
-│   (Project CRUD · File System · DB Init │
-│    Process Mgmt · Event Emission)       │
-└──────┬──────────────────┬───────────────┘
-       │ spawn & stdio    │ rusqlite
-┌──────┴──────┐    ┌──────┴──────┐
-│  Node Worker │    │   SQLite    │
-│  (Task Sched ·│   │  (Local DB) │
-│   AI API Calls)│  └─────────────┘
-└──────┬───────┘
-       │ HTTP
-┌──────┴──────┐
-│  Volcano Ark │
-│  (Text/Image/│
-│   Voice/Video)│
-└─────────────┘
-```
-
-**Design Principles:**
-- **Three-Layer Separation**: Frontend (UI) → Rust (System) → Node (AI), each with clear responsibilities
-- **Task-Driven**: All long-running operations (image/voice/video generation) go through the task queue — direct API calls are forbidden
-- **Local-First**: All data stored on the user's machine by default, no cloud dependency
-- **Crash Recovery**: Worker crashes are detected and orphaned tasks are automatically reclaimed
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 作品结构
 
@@ -273,62 +153,7 @@ muse/
 └── docs/                    # 设计文档
 ```
 
-</div>
-
-<div class="en" style="display:none">
-
-## Project Structure
-
-```
-muse/
-├── src/                     # React frontend source
-│   ├── components/          # UI components
-│   │   ├── common/          #   Shared components (modals, buttons)
-│   │   ├── home/            #   Startup screen
-│   │   ├── layout/          #   Layout components
-│   │   ├── project/         #   Workspace (clips, assets, storyboards, video)
-│   │   └── settings/        #   Settings panel
-│   ├── config/              # Business config (styles, resolutions, workflow)
-│   ├── hooks/               # Custom hooks
-│   ├── services/            # Tauri command wrappers
-│   ├── styles/              # CSS stylesheets (modular)
-│   ├── types/               # TypeScript type definitions
-│   └── utils/               # Utility functions
-│
-├── src-tauri/               # Tauri + Rust backend
-│   ├── src/
-│   │   ├── main.rs          # Binary entry point
-│   │   ├── lib.rs           # App init, plugin registration, startup flow
-│   │   ├── commands/        # Tauri command implementations
-│   │   ├── app_paths.rs     # Path resolution (data dir, FFmpeg, Node)
-│   │   ├── sidecar.rs       # Worker process lifecycle management
-│   │   └── project_log.rs   # Logging system
-│   ├── capabilities/        # Tauri permission declarations
-│   ├── icons/               # App icons
-│   └── tauri.conf.json      # Tauri configuration
-│
-├── worker/                  # Node.js sidecar (independent npm workspace)
-│   ├── src/
-│   │   ├── index.ts         # Entry: stdio communication, command dispatch
-│   │   ├── task-runner.ts   # Task engine (polling, locking, retries)
-│   │   ├── handlers/        # Task handlers (decomposition, image, voice, video, concat)
-│   │   ├── clients/         # AI API client wrappers
-│   │   ├── config/          # Worker-side config and defaults
-│   │   ├── prompts/         # Model prompt templates
-│   │   └── utils/           # Utility functions
-│   └── dist/                # Build output
-│
-├── ffmpeg/                  # FFmpeg binaries
-├── migrations/              # Database migration scripts
-├── scripts/                 # Build helper scripts
-└── docs/                    # Design documentation
-```
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 数据目录
 
@@ -354,39 +179,7 @@ muse/
 └── cache/                   # 临时缓存
 ```
 
-</div>
-
-<div class="en" style="display:none">
-
-## Data Directory
-
-Runtime data is stored in a hidden folder under the user's home directory:
-
-```
-~/.muse/                     # App data directory
-├── settings.json            # App configuration (API keys, model params)
-├── app.sqlite               # App database (project registry)
-├── workspace/               # Default project workspace
-└── logs/
-    └── muse.log             # Runtime logs
-
-<project-directory>/         # Specified when creating a project
-├── project.sqlite           # Project database
-├── source/                  # Original script files
-├── clips/                   # Clip-related files
-├── assets/                  # Asset images and thumbnails
-├── storyboards/             # Storyboard drafts and finals
-├── audio/                   # Voice audio files
-├── video/                   # Generated video clips
-├── exports/                 # Final exports
-└── cache/                   # Temporary cache
-```
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 快速开始
 
@@ -431,127 +224,35 @@ npm run tauri:build
 | `npm run worker:dev` | Worker 热重载开发模式 |
 | `npm run worker:build` | 编译 Worker |
 
-</div>
-
-<div class="en" style="display:none">
-
-## Getting Started
-
-### Prerequisites
-
-- **Node.js** ≥ 22
-- **Rust** ≥ 1.77 (install via [rustup](https://rustup.rs/))
-- **Windows** 10+ / **macOS** 12+ / **Linux**
-
-### Development
-
-```bash
-# 1. Install frontend dependencies
-npm install
-
-# 2. Install Worker dependencies
-npm install -w worker
-
-# 3. Build the Worker
-npm run worker:build
-
-# 4. Start the development environment
-npm run tauri:dev
-```
-
-### Production Build
-
-```bash
-npm run tauri:build
-```
-
-Build artifacts are located at `src-tauri/target/release/bundle/`.
-
-### Common Commands
-
-| Command | Description |
-|---|---|
-| `npm run tauri:dev` | Start full dev environment (Vite + Tauri) |
-| `npm run tauri:build` | Build production installer |
-| `npm run dev` | Start Vite dev server only |
-| `npm run build` | Build frontend only |
-| `npm run worker:dev` | Worker hot-reload dev mode |
-| `npm run worker:build` | Build the Worker |
-
-</div>
-
 ---
-
-<div class="zh">
 
 ## 模型配置
 
-- **语言模型**：Open API兼容
-- **生图模型**：Open API兼容
-- **视频模型**：火山Seedance-2.0系列模型API，暂未兼容其他格式
+- **语言模型**：Open API 兼容
+- **生图模型**：Open API 兼容
+- **视频模型**：火山 Seedance-2.0 系列模型 API，暂未兼容其他格式
 
 配置文件 `~/.muse/settings.json`。
 
-</div>
+---
 
-<div class="en" style="display:none">
+## 当前局限
 
-## Model Configuration
+> 受限于个人资金与精力，目前仅完成了 **Windows 64 位**的兼容测试，视频模型仅验证了 **Seedance-2.0-mini**。如果你希望在其他平台（macOS / Linux）上使用或接入更多视频模型，欢迎赞助支持，我会优先推进。
 
-Muse currently integrates with **Volcano Ark** model services exclusively. Configure your API keys in the Settings panel:
+---
 
-- **Text Model**: Script decomposition and storyboard generation
-- **Image Model**: Character/scene/prop image generation
-- **Voice Model**: Storyboard narration TTS synthesis
-- **Video Model**: Storyboard video generation
+## 后续计划
 
-A default config file `~/.muse/settings.json` is automatically created on first launch.
-
-</div>
+- [ ] 持续 Bug 修复
+- [ ] AI 剧本优化（润色、补全、改写）
+- [ ] AI 剧本创作集成（从零生成剧本）
+- [ ] 图片 / 视频超分辨率方案（本地 & 云端，技术选型中）
 
 ---
 
 <div align="center">
   <sub>Built with Tauri · React · Rust · SQLite · Node.js</sub>
+  <br/>
+  <sub>Licensed under <a href="LICENSE">Apache 2.0</a></sub>
 </div>
-
-<style>
-  .lang-btn {
-    display: inline-block;
-    padding: 4px 14px;
-    margin: 0 4px;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    background: #0d1117;
-    color: #8b949e;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    transition: all 0.15s ease;
-  }
-  .lang-btn.active {
-    background: #1f6feb;
-    border-color: #1f6feb;
-    color: #fff;
-  }
-  .lang-btn:hover:not(.active) {
-    color: #c9d1d9;
-    border-color: #8b949e;
-  }
-</style>
-
-<script>
-  function switchLang(lang) {
-    document.querySelectorAll('.zh').forEach(el => el.style.display = lang === 'zh' ? '' : 'none');
-    document.querySelectorAll('.en').forEach(el => el.style.display = lang === 'en' ? '' : 'none');
-    document.querySelectorAll('.lang-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.textContent.trim() === (lang === 'zh' ? '中' : 'EN'));
-    });
-    localStorage.setItem('muse-readme-lang', lang);
-  }
-  // restore saved preference
-  (function() {
-    var saved = localStorage.getItem('muse-readme-lang') || 'zh';
-    switchLang(saved);
-  })();
-</script>
