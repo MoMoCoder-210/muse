@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import { useServiceStatus, type ServiceHealth } from "../../hooks/useServiceStatus";
 
-const HELP_URL = "https://gitee.com/yangtao210/muse";
+const HELP_URL = "https://github.com/MoMoCoder-210/muse";
 
 type TitleBarProps = {
   onOpenSettings: () => void;

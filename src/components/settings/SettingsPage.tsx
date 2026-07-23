@@ -210,6 +210,18 @@ export function SettingsPage({ onClose }: Props) {
           </div>
         </div>
 
+        {/* 开源地址 */}
+        <div className="sk-group">
+          <h4 className="sk-group-title">开源地址</h4>
+          <div className="sk-card">
+            <p className="sk-about-text">
+              <a href="https://github.com/MoMoCoder-210/muse" target="_blank" rel="noopener noreferrer">
+                github.com/MoMoCoder-210/muse
+              </a>
+            </p>
+          </div>
+        </div>
+
         {/* 版权 */}
         <div className="sk-group">
           <div className="sk-card">

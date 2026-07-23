@@ -232,6 +232,16 @@
   color: var(--text-secondary);
 }
 
+.sk-about-text a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: opacity 120ms ease;
+}
+
+.sk-about-text a:hover {
+  opacity: 0.8;
+}
+
 .sk-about-copyright {
   margin: 0;
   padding: 14px 18px;
