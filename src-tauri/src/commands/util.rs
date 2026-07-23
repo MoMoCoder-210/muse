@@ -274,7 +274,7 @@ fn sanitize_channel(
 }
 
 /// 解析工作区路径
-/// 始终为项目创建独立子目录，避免多个项目文件混在同一目录下。
+/// 始终为作品创建独立子目录，避免多个作品文件混在同一目录下。
 pub(crate) fn resolve_workspace_path(
     workspace_path: &str,
     project_name: &str,
@@ -310,7 +310,7 @@ pub(crate) fn open_app_conn(app: &tauri::AppHandle) -> Result<rusqlite::Connecti
     crate::db::init_db(&db_path).map_err(|e| e.to_string())
 }
 
-/// 查询指定项目的工作区路径。
+/// 查询指定作品的工作区路径。
 pub(crate) fn get_project_workspace_path(
     app: &tauri::AppHandle,
     project_id: &str,
@@ -377,7 +377,7 @@ pub(crate) fn ensure_worker_running(
 
     let mut manager = state.lock().map_err(|e| e.to_string())?;
 
-    // Worker 已运行 → 无需操作（全局唯一 Worker，不按项目区分）
+    // Worker 已运行 → 无需操作（全局唯一 Worker，不按作品区分）
     if manager.is_running() {
         return Ok(());
     }
@@ -385,7 +385,7 @@ pub(crate) fn ensure_worker_running(
     // Worker 未运行 → 启动（使用全局默认 workspace）
     crate::project_log::append_log(
         &log_path,
-        "项目",
+        "作品",
         "INFO",
         &format!("Worker 未运行，启动中（由 projectId={} 触发）", project_id),
     );

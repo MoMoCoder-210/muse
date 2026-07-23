@@ -75,7 +75,7 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     })
 }
 
-/// 资产生图进度事件负载（转发给前端）
+/// 素材生图进度事件负载（转发给前端）
 #[derive(Clone, serde::Serialize)]
 struct AssetImageProgressPayload {
     clip_id: String,
@@ -84,7 +84,7 @@ struct AssetImageProgressPayload {
     status: String,
 }
 
-/// 单张资产生成图片状态更新负载
+/// 单张素材生成图片状态更新负载
 #[derive(Clone, serde::Serialize)]
 struct AssetImageTaskUpdatePayload {
     clip_id: String,
@@ -94,7 +94,7 @@ struct AssetImageTaskUpdatePayload {
     status: String,
 }
 
-/// 片段拆解任务完成/失败负载
+/// 分集拆解任务完成/失败负载
 #[derive(Clone, serde::Serialize)]
 struct ClipScriptReadyPayload {
     project_id: String,
@@ -103,7 +103,7 @@ struct ClipScriptReadyPayload {
     error_message: Option<String>,
 }
 
-/// 分镜视频任务完成/失败负载
+/// 镜头视频任务完成/失败负载
 #[derive(Clone, serde::Serialize)]
 struct StoryboardVideoReadyPayload {
     task_id: String,
@@ -484,7 +484,7 @@ impl SidecarManager {
         self.ffprobe_path = ffprobe_path.to_string();
 
         // 解析 worker 脚本路径
-        // 生产包：resource_dir；开发：cwd（常用 src-tauri/，需回退到项目根）。
+        // 生产包：resource_dir；开发：cwd（常用 src-tauri/，需回退到作品根）。
         let worker_path = {
             let resource_candidate = self.app.path().resource_dir()
                 .ok()
@@ -552,7 +552,7 @@ impl SidecarManager {
             .spawn()
             .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node ({}): {}", node_binary.display(), e)))?;
 
-        // 启动 stderr 读取线程 → 写入项目日志文件
+        // 启动 stderr 读取线程 → 写入作品日志文件
         if let Some(stderr) = child.stderr.take() {
             let log_path_arc: Arc<std::path::PathBuf> =
                 Arc::new(std::path::PathBuf::from(log_path));
@@ -956,7 +956,7 @@ impl SidecarManager {
         Ok(())
     }
 
-    /// 统一写日志到项目日志文件（与 commands 一致，避免双日志门面）。
+    /// 统一写日志到作品日志文件（与 commands 一致，避免双日志门面）。
     /// log_path 为空（尚未保存启动参数）时跳过，避免无谓写入。
     fn log(&self, source: &str, level: &str, message: &str) {
         if !self.log_path.is_empty() {

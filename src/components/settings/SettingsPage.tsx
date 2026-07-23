@@ -115,12 +115,12 @@ export function SettingsPage({ onClose }: Props) {
     if (loading) return <div className="sk-loading">加载中…</div>;
     return (
       <div className="sk-general">
-        {/* 项目默认位置 */}
+        {/* 作品默认位置 */}
         <div className="sk-group">
-          <h4 className="sk-group-title">项目</h4>
+          <h4 className="sk-group-title">作品</h4>
           <div className="sk-card">
             <div className="sk-row sk-row--input">
-              <span className="sk-row-label">默认项目目录</span>
+              <span className="sk-row-label">默认作品目录</span>
               <div className="sk-inline-input">
                 <input
                   className="sk-input"
@@ -136,7 +136,7 @@ export function SettingsPage({ onClose }: Props) {
                   type="button"
                   className="sk-browse-btn"
                   onClick={async () => {
-                    const selected = await open({ directory: true, multiple: false, title: "选择默认项目目录" });
+                    const selected = await open({ directory: true, multiple: false, title: "选择默认作品目录" });
                     if (typeof selected === "string" && selected.trim()) {
                       const next = { ...settingsRef.current, general: { ...settingsRef.current.general, defaultProjectDir: selected } };
                       await persist(next);
@@ -204,8 +204,8 @@ export function SettingsPage({ onClose }: Props) {
           <div className="sk-card">
             <p className="sk-about-text">
               本地优先的 AI 视频创作工具，覆盖从剧本导入到完整视频产出的全链路。
-              支持多风格创作（国漫/动漫/日漫/韩漫/二次元/真人），内置角色生图、场景生成、
-              分镜编辑、TTS 语音合成与视频拼接导出等完整工作流。
+              支持多风格创作（国漫/动漫/日漫/韩漫/二次元/真人），内置人物生图、场景生成、
+              镜头编辑、TTS 语音合成与视频拼接导出等完整工作流。
             </p>
           </div>
         </div>

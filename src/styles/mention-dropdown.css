@@ -1,5 +1,5 @@
 /* ================================================================
-   @mention 资产下拉选择
+   @mention 素材下拉选择
    ================================================================ */
 
 .mention-drop {
@@ -49,7 +49,7 @@
   color: var(--text-muted);
 }
 
-/* 单个资产条目 */
+/* 单个素材条目 */
 .mention-item {
   display: flex;
   align-items: center;
@@ -80,7 +80,7 @@
   font-weight: var(--font-weight-semibold);
 }
 
-/* 已引用资产的 badge：用 muted 色区分，表示"复用已有序号" */
+/* 已引用素材的 badge：用 muted 色区分，表示"复用已有序号" */
 .mention-item .mention-item-badge.is-existing {
   color: var(--text-muted);
   background: var(--bg-hover-subtle);

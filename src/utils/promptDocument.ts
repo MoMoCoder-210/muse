@@ -1,7 +1,7 @@
 /**
- * 分镜提示词文档模型。
+ * 镜头提示词文档模型。
  *
- * `promptDoc` 是编辑器的唯一主数据：普通文本和资产 mention 都存为节点。
+ * `promptDoc` 是编辑器的唯一主数据：普通文本和素材 mention 都存为节点。
  * `video_prompt` 仅由 promptDoc 序列化得到，供数据库、任务和外部视频 API 使用。
  */
 
@@ -21,7 +21,7 @@ export interface PromptMention {
   type: string;
   imagePath: string | null;
   assetTag: string;
-  /** 资产是否已被删除（纯渲染态标记，不持久化） */
+  /** 素材是否已被删除（纯渲染态标记，不持久化） */
   deleted?: boolean;
 }
 
@@ -35,7 +35,7 @@ export interface PromptMentionAttrs {
   assetType: string | null;
   imagePath: string | null;
   assetTag: string;
-  /** 资产是否已被删除，仅用于渲染红色胶囊，不持久化 */
+  /** 素材是否已被删除，仅用于渲染红色胶囊，不持久化 */
   deleted?: boolean;
 }
 
@@ -44,11 +44,11 @@ export function createAssetTag(name: string, index: number): string {
 }
 
 /**
- * 动态标注：在原始提示词中为资产名插入 (@图片N)。
+ * 动态标注：在原始提示词中为素材名插入 (@图片N)。
  *
  * - 台词区域（<…>）内跳过，不标注
  * - 已存在的 (@图片\d+) 不重复标注（旧数据兼容）
- * - 资产名按最长优先匹配，避免 "甲" 误匹配 "同事甲"
+ * - 素材名按最长优先匹配，避免 "甲" 误匹配 "同事甲"
  */
 export function annotatePrompt(rawText: string, mentions: PromptMention[]): string {
   if (!rawText || mentions.length === 0) return rawText;

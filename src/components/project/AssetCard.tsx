@@ -15,22 +15,22 @@ type AssetCardProps = {
   data: AssetCardData;
   icon: string;
   selected: boolean;
-  /** 当前资产绑定的图片路径（为空时显示占位 icon） */
+  /** 当前素材绑定的图片路径（为空时显示占位 icon） */
   selectedImagePath?: string | null;
   /** 图片 URL 缓存破坏参数（路径不变但文件内容被替换时需要） */
   renderKey?: number;
-  /** 该资产关联的图片是否有正在生成的任务 */
+  /** 该素材关联的图片是否有正在生成的任务 */
   generating?: boolean;
   onToggle: (id: AssetCardId) => void;
   onDelete: (data: AssetCardData) => void;
   onDetail: (data: AssetCardData) => void;
-  /** 角色资产点击声音按钮打开声音绑定抽屉 */
+  /** 人物素材点击声音按钮打开声音绑定抽屉 */
   onVoice?: (data: AssetCardData) => void;
   disabled?: boolean;
 };
 
 /**
- * 单个资产卡片。
+ * 单个素材卡片。
  *
  * 选中时卡片边框高亮 + 遮罩层，点击切换选中。
  * 图片区：有绑定图片则显示缩略图，否则显示占位 icon。
@@ -100,7 +100,7 @@ export function AssetCard({
           </button>
         </div>
 
-        {/* 左上角：声音绑定按钮（仅角色资产），与右上角删除按钮对称 */}
+        {/* 左上角：声音绑定按钮（仅人物素材），与右上角删除按钮对称 */}
         {data.type === "character" && (
           <button
             type="button"
@@ -126,7 +126,7 @@ export function AssetCard({
   );
 }
 
-/** 从资源列表构造资产卡片数据 */
+/** 从资源列表构造素材卡片数据 */
 export function buildAssetCards(
   clipId: string,
   type: AssetType,
@@ -141,7 +141,7 @@ export function buildAssetCards(
   }));
 }
 
-/** 解析资产 ID */
+/** 解析素材 ID */
 export function parseAssetCardId(id: AssetCardId): { clipId: string; type: AssetType; index: number } {
   const [clipId, type, index] = id.split(":");
   return { clipId, type: type as AssetType, index: Number(index) };

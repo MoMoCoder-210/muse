@@ -1,5 +1,5 @@
 /**
- * 片段拆解 — 模型分析片段生成分镜、角色、场景、物品及生图/生视频提示词
+ * 分集拆解 — 模型分析分集生成镜头、人物、场景、道具及生图/生视频提示词
  */
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -25,7 +25,7 @@ const VIDEO_STYLE_PROMPT_MAP: Record<string, { prefix: string; suffix: string }>
     suffix: "画面风格：动漫，精致手绘，细腻色彩，电影感光影，2K高清，视频无任何字幕。",
   },
   日漫: {
-    prefix: "日本动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    prefix: "日本动漫风格短剧分集，赛璐璞上色，电影感光影。",
     suffix: "画面风格：日本动漫，赛璐璞上色，精致线条，电影感光影，2K高清，视频无任何字幕。",
   },
   韩漫: {
@@ -33,7 +33,7 @@ const VIDEO_STYLE_PROMPT_MAP: Record<string, { prefix: string; suffix: string }>
     suffix: "画面风格：韩国动漫，简洁线条，柔和色调，电影感光影，2K高清，视频无任何字幕。",
   },
   二次元: {
-    prefix: "二次元日系动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    prefix: "二次元日系动漫风格短剧分集，赛璐璞上色，电影感光影。",
     suffix: "画面风格：二次元日系动漫，赛璐璞上色，精致线条，电影感光影，2K高清，视频无任何字幕。",
   },
   真人: {
@@ -52,7 +52,7 @@ interface AnnotatedAsset {
 
 /**
  * 对 animationPrompt 做自动 @mention 标注：
- * - 按资产名长度降序扫描，避免短名先于长名命中
+ * - 按素材名长度降序扫描，避免短名先于长名命中
  * - 首次出现：`名(@图片N)`；后续出现：复用同一 index
  * - 跳过已在 `(@图片N)` 内的匹配（lookbehind 保护）
  * - 返回：标注后的文本 + index→assetId 映射（供 video_param_json 持久化）
@@ -65,7 +65,7 @@ function autoMentionPrompt(
     return { annotated: prompt, mentionMap: [] };
   }
 
-  // 同名跨类型在纯文本中无法可靠消歧，保留分镜结构中第一个资产；其余按 assetId 分配。
+  // 同名跨类型在纯文本中无法可靠消歧，保留镜头结构中第一个素材；其余按 assetId 分配。
   const assetByName = new Map<string, AnnotatedAsset>();
   for (const asset of assets) {
     if (asset.name && !assetByName.has(asset.name)) assetByName.set(asset.name, asset);
@@ -85,10 +85,10 @@ function autoMentionPrompt(
 
   // 单次从左到右扫描原始文本。绝不在已经插入的 tag 上再次扫描，
   // 所以"老兵"不会把"老兵A(@图片1)"再拆坏。
-  // 台词区域（<…>）内不匹配资产名：台词是对白本身，不是提示词描述。
+  // 台词区域（<…>）内不匹配素材名：台词是对白本身，不是提示词描述。
   while (cursor < prompt.length) {
     const ch = prompt[cursor];
-    // 跳过台词区域：进入 < 时不匹配任何资产，直到遇到 >
+    // 跳过台词区域：进入 < 时不匹配任何素材，直到遇到 >
     if (ch === "<") {
       let end = prompt.indexOf(">", cursor + 1);
       if (end === -1) end = prompt.length;
@@ -139,7 +139,7 @@ function autoMentionPrompt(
 /**
  * 构建完整的 video_prompt：
  * 1. 风格前缀（如有 styleMode）
- * 2. 角色/场景/物品 声明行（参考示例格式）
+ * 2. 人物/场景/道具 声明行（参考示例格式）
  * 3. animationPrompt（已 @mention 标注）
  * 4. 风格后缀（如有 styleMode）
  */
@@ -207,10 +207,10 @@ function buildVideoPrompt(
     parts.push("");
   }
 
-  // 2. 资产声明行（仅列名称，不标注 @图片N——前端动态注解）
+  // 2. 素材声明行（仅列名称，不标注 @图片N——前端动态注解）
   if (sbCharacters.length > 0) {
     const charDecl = sbCharacters.map((c) => c.name).join("， ");
-    parts.push(`角色： ${charDecl}。`);
+    parts.push(`人物： ${charDecl}。`);
   }
   if (sbScenes.length > 0) {
     const sceneDecl = sbScenes.map((s) => s.name).join("， ");
@@ -218,7 +218,7 @@ function buildVideoPrompt(
   }
   if (sbItems.length > 0) {
     const itemDecl = sbItems.map((it) => it.name).join("， ");
-    parts.push(`物品： ${itemDecl}。`);
+    parts.push(`道具： ${itemDecl}。`);
   }
 
   // 3. 正文
@@ -316,7 +316,7 @@ const CHARS_PER_SECOND = 3;
 
 /**
  * 从 animationPrompt 中提取所有对话框台词的总字符数，推算最低所需时长（秒）。
- * 台词格式：角色名说：<台词原文>
+ * 台词格式：人物名说：<台词原文>
  */
 function calcDialogueDuration(animationPrompt: string): number {
   const dialogueRegex = /说：<([^>]*)>/g;
@@ -340,12 +340,12 @@ function saveResults(
   rawOutput: string,
   mode?: string,
 ): void {
-  // 检查片段是否已被删除
+  // 检查分集是否已被删除
   const clip = db.prepare(
     "SELECT id FROM clips WHERE id = ? AND deleted_at IS NULL"
   ).get(clipId);
   if (!clip) {
-    lw("拆解", `片段已被删除，丢弃拆解结果 clipId=${clipId}`);
+    lw("拆解", `分集已被删除，丢弃拆解结果 clipId=${clipId}`);
     return;
   }
 
@@ -377,13 +377,13 @@ function saveResults(
     `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, actualMode);
   }
 
-  // ── 将拆解出的资产写入 assets 表，并建立 name → assetId 映射 ──
-  // 同片段内去重
+  // ── 将拆解出的素材写入 assets 表，并建立 name → assetId 映射 ──
+  // 同分集内去重
   const findAsset = db.prepare(`
     SELECT id FROM assets
     WHERE clip_id = ? AND type = ? AND name = ?
   `);
-  // 项目级同名资产复用：查找其他片段中已有的同名资产，继承其图片绑定
+  // 作品级同名素材复用：查找其他分集中已有的同名素材，继承其图片绑定
   const findProjectAsset = db.prepare(`
     SELECT id, selected_image_id, generated_image_path, reference_image_path, status, voice_binding_json
     FROM assets
@@ -395,7 +395,7 @@ function saveResults(
     INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'model', 'draft')
   `);
-  // 复用项目资产时继承图片绑定数据
+  // 复用作品素材时继承图片绑定数据
   const insertAssetWithImage = db.prepare(`
     INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status,
       selected_image_id, generated_image_path, reference_image_path, voice_binding_json)
@@ -413,13 +413,13 @@ function saveResults(
       : type === "scene" ? resources.scenes : resources.items;
     const map = idMap.get(type)!;
     for (const r of list) {
-      // 1. 同片段内已有 → 直接复用
+      // 1. 同分集内已有 → 直接复用
       const existing = findAsset.get(clipId, type, r.name) as { id: string } | undefined;
       if (existing) {
         map.set(r.name, existing.id);
         continue;
       }
-      // 2. 项目内其他片段已有同名资产 → 新建当前片段记录并继承图片绑定
+      // 2. 作品内其他分集已有同名素材 → 新建当前分集记录并继承图片绑定
       const projectAsset = findProjectAsset.get(projectId, type, r.name, clipId) as {
         id: string;
         selected_image_id: string | null;
@@ -438,18 +438,18 @@ function saveResults(
           projectAsset.reference_image_path, projectAsset.voice_binding_json
         );
         map.set(r.name, id);
-        l("拆解", `  复用资产: ${type} "${r.name}" id=${id.slice(0, 8)} (源自 ${projectAsset.id.slice(0, 8)})`);
+        l("拆解", `  复用素材: ${type} "${r.name}" id=${id.slice(0, 8)} (源自 ${projectAsset.id.slice(0, 8)})`);
         continue;
       }
-      // 3. 全新资产
+      // 3. 全新素材
       const id = randomUUID();
       insertAsset.run(id, projectId, clipId, type, r.name, r.description, r.prompt);
       map.set(r.name, id);
-      l("拆解", `  新增资产: ${type} "${r.name}" id=${id.slice(0, 8)}`);
+      l("拆解", `  新增素材: ${type} "${r.name}" id=${id.slice(0, 8)}`);
     }
   }
 
-  // ── 写入故事板，携带分镜→资产的绑定 ──
+  // ── 写入故事板，携带镜头→素材的绑定 ──
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
       visual_description, video_prompt, video_duration,
@@ -463,7 +463,7 @@ function saveResults(
 
   for (let i = 0; i < storyboards.length; i++) {
     const sb = storyboards[i];
-    // 按名称从 idMap 中查找资产 ID
+    // 按名称从 idMap 中查找素材 ID
     const charIds = sb.characters
       .map((c) => charById.get(c.name))
       .filter(Boolean) as string[];
@@ -474,7 +474,7 @@ function saveResults(
       .map((it) => itemById.get(it.name))
       .filter(Boolean) as string[];
 
-    // ── 构建 mention_map（按分镜绑定资产顺序分配序号）──────────────
+    // ── 构建 mention_map（按镜头绑定素材顺序分配序号）──────────────
     // 不再调用 autoMentionPrompt 污染原始提示词；前端加载时动态标注。
     const sbAssets: AnnotatedAsset[] = [
       ...sb.characters.map((c) => ({
@@ -530,10 +530,10 @@ function saveResults(
     const llmDuration = sb.duration ?? 15;
     const finalDuration = Math.min(Math.max(llmDuration, dialogueMinDur), 15);
     if (finalDuration > llmDuration) {
-      l("拆解", `分镜 ${sb.sbid} 台词需至少 ${dialogueMinDur}s，LLM 预估 ${llmDuration}s → 修正为 ${finalDuration}s`);
+      l("拆解", `镜头 ${sb.sbid} 台词需至少 ${dialogueMinDur}s，LLM 预估 ${llmDuration}s → 修正为 ${finalDuration}s`);
     }
     if (dialogueMinDur > 15) {
-      lw("拆解", `⚠ 分镜 ${sb.sbid} 台词 ${dialogueMinDur * CHARS_PER_SECOND} 字 / 需 ${dialogueMinDur}s 已超过 15s 上限，建议重新拆分`);
+      lw("拆解", `⚠ 镜头 ${sb.sbid} 台词 ${dialogueMinDur * CHARS_PER_SECOND} 字 / 需 ${dialogueMinDur}s 已超过 15s 上限，建议重新拆分`);
     }
 
     insertSb.run(
@@ -549,9 +549,9 @@ function saveResults(
   }
 }
 
-// ─── 项目步骤推进 ───────────────────────────────────────────────────
+// ─── 作品步骤推进 ───────────────────────────────────────────────────
 /**
- * 若该项目首次完成拆解（current_step 为 "script"），推进至 "asset"
+ * 若该作品首次完成拆解（current_step 为 "script"），推进至 "asset"
  */
 function advanceProjectStep(db: DatabaseType, clipId: string): void {
   const clipRow = db.prepare(
@@ -570,7 +570,7 @@ function advanceProjectStep(db: DatabaseType, clipId: string): void {
 
 // ─── handler ───────────────────────────────────────────────────────
 /**
- * 片段拆解任务 handler
+ * 分集拆解任务 handler
  */
 export async function generateClipScriptHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as {
@@ -585,13 +585,13 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
 
   const { db, emit } = ctx;
 
-  // 前置检查：片段是否已被删除
+  // 前置检查：分集是否已被删除
   const clip = db.prepare(
     "SELECT id FROM clips WHERE id = ? AND deleted_at IS NULL"
   ).get(input.clipId);
   if (!clip) {
-    lw("拆解", `片段已删除，跳过拆解 clipId=${input.clipId}`);
-    db.prepare("UPDATE clip_scripts SET status = 'failed', error_message = '片段已删除', updated_at = datetime('now') WHERE clip_id = ?")
+    lw("拆解", `分集已删除，跳过拆解 clipId=${input.clipId}`);
+    db.prepare("UPDATE clip_scripts SET status = 'failed', error_message = '分集已删除', updated_at = datetime('now') WHERE clip_id = ?")
       .run(input.clipId);
     return JSON.stringify({ skipped: true, reason: "clip_deleted" });
   }
@@ -608,10 +608,10 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
   // 写入数据库
   saveResults(db, input.clipId, storyboards, resources, rawOutput, input.styleMode);
 
-  // 推进项目步骤
+  // 推进作品步骤
   advanceProjectStep(db, input.clipId);
 
-  l("拆解", `拆解成功 clipId=${input.clipId} 分镜数=${storyboards.length}`);
+  l("拆解", `拆解成功 clipId=${input.clipId} 镜头数=${storyboards.length}`);
   emit({ type: "task_success", taskId: ctx.taskId });
 
   return JSON.stringify({

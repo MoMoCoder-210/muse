@@ -1,4 +1,4 @@
-/* 分镜管理样式入口 — 按职责拆分为子文件，在此统一导入 */
+/* 镜头管理样式入口 — 按职责拆分为子文件，在此统一导入 */
 @import "./storyboard-layout.css";
 @import "./storyboard-video.css";
 @import "./storyboard-assets.css";

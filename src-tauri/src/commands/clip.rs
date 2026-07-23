@@ -1,10 +1,10 @@
-//! 片段/剧本源相关命令
+//! 分集/剧本源相关命令
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 
-/// 片段信息
+/// 分集信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClipInfo {
     pub id: String,
@@ -21,16 +21,16 @@ pub struct ClipInfo {
     pub updated_at: String,
 }
 
-/// 批量删除片段输入
+/// 批量删除分集输入
 #[derive(Debug, Deserialize)]
 pub struct DeleteClipsInput {
     pub clip_ids: Vec<String>,
-    /// 是否一并删除数据库记录所引用的项目工作区内本地文件，默认不删除。
+    /// 是否一并删除数据库记录所引用的作品工作区内本地文件，默认不删除。
     #[serde(default)]
     pub delete_files: bool,
 }
 
-/// 片段删除结果，供前端在勾选文件清理时展示实际处理情况。
+/// 分集删除结果，供前端在勾选文件清理时展示实际处理情况。
 #[derive(Debug, Serialize)]
 pub struct DeleteClipsResult {
     pub deleted_file_count: usize,
@@ -44,7 +44,7 @@ pub(crate) struct ClipFileCandidate {
     pub(crate) file_path: std::path::PathBuf,
 }
 
-/// 安全删除记录中引用的项目工作区文件。
+/// 安全删除记录中引用的作品工作区文件。
 ///
 /// 调用方必须在数据库事务提交后使用此函数；工作区外、符号链接解析后越界或
 /// 不存在的路径不会被删除，且不会把已提交的数据库删除回报为失败。
@@ -52,7 +52,7 @@ pub(crate) fn delete_managed_files(candidates: Vec<ClipFileCandidate>) -> Delete
     delete_managed_clip_files(candidates)
 }
 
-/// 更新片段输入，三个内容字段均可选，传哪个改哪个
+/// 更新分集输入，三个内容字段均可选，传哪个改哪个
 #[derive(Debug, Deserialize)]
 pub struct UpdateClipInput {
     pub clip_id: String,
@@ -61,21 +61,21 @@ pub struct UpdateClipInput {
     pub source_text: Option<String>,
 }
 
-/// 片段拆分输入：在原 source_text 的第 split_position 个字符处拆成两段
+/// 分集拆分输入：在原 source_text 的第 split_position 个字符处拆成两段
 #[derive(Debug, Deserialize)]
 pub struct SplitClipInput {
     pub clip_id: String,
     pub split_position: i64,
 }
 
-/// 拆分片段返回结果
+/// 拆分分集返回结果
 #[derive(Debug, Serialize)]
 pub struct SplitClipResult {
     pub first_clip_id: String,
     pub second_clip_id: String,
 }
 
-/// 手动创建单个片段输入
+/// 手动创建单个分集输入
 #[derive(Debug, Deserialize)]
 pub struct CreateClipInput {
     pub project_id: String,
@@ -83,13 +83,13 @@ pub struct CreateClipInput {
     pub source_text: String,
 }
 
-/// 手动创建单个片段（无剧本源归属）
+/// 手动创建单个分集（无剧本源归属）
 #[tauri::command]
 pub fn create_clip(input: CreateClipInput, app: tauri::AppHandle) -> Result<ClipInfo, String> {
     let conn = util::open_app_conn(&app)?;
     let clip_id = uuid::Uuid::new_v4().to_string();
 
-    // 取当前项目最大 sort_index + 1
+    // 取当前作品最大 sort_index + 1
     let max_idx: i64 = conn
         .query_row(
             "SELECT COALESCE(MAX(sort_index), 0) FROM clips WHERE project_id = ?1 AND deleted_at IS NULL",
@@ -123,7 +123,7 @@ pub fn create_clip(input: CreateClipInput, app: tauri::AppHandle) -> Result<Clip
     })
 }
 
-/// 列出项目下所有片段
+/// 列出作品下所有分集
 #[tauri::command]
 pub fn list_clips(project_id: String, app: tauri::AppHandle) -> Result<Vec<ClipInfo>, String> {
     let conn = util::open_app_conn(&app)?;
@@ -195,7 +195,7 @@ pub fn get_script_source(
     }
 }
 
-/// 列出项目下所有剧本源
+/// 列出作品下所有剧本源
 #[tauri::command]
 pub fn list_script_sources(
     project_id: String,
@@ -259,15 +259,15 @@ fn collect_clip_file_paths(
              UNION
              SELECT output_path FROM concat_outputs WHERE clip_id = ?1",
         )
-        .map_err(|error| format!("读取片段关联文件失败 clipId={}: {}", clip_id, error))?;
+        .map_err(|error| format!("读取分集关联文件失败 clipId={}: {}", clip_id, error))?;
     let rows = statement
         .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
-        .map_err(|error| format!("查询片段关联文件失败 clipId={}: {}", clip_id, error))?;
+        .map_err(|error| format!("查询分集关联文件失败 clipId={}: {}", clip_id, error))?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("读取片段关联文件失败 clipId={}: {}", clip_id, error))
+        .map_err(|error| format!("读取分集关联文件失败 clipId={}: {}", clip_id, error))
 }
 
-/// 删除数据库记录中列出的、且位于所属项目工作区中的文件。
+/// 删除数据库记录中列出的、且位于所属作品工作区中的文件。
 ///
 /// 绝不删除工作区外部路径；解析符号链接后的真实路径也必须仍在工作区内。
 /// 数据库事务已经提交时，物理文件删除失败只计入结果并记录日志，避免把已成功的
@@ -319,10 +319,10 @@ fn delete_managed_clip_files(candidates: Vec<ClipFileCandidate>) -> DeleteClipsR
     result
 }
 
-/// 批量软删除片段及其派生数据。
+/// 批量软删除分集及其派生数据。
 ///
-/// `clips` 采用软删除，但其分镜、资产、任务和拼接记录均是片段私有的派生数据，
-/// 必须在同一事务内按外键依赖顺序清理。这样既不会影响同项目的其他片段，也不会
+/// `clips` 采用软删除，但其镜头、素材、任务和拼接记录均是分集私有的派生数据，
+/// 必须在同一事务内按外键依赖顺序清理。这样既不会影响同作品的其他分集，也不会
 /// 留下阻止后续清理的子记录。
 #[tauri::command]
 pub fn delete_clips(
@@ -332,7 +332,7 @@ pub fn delete_clips(
     let mut clip_ids = Vec::new();
     for id in input.clip_ids {
         if id.is_empty() {
-            return Err("片段 ID 不能为空".to_string());
+            return Err("分集 ID 不能为空".to_string());
         }
         if !clip_ids.contains(&id) {
             clip_ids.push(id);
@@ -360,7 +360,7 @@ pub fn delete_clips(
                 rusqlite::params![id],
                 |row| row.get(0),
             )
-            .map_err(|_| format!("片段不存在或已删除：{}", id))?;
+            .map_err(|_| format!("分集不存在或已删除：{}", id))?;
 
         if input.delete_files {
             let workspace_path: String = tx
@@ -370,7 +370,7 @@ pub fn delete_clips(
                     |row| row.get(0),
                 )
                 .map_err(|error| {
-                    format!("读取项目工作区失败 projectId={}: {}", project_id, error)
+                    format!("读取作品工作区失败 projectId={}: {}", project_id, error)
                 })?;
             for file_path in collect_clip_file_paths(&tx, id)? {
                 file_candidates.push(ClipFileCandidate {
@@ -413,14 +413,14 @@ pub fn delete_clips(
             "DELETE FROM storyboard_videos WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
             rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除分镜视频 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除镜头视频 clipId={}: {}", id, e))?;
 
         // 4. 删除其余叶子记录。
         tx.execute(
             "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
             rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除资产图片 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除素材图片 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM concat_outputs WHERE clip_id = ?1",
             rusqlite::params![id],
@@ -432,9 +432,9 @@ pub fn delete_clips(
                 OR asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
             rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除分镜资产关联 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除镜头素材关联 clipId={}: {}", id, e))?;
 
-        // 5. 删除所有以该片段、其分镜或其资产为目标的任务，而非只删除 pending/running 子集。
+        // 5. 删除所有以该分集、其镜头或其素材为目标的任务，而非只删除 pending/running 子集。
         tx.execute(
             "DELETE FROM tasks
              WHERE clip_id = ?1
@@ -444,17 +444,17 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除关联任务 clipId={}: {}", id, e))?;
 
-        // 6. 删除父级派生数据，最后才标记片段本体删除。
+        // 6. 删除父级派生数据，最后才标记分集本体删除。
         tx.execute(
             "DELETE FROM storyboards WHERE clip_id = ?1",
             rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除分镜 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除镜头 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM assets WHERE clip_id = ?1",
             rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除资产 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除素材 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM clip_scripts WHERE clip_id = ?1",
             rusqlite::params![id],
@@ -468,18 +468,18 @@ pub fn delete_clips(
                  WHERE id = ?1 AND deleted_at IS NULL",
                 rusqlite::params![id],
             )
-            .map_err(|e| format!("无法删除片段 clipId={}: {}", id, e))?;
+            .map_err(|e| format!("无法删除分集 clipId={}: {}", id, e))?;
         if affected != 1 {
-            return Err(format!("删除片段时记录状态异常：{}", id));
+            return Err(format!("删除分集时记录状态异常：{}", id));
         }
     }
 
     tx.commit().map_err(|e| {
         crate::project_log::append_log(
             &log_path,
-            "项目",
+            "作品",
             "ERROR",
-            &format!("删除片段事务提交失败: {}", e),
+            &format!("删除分集事务提交失败: {}", e),
         );
         e.to_string()
     })?;
@@ -496,9 +496,9 @@ pub fn delete_clips(
     for id in &clip_ids {
         crate::project_log::append_log(
             &log_path,
-            "项目",
+            "作品",
             "INFO",
-            &format!("已删除片段及其关联数据 clipId={}", id),
+            &format!("已删除分集及其关联数据 clipId={}", id),
         );
     }
     if input.delete_files {
@@ -509,10 +509,10 @@ pub fn delete_clips(
         };
         crate::project_log::append_log(
             &log_path,
-            "项目",
+            "作品",
             level,
             &format!(
-                "片段关联文件清理完成：已删除 {}，已跳过 {}，失败 {}",
+                "分集关联文件清理完成：已删除 {}，已跳过 {}，失败 {}",
                 result.deleted_file_count, result.skipped_file_count, result.failed_file_count
             ),
         );
@@ -520,7 +520,7 @@ pub fn delete_clips(
     Ok(result)
 }
 
-/// 更新片段内容
+/// 更新分集内容
 #[tauri::command]
 pub fn update_clip(
     input: UpdateClipInput,
@@ -530,7 +530,7 @@ pub fn update_clip(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 校验片段存在且未删除
+    // 校验分集存在且未删除
     let exists: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM clips WHERE id = ?1 AND deleted_at IS NULL",
@@ -539,12 +539,12 @@ pub fn update_clip(
         )
         .map_err(|e| e.to_string())?;
     if exists == 0 {
-        return Err(format!("片段不存在或已删除：{}", input.clip_id));
+        return Err(format!("分集不存在或已删除：{}", input.clip_id));
     }
 
     let source_changed = input.source_text.is_some();
 
-    // 查询该片段是否已有成功的拆解记录（用于判断是否需要自动重拆）
+    // 查询该分集是否已有成功的拆解记录（用于判断是否需要自动重拆）
     let had_success: bool = tx
         .query_row(
             "SELECT COUNT(*) FROM clip_scripts WHERE clip_id = ?1 AND status = 'success'",
@@ -629,7 +629,7 @@ pub fn update_clip(
             let task_id = uuid::Uuid::new_v4().to_string();
             let lock_key = format!("generate_clip_script:{}", clip_id);
 
-            // 查询项目风格（用于视频提示词风格拼接）
+            // 查询作品风格（用于视频提示词风格拼接）
             let style_mode: String = conn
                 .query_row(
                     "SELECT style_mode FROM projects WHERE id = ?1",
@@ -697,7 +697,7 @@ pub fn update_clip(
     Ok(clip)
 }
 
-/// 删除资产输入
+/// 删除素材输入
 #[derive(Debug, Deserialize)]
 pub struct DeleteAssetsInput {
     pub asset_ids: Vec<String>,
@@ -710,10 +710,10 @@ pub(crate) struct DeletedAsset {
     pub name: String,
 }
 
-/// 从片段最新的拆解结果中移除一个资产描述。
+/// 从分集最新的拆解结果中移除一个素材描述。
 ///
-/// 资产卡片以该 JSON 为展示来源，因此数据库资产记录删除后也必须同步更新；
-/// 没有拆解记录的手动资产则无需更新，直接返回成功。
+/// 素材卡片以该 JSON 为展示来源，因此数据库素材记录删除后也必须同步更新；
+/// 没有拆解记录的手动素材则无需更新，直接返回成功。
 pub(crate) fn remove_asset_from_latest_clip_script(
     tx: &rusqlite::Transaction<'_>,
     clip_id: &str,
@@ -729,23 +729,23 @@ pub(crate) fn remove_asset_from_latest_clip_script(
     let (script_id, raw_resources) = match row {
         Ok(value) => value,
         Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
-        Err(error) => return Err(format!("读取片段资源失败 clipId={}: {}", clip_id, error)),
+        Err(error) => return Err(format!("读取分集资源失败 clipId={}: {}", clip_id, error)),
     };
 
     let key = match asset_type {
         "character" => "characters",
         "scene" => "scenes",
         "item" => "items",
-        _ => return Err(format!("无效的资产类型：{}", asset_type)),
+        _ => return Err(format!("无效的素材类型：{}", asset_type)),
     };
     let mut resources: serde_json::Value = if raw_resources.trim().is_empty() {
         serde_json::json!({ "characters": [], "scenes": [], "items": [] })
     } else {
         serde_json::from_str(&raw_resources)
-            .map_err(|error| format!("解析片段资源 JSON 失败 clipId={}: {}", clip_id, error))?
+            .map_err(|error| format!("解析分集资源 JSON 失败 clipId={}: {}", clip_id, error))?
     };
     if !resources.is_object() {
-        return Err(format!("片段资源 JSON 格式无效 clipId={}", clip_id));
+        return Err(format!("分集资源 JSON 格式无效 clipId={}", clip_id));
     }
     if let Some(items) = resources
         .get_mut(key)
@@ -764,11 +764,11 @@ pub(crate) fn remove_asset_from_latest_clip_script(
         "UPDATE clip_scripts SET extracted_resources_json = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![updated_resources, script_id],
     )
-    .map_err(|error| format!("更新片段资源失败 clipId={}: {}", clip_id, error))?;
+    .map_err(|error| format!("更新分集资源失败 clipId={}: {}", clip_id, error))?;
     Ok(())
 }
 
-/// 删除单个资产及其只属于该资产的引用和派生记录。
+/// 删除单个素材及其只属于该素材的引用和派生记录。
 ///
 /// 调用者必须持有事务；本函数不接触磁盘文件，避免无确认的物理文件删除。
 pub(crate) fn delete_asset_by_id(
@@ -787,11 +787,11 @@ pub(crate) fn delete_asset_by_id(
                 })
             },
         )
-        .map_err(|error| format!("资产不存在：{}", error))?;
+        .map_err(|error| format!("素材不存在：{}", error))?;
 
     remove_asset_from_latest_clip_script(tx, &asset.clip_id, &asset.asset_type, &asset.name)?;
 
-    // 先将关联分镜中的 JSON ID 清掉；仅处理实际关联该资产的分镜，不影响同片段其他分镜。
+    // 先将关联镜头中的 JSON ID 清掉；仅处理实际关联该素材的镜头，不影响同分集其他镜头。
     let storyboard_ids = {
         let mut statement = tx
             .prepare("SELECT DISTINCT storyboard_id FROM storyboard_assets WHERE asset_id = ?1")
@@ -806,7 +806,7 @@ pub(crate) fn delete_asset_by_id(
         "character" => "character_ids_json",
         "scene" => "scene_ids_json",
         "item" => "item_ids_json",
-        _ => return Err(format!("无效的资产类型：{}", asset.asset_type)),
+        _ => return Err(format!("无效的素材类型：{}", asset.asset_type)),
     };
     for storyboard_id in storyboard_ids {
         let ids_json: String = tx
@@ -817,13 +817,13 @@ pub(crate) fn delete_asset_by_id(
             )
             .map_err(|error| {
                 format!(
-                    "读取分镜资产关联失败 storyboardId={}: {}",
+                    "读取镜头素材关联失败 storyboardId={}: {}",
                     storyboard_id, error
                 )
             })?;
         let mut ids: Vec<String> = serde_json::from_str(&ids_json).map_err(|error| {
             format!(
-                "解析分镜资产关联失败 storyboardId={}: {}",
+                "解析镜头素材关联失败 storyboardId={}: {}",
                 storyboard_id, error
             )
         })?;
@@ -838,7 +838,7 @@ pub(crate) fn delete_asset_by_id(
         )
         .map_err(|error| {
             format!(
-                "更新分镜资产关联失败 storyboardId={}: {}",
+                "更新镜头素材关联失败 storyboardId={}: {}",
                 storyboard_id, error
             )
         })?;
@@ -848,38 +848,38 @@ pub(crate) fn delete_asset_by_id(
         "DELETE FROM storyboard_assets WHERE asset_id = ?1",
         rusqlite::params![asset_id],
     )
-    .map_err(|error| format!("删除分镜资产关联失败 assetId={}: {}", asset_id, error))?;
+    .map_err(|error| format!("删除镜头素材关联失败 assetId={}: {}", asset_id, error))?;
     tx.execute(
         "DELETE FROM task_locks
          WHERE lock_key IN (SELECT lock_key FROM tasks WHERE asset_id = ?1)
             OR locked_by IN (SELECT id FROM tasks WHERE asset_id = ?1)",
         rusqlite::params![asset_id],
     )
-    .map_err(|error| format!("删除资产任务锁失败 assetId={}: {}", asset_id, error))?;
+    .map_err(|error| format!("删除素材任务锁失败 assetId={}: {}", asset_id, error))?;
     tx.execute(
         "DELETE FROM tasks WHERE asset_id = ?1",
         rusqlite::params![asset_id],
     )
-    .map_err(|error| format!("删除资产任务失败 assetId={}: {}", asset_id, error))?;
+    .map_err(|error| format!("删除素材任务失败 assetId={}: {}", asset_id, error))?;
     tx.execute(
         "DELETE FROM asset_images WHERE asset_id = ?1",
         rusqlite::params![asset_id],
     )
-    .map_err(|error| format!("删除资产图片失败 assetId={}: {}", asset_id, error))?;
+    .map_err(|error| format!("删除素材图片失败 assetId={}: {}", asset_id, error))?;
     let affected = tx
         .execute(
             "DELETE FROM assets WHERE id = ?1",
             rusqlite::params![asset_id],
         )
-        .map_err(|error| format!("删除资产失败 assetId={}: {}", asset_id, error))?;
+        .map_err(|error| format!("删除素材失败 assetId={}: {}", asset_id, error))?;
     if affected != 1 {
-        return Err(format!("删除资产时记录状态异常：{}", asset_id));
+        return Err(format!("删除素材时记录状态异常：{}", asset_id));
     }
 
     Ok(asset)
 }
 
-/// 按资产 ID 批量删除资产。
+/// 按素材 ID 批量删除素材。
 ///
 /// 每个 ID 先完整验证并在同一事务中清理，任一 ID 失效都会回滚整个批次。
 #[tauri::command]
@@ -887,7 +887,7 @@ pub fn delete_assets(input: DeleteAssetsInput, app: tauri::AppHandle) -> Result<
     let mut asset_ids = Vec::new();
     for id in input.asset_ids {
         if id.is_empty() {
-            return Err("资产 ID 不能为空".to_string());
+            return Err("素材 ID 不能为空".to_string());
         }
         if !asset_ids.contains(&id) {
             asset_ids.push(id);
@@ -908,19 +908,19 @@ pub fn delete_assets(input: DeleteAssetsInput, app: tauri::AppHandle) -> Result<
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
-        &format!("已删除 {} 个资产及其关联数据", asset_ids.len()),
+        &format!("已删除 {} 个素材及其关联数据", asset_ids.len()),
     );
     Ok(())
 }
 
-/// 在指定位置拆分片段
+/// 在指定位置拆分分集
 #[tauri::command]
 pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitClipResult, String> {
     let mut conn = util::open_app_conn(&app)?;
 
-    // 读取原片段
+    // 读取原分集
     let (project_id, source_id, sort_index, title, source_text): (
         String,
         Option<String>,
@@ -973,7 +973,7 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
     let second_id = uuid::Uuid::new_v4().to_string();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 原片段更新为前半段，状态重置
+    // 原分集更新为前半段，状态重置
     tx.execute(
         "UPDATE clips
          SET source_text = ?1, status = 'pending', current_step = 'project',
@@ -983,7 +983,7 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
     )
     .map_err(|e| e.to_string())?;
 
-    // 后续片段 sort_index 顺延
+    // 后续分集 sort_index 顺延
     tx.execute(
         "UPDATE clips
          SET sort_index = sort_index + 1, updated_at = datetime('now')
@@ -992,7 +992,7 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
     )
     .map_err(|e| e.to_string())?;
 
-    // 插入后半段新片段
+    // 插入后半段新分集
     tx.execute(
         "INSERT INTO clips
             (id, project_id, source_id, sort_index, title, summary, source_text, status, current_step)
@@ -1014,10 +1014,10 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
         &log_path,
-        "项目",
+        "作品",
         "INFO",
         &format!(
-            "片段已拆分 origin={} first={} second={} pos={}",
+            "分集已拆分 origin={} first={} second={} pos={}",
             input.clip_id, input.clip_id, second_id, input.split_position,
         ),
     );

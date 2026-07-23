@@ -85,7 +85,7 @@ type CreateProjectModalProps = {
 };
 
 /**
- * 创建项目弹窗
+ * 创建作品弹窗
  *
  */
 export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalProps) {
@@ -96,7 +96,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
   const [projectDirectory, setProjectDirectory] = useState("");
   const [defaultProjectDir, setDefaultProjectDir] = useState("");
 
-  // 加载设置中的默认项目目录
+  // 加载设置中的默认作品目录
   useEffect(() => {
     getSettings().then((s) => {
       const dir = s.general.defaultProjectDir || "";
@@ -117,7 +117,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       directory: true,
       multiple: false,
       defaultPath: projectDirectory || defaultProjectDir || undefined,
-      title: "选择项目目录",
+      title: "选择作品目录",
     });
     if (typeof selected === "string" && selected.trim()) {
       setProjectDirectory(selected);
@@ -140,7 +140,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
 
   const handleCreate = useCallback(async () => {
     if (!projectName.trim()) {
-      toast("请先输入项目名", "warning");
+      toast("请先输入作品名", "warning");
       return;
     }
 
@@ -157,7 +157,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       // 文本模型未配置则不允许通过剧本模式创建
       const settings = await getSettings();
       if (!getActiveChannel(settings.text)?.apiKey?.trim()) {
-        toast("剧本模式创建项目需要配置LLM模型。", "warning");
+        toast("剧本模式创建作品需要配置LLM模型。", "warning");
         return;
       }
     }
@@ -183,9 +183,9 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       }
 
       onCreated(project);
-      toast(`项目已创建：${project.name}`, "info");
+      toast(`作品已创建：${project.name}`, "info");
     } catch {
-      toast("创建项目失败，请检查项目目录权限或日志。", "error");
+      toast("创建作品失败，请检查作品目录权限或日志。", "error");
     } finally {
       setLoading(false);
     }
@@ -214,12 +214,12 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="create-project-title" className="modal-title">
-            新建项目
+            新建作品
           </h2>
           <button
             type="button"
             className="modal-close"
-            aria-label="关闭新建项目弹窗"
+            aria-label="关闭新建作品弹窗"
             onClick={onClose}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -228,16 +228,16 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
 
         <div className="modal-form">
           <label className="field">
-            <span>项目名称</span>
+            <span>作品名称</span>
             <input
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="请输入项目名"
+              placeholder="请输入作品名"
             />
           </label>
 
           <label className="field">
-            <span>项目目录</span>
+            <span>作品目录</span>
             <div className="inline-input">
               <input
                 value={projectDirectory}
@@ -285,11 +285,11 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
           ) : null}
 
           <label className="field field--full">
-            <span>项目描述</span>
+            <span>作品描述</span>
             <textarea
               value={projectDescription}
               onChange={(e) => setProjectDescription(e.target.value)}
-              placeholder="输入项目描述"
+              placeholder="输入作品描述"
               rows={3}
             />
           </label>

@@ -1,6 +1,6 @@
-/* 剧本导入面板与片段列表面板（模块 02）— macOS 风格重设计 */
+/* 剧本导入面板与分集列表面板（模块 02）— macOS 风格重设计 */
 
-/* ── 片段列表面板 ─────────────────────────────── */
+/* ── 分集列表面板 ─────────────────────────────── */
 .clip-list-panel {
   display: flex;
   flex-direction: column;
@@ -88,7 +88,7 @@
   line-height: 1.5;
 }
 
-/* ── 片段列表 — macOS Finder 卡片风格 ──────────── */
+/* ── 分集列表 — macOS Finder 卡片风格 ──────────── */
 .clip-list {
   flex: 1;
   min-height: 0;
@@ -114,7 +114,7 @@
   background: var(--scrollbar-thumb-hover);
 }
 
-/* ── 片段卡片 ─────────────────────────────────── */
+/* ── 分集卡片 ─────────────────────────────────── */
 .clip-item {
   position: relative;
   border: 0.5px solid transparent;
@@ -148,7 +148,7 @@
   border-color: var(--focus-border);
 }
 
-/* ── 片段卡片头部（行） ────────────────────────── */
+/* ── 分集卡片头部（行） ────────────────────────── */
 .clip-item-header {
   display: flex;
   align-items: center;
@@ -214,7 +214,7 @@
   white-space: nowrap;
 }
 
-/* 片段状态标签 */
+/* 分集状态标签 */
 .clip-status {
   padding: 1px 8px;
   border-radius: var(--radius-full);
@@ -297,7 +297,7 @@
   transform: rotate(45deg);
 }
 
-/* 片段列表项 checkbox */
+/* 分集列表项 checkbox */
 .clip-item-header input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -413,7 +413,7 @@
 
 
 
-/* ── 片段展开内容 — macOS 毛玻璃风格 ──────────────── */
+/* ── 分集展开内容 — macOS 毛玻璃风格 ──────────────── */
 .clip-item-body {
   padding: 0 14px 16px;
   border-top: 0.5px solid var(--border-faint);
@@ -458,7 +458,7 @@
   border-radius: var(--radius-full);
 }
 
-/* ── 片段操作按钮 — macOS 胶囊风格 ────────────────── */
+/* ── 分集操作按钮 — macOS 胶囊风格 ────────────────── */
 .clip-action-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -524,7 +524,7 @@
   pointer-events: none;
 }
 
-/* ── 片段选择/工具栏/标题编辑/拆分 ──────────────── */
+/* ── 分集选择/工具栏/标题编辑/拆分 ──────────────── */
 
 /* 额外信息区（横幅 + 工具栏） */
 .clip-list-extra {
@@ -644,7 +644,7 @@
   transform: translateY(0);
 }
 
-/* ── 片段列表工具栏 ─────────────────────────────── */
+/* ── 分集列表工具栏 ─────────────────────────────── */
 .clip-list-toolbar {
   display: flex;
   align-items: center;

@@ -16,7 +16,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_VALUE_MAP, type StyleMode } from "../../config/muse";
 
-/** Worker → 前端的资产生图进度事件 */
+/** Worker → 前端的素材生图进度事件 */
 type AssetImageProgressEvent = {
   clip_id: string;
   asset_type: string;
@@ -33,9 +33,9 @@ const TYPE_TO_KEY: Record<AssetType, keyof ParsedAssets> = {
 
 /** 分类配置 */
 const ASSET_CATEGORIES: { type: AssetType; label: string; icon: string }[] = [
-  { type: "character", label: "角色", icon: "👤" },
+  { type: "character", label: "人物", icon: "👤" },
   { type: "scene", label: "场景", icon: "🏞" },
-  { type: "item", label: "物品", icon: "📦" },
+  { type: "item", label: "道具", icon: "📦" },
 ];
 
 type AssetPanelProps = {
@@ -43,9 +43,9 @@ type AssetPanelProps = {
 };
 
 /**
- * 资产管理面板
+ * 素材管理面板
  *
- * 左侧展示已拆解完成的片段列表，右侧展示选中片段的资产（角色/场景/物品）。
+ * 左侧展示已拆解完成的分集列表，右侧展示选中分集的素材（人物/场景/道具）。
  *
  */
 export function AssetPanel({ project }: AssetPanelProps) {
@@ -56,7 +56,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetCardId>>(new Set());
   const [operating, setOperating] = useState(false);
-  // ── 左侧片段栏：常驻展开，可点击收起 ──
+  // ── 左侧分集栏：常驻展开，可点击收起 ──
   const [railCollapsed, setRailCollapsed] = useState(false);
   const toggleRail = useCallback(() => setRailCollapsed((v) => !v), []);
 
@@ -71,7 +71,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 卡片绑定图片路径映射：key = `${type}:${name}`
   const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
 
-  // 正在生成图片的资产集合：key = `${type}:${name}`，实时轮询
+  // 正在生成图片的素材集合：key = `${type}:${name}`，实时轮询
   const [generatingMap, setGeneratingMap] = useState<Record<string, boolean>>({});
   const generatingRef = useRef<Record<string, boolean>>({});
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,15 +80,15 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 强制卡片重渲染 key（图片绑定路径不变但文件内容被替换，需重建 DOM 绕过浏览器缓存）
   const [cardRenderKey, setCardRenderKey] = useState(0);
 
-  // 资产提示词/描述编辑覆盖（key = card.id，生成时使用最新值）
+  // 素材提示词/描述编辑覆盖（key = card.id，生成时使用最新值）
   const [assetOverrides, setAssetOverrides] = useState<Record<string, { prompt: string; description: string }>>({});
 
-  // 切换片段时清空覆盖，避免不同片段同名资产复用过期 prompt
+  // 切换分集时清空覆盖，避免不同分集同名素材复用过期 prompt
   useEffect(() => {
     setAssetOverrides({});
   }, [selectedClipId]);
 
-  // 加载片段和拆解数据
+  // 加载分集和拆解数据
   const load = useCallback(async () => {
     if (!project) return;
     setLoading(true);
@@ -99,13 +99,13 @@ export function AssetPanel({ project }: AssetPanelProps) {
       ]);
       setClips(clipList);
       setClipScripts(csList);
-      // 进入该步骤时自动选中第一个已拆解片段（无符合片段则不选择）
+      // 进入该步骤时自动选中第一个已拆解分集（无符合分集则不选择）
       const dec = clipList.filter((c) => isClipDecomposed(c.status));
       setSelectedClipId((prev) =>
         prev && dec.some((c) => c.id === prev) ? prev : (dec[0]?.id ?? null),
       );
     } catch (err) {
-      toast("资产数据加载失败。", "error");
+      toast("素材数据加载失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -115,7 +115,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     load();
   }, [load]);
 
-  // 监听拆解完成事件，实时刷新片段列表
+  // 监听拆解完成事件，实时刷新分集列表
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
@@ -124,10 +124,10 @@ export function AssetPanel({ project }: AssetPanelProps) {
     return () => { unlisten?.(); };
   }, [project?.id, load]);
 
-  // 已拆解的片段（与分镜管理 / 视频编辑统一口径：按片段状态判定）
+  // 已拆解的分集（与镜头管理 / 视频编辑统一口径：按分集状态判定）
   const disassembledClips = clips.filter((c) => isClipDecomposed(c.status));
 
-  // 选中片段的资产数据
+  // 选中分集的素材数据
   const selectedScript = clipScripts.find((s) => s.clip_id === selectedClipId);
 
   let parsedResources: ParsedAssets | null = null;
@@ -139,7 +139,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }
 
-  // 当前片段所有资产卡片
+  // 当前分集所有素材卡片
   const allAssetCards = useMemo<AssetCardData[]>(() => {
     if (!selectedClipId || !parsedResources) return [];
     return ASSET_CATEGORIES.flatMap((cat) =>
@@ -149,7 +149,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
   const allSelected = allAssetCards.length > 0 && selectedAssetIds.size === allAssetCards.length;
 
-  // 切换单个资产选中
+  // 切换单个素材选中
   const toggleSelect = (id: AssetCardId) => {
     setSelectedAssetIds((prev) => {
       const next = new Set(prev);
@@ -165,7 +165,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     else setSelectedAssetIds(new Set(allAssetCards.map((card) => card.id)));
   };
 
-  // 切换片段时：清空跨片段选中项 + 加载选定图片映射
+  // 切换分集时：清空跨分集选中项 + 加载选定图片映射
   const loadSelectedImages = useCallback(async (clipId: string) => {
     if (!clipId) { setSelectedImageMap({}); return; }
     try {
@@ -182,7 +182,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, []);
 
-  // 监听 Worker 实时推送的资产生图进度，替代纯轮询，实现即时状态更新
+  // 监听 Worker 实时推送的素材生图进度，替代纯轮询，实现即时状态更新
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     listen<AssetImageProgressEvent>("asset-image-progress", (e) => {
@@ -228,7 +228,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [drawerTarget, selectedClipId, loadSelectedImages]);
 
-  // 查询片段下「生成中」的资产集合；若检测到任务刚完成则刷新缩略图
+  // 查询分集下「生成中」的素材集合；若检测到任务刚完成则刷新缩略图
   const loadGenerating = useCallback(async (clipId: string) => {
     if (!clipId) return;
     try {
@@ -273,7 +273,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     loop();
   }, [loadGenerating]);
 
-  // 切换片段时启动生成状态轮询；无选中片段则清空
+  // 切换分集时启动生成状态轮询；无选中分集则清空
   useEffect(() => {
     if (!selectedClipId) {
       stopPoll();
@@ -322,7 +322,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 风格名称 → 提示词值
   const resolveStyle = useCallback((style: string) => STYLE_VALUE_MAP[style as StyleMode] ?? style, []);
 
-  // 构建最终生图 prompt（按资产类型拼系统指令）
+  // 构建最终生图 prompt（按素材类型拼系统指令）
   const buildImagePrompt = useCallback((card: AssetCardData, style: string): string => {
     const appearance = assetOverrides[card.id]?.prompt ?? card.resource.prompt;
     const styleValue = resolveStyle(style);
@@ -352,7 +352,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         n: params.n,
         style: styleValue,
       });
-      toast(`已为资产「${data.resource.name}」发起图片生成`, "success");
+      toast(`已为素材「${data.resource.name}」发起图片生成`, "success");
       startPoll(selectedClipId ?? "");
     } catch (_err) {
       toast("图片生成失败。", "error");
@@ -381,7 +381,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
           })
         )
       );
-      toast(`已为 ${cards.length} 个资产发起图片生成`, "success");
+      toast(`已为 ${cards.length} 个素材发起图片生成`, "success");
       startPoll(selectedClipId ?? "");
     } catch (_err) {
       toast("图片生成失败。", "error");
@@ -414,7 +414,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [toast]);
 
-  // 从项目内其他资产复制图片到当前资产
+  // 从作品内其他素材复制图片到当前素材
   const handleCopyFromProject = useCallback(async (data: AssetCardData, sourceImageId: string): Promise<void> => {
     try {
       const result = await copyAssetImageFrom({
@@ -555,7 +555,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     }
   }, [load, toast]);
 
-  // 添加资产确认
+  // 添加素材确认
   const handleAddAsset = useCallback(async (input: AddAssetInput) => {
     setAddAssetOpen(null);
     if (!selectedClipId) return;
@@ -568,10 +568,10 @@ export function AssetPanel({ project }: AssetPanelProps) {
         description: input.description,
         prompt: input.prompt,
       });
-      toast(`已添加资产「${input.name}」`, "success");
+      toast(`已添加素材「${input.name}」`, "success");
       await load();
     } catch (_err) {
-      toast("添加资产失败。", "error");
+      toast("添加素材失败。", "error");
     } finally {
       setOperating(false);
     }
@@ -579,7 +579,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
   return (
     <div className="rail-layout">
-      {/* ── 左侧：片段栏（常驻，可点击收起） ── */}
+      {/* ── 左侧：分集栏（常驻，可点击收起） ── */}
       <div
         className={`rail-clips${railCollapsed ? " is-collapsed" : " is-expanded"}`}
       >
@@ -588,12 +588,12 @@ export function AssetPanel({ project }: AssetPanelProps) {
             <span className="rail-clips-head-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             </span>
-            <span className="rail-clips-head-text">片段列表</span>
+            <span className="rail-clips-head-text">分集列表</span>
           </div>
           {loading ? (
             <p className="rail-clips-empty">加载中…</p>
           ) : disassembledClips.length === 0 ? (
-            <p className="rail-clips-empty">暂无片段</p>
+            <p className="rail-clips-empty">暂无分集</p>
           ) : (
             <div className="rail-clips-list">
               {disassembledClips.map((clip) => {
@@ -625,8 +625,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
           type="button"
           className="rail-clips-toggle"
           onClick={toggleRail}
-          title={railCollapsed ? "展开片段列表" : "收起片段列表"}
-          aria-label={railCollapsed ? "展开片段列表" : "收起片段列表"}
+          title={railCollapsed ? "展开分集列表" : "收起分集列表"}
+          aria-label={railCollapsed ? "展开分集列表" : "收起分集列表"}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <path d={railCollapsed ? "M6 4L10 8L6 12" : "M10 4L6 8L10 12"} />
@@ -634,16 +634,16 @@ export function AssetPanel({ project }: AssetPanelProps) {
         </button>
       </div>
 
-      {/* ── 右侧：资产展示 ── */}
+      {/* ── 右侧：素材展示 ── */}
       <div className="rail-main">
         <div className="asset-display-panel">
           <div className="panel-header">
-            <h3>资产列表</h3>
+            <h3>素材列表</h3>
           </div>
           {!selectedClipId ? (
-            <p className="empty-clip-list">请从左侧选择已拆解的片段</p>
+            <p className="empty-clip-list">请从左侧选择已拆解的分集</p>
           ) : !parsedResources ? (
-            <p className="empty-clip-list">暂无资产数据</p>
+            <p className="empty-clip-list">暂无素材数据</p>
           ) : (
             <>
             <div className="asset-display-head">
@@ -710,7 +710,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
                           disabled={operating}
                         />
                       ))}
-                      {/* 虚拟卡片：添加该类型资产 */}
+                      {/* 虚拟卡片：添加该类型素材 */}
                       <button
                         type="button"
                         className="asset-card--add"
@@ -738,7 +738,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         </div>
       </div>
 
-      {/* 资产删除确认弹窗 */}
+      {/* 素材删除确认弹窗 */}
       {deleteTarget ? (
         <DeleteAssetConfirm
           cards={deleteTarget}
@@ -748,7 +748,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         />
       ) : null}
 
-      {/* 添加资产弹窗 */}
+      {/* 添加素材弹窗 */}
       {addAssetOpen ? (
         <AddAssetModal
           assetType={addAssetOpen}
@@ -758,7 +758,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         />
       ) : null}
 
-      {/* 资产详情+生成抽屉 */}
+      {/* 素材详情+生成抽屉 */}
       {drawerTarget ? (
         <AssetDrawer
           cards={drawerTarget}

@@ -367,7 +367,7 @@ fn synthesize_via_v3(
             let v = match item {
                 Ok(v) => v,
                 Err(e) => {
-                    err_log = Some((-1, format!("解析语音响应片段失败：{}", e)));
+                    err_log = Some((-1, format!("解析语音响应分集失败：{}", e)));
                     break;
                 }
             };

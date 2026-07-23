@@ -9,7 +9,7 @@ import type { AssetCardData } from "./AssetCard";
 import { AssetImageGallery, type GalleryImage } from "./AssetImageGallery";
 import { AssetPickerDrawer } from "./AssetPickerDrawer";
 
-/** Worker → 前端的单张资产生成图片更新事件 */
+/** Worker → 前端的单张素材生成图片更新事件 */
 type AssetImageTaskUpdateEvent = {
   clip_id: string;
   asset_type: string;
@@ -18,7 +18,7 @@ type AssetImageTaskUpdateEvent = {
   status: "ready" | "failed";
 };
 
-/** Worker → 前端的资产生图任务级进度事件 */
+/** Worker → 前端的素材生图任务级进度事件 */
 type AssetImageProgressEvent = {
   clip_id: string;
   asset_type: string;
@@ -33,9 +33,9 @@ type AspectRatio = "16:9" | "9:16" | "4:3" | "3:4" | "1:1";
 type ResolutionTier = "1K" | "2K" | "4K";
 
 const TYPE_LABELS: Record<string, string> = {
-  character: "角色",
+  character: "人物",
   scene: "场景",
-  item: "物品",
+  item: "道具",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -90,23 +90,23 @@ export type GenerateParams = {
 };
 
 type AssetDrawerProps = {
-  /** 资产列表（单个或批量） */
+  /** 素材列表（单个或批量） */
   cards: AssetCardData[];
-  /** 当前项目 ID（用于资产选择器查询同项目资产） */
+  /** 当前作品 ID（用于素材选择器查询同作品素材） */
   projectId: string;
   /** 关闭抽屉 */
   onClose: () => void;
-  /** 确认生成单个资产 */
+  /** 确认生成单个素材 */
   onGenerate: (data: AssetCardData, params: GenerateParams) => void;
   /** 确认批量生成 */
   onBatchGenerate?: (cards: AssetCardData[], params: GenerateParams) => void;
   /** 选择本地图片 */
   onSelectLocal?: (data: AssetCardData) => Promise<void>;
-  /** 从项目内其他资产复制图片 */
+  /** 从作品内其他素材复制图片 */
   onCopyFromProject?: (data: AssetCardData, sourceImageId: string) => Promise<void>;
   /** 绑定图片后通知外部刷新卡片列表 */
   onImageSelected?: () => void;
-  /** 资产提示词/描述被更新后通知外部（用于生成时使用最新值） */
+  /** 素材提示词/描述被更新后通知外部（用于生成时使用最新值） */
   onAssetUpdated?: (card: AssetCardData, patch: { prompt: string; description: string }) => void;
   /** 抽屉是否正在执行关闭动画 */
   closing?: boolean;
@@ -116,9 +116,9 @@ type AssetDrawerProps = {
 };
 
 /**
- * 资产详情 + 生成参数抽屉。
+ * 素材详情 + 生成参数抽屉。
  *
- * 右侧悬浮抽屉。单个资产直接展示详情；批量模式可左右切换资产，
+ * 右侧悬浮抽屉。单个素材直接展示详情；批量模式可左右切换素材，
  * 生成参数统一设置后可单个生成或批量生成。
  *
  */
@@ -177,7 +177,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
     };
   }, [current?.clipId, current?.type, current?.resource.name]);
 
-  // 轮询当前资产的图片+任务状态（含 pending / running / failed）
+  // 轮询当前素材的图片+任务状态（含 pending / running / failed）
   useEffect(() => {
     if (!current) return;
 
@@ -282,13 +282,13 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
     }
   }, [current, toast]);
 
-  // 打开项目内资产选择器
+  // 打开作品内素材选择器
   const handleOpenPicker = useCallback(() => {
     setPickerOpen(true);
     setPickerClosing(false);
   }, []);
 
-  // 关闭项目内资产选择器（带动画）
+  // 关闭作品内素材选择器（带动画）
   const handleClosePicker = useCallback(() => {
     setPickerClosing(true);
     setTimeout(() => {
@@ -297,7 +297,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
     }, 260);
   }, []);
 
-  // 从选择器中选中某个资产的图片 → 复制
+  // 从选择器中选中某个素材的图片 → 复制
   const handlePickAsset = useCallback(async (sourceImageId: string, _sourceName: string) => {
     if (!current || !onCopyFromProject) return;
     setImporting(true);
@@ -316,7 +316,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
   const typeLabel = TYPE_LABELS[current.type] ?? current.type;
   const icon = TYPE_ICONS[current.type] ?? "📄";
 
-  // 可编辑的提示词/描述草稿，切换资产时同步重置
+  // 可编辑的提示词/描述草稿，切换素材时同步重置
   const [promptDraft, setPromptDraft] = useState(resource.prompt ?? "");
   const [descDraft, setDescDraft] = useState(resource.description ?? "");
   const [savingAsset, setSavingAsset] = useState(false);
@@ -450,7 +450,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
             disabled={disabled}
           />
 
-          {/* 资产信息（提示词/描述可编辑，失焦保存） */}
+          {/* 素材信息（提示词/描述可编辑，失焦保存） */}
           <div className="add-asset-form">
             <div className="add-asset-field">
               <label className="add-asset-label">描述</label>
@@ -567,7 +567,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
         </div>
       </aside>
 
-      {/* 项目内资产图片选择器（左侧抽屉） */}
+      {/* 作品内素材图片选择器（左侧抽屉） */}
       {pickerOpen && current && (
         <AssetPickerDrawer
           projectId={projectId}

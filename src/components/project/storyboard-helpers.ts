@@ -1,5 +1,5 @@
 /**
- * 分镜模块工具函数
+ * 镜头模块工具函数
  */
 import type { PromptDoc } from "../../types/project";
 import type { AssetMention } from "./MentionDropdown";
@@ -45,7 +45,7 @@ export function normalizePromptReferences(
     .map((index) => {
       const mention = mentionMap.get(index);
       if (!mention) {
-        throw new Error(`@图片${index} 没有对应资产，请删除该引用后重新插入`);
+        throw new Error(`@图片${index} 没有对应素材，请删除该引用后重新插入`);
       }
       return mention;
     });
@@ -93,7 +93,7 @@ export function normalizePromptReferences(
   const tagsMatchMentions = tagIndexes.length === mentionIndexes.length
     && tagIndexes.every((index, position) => index === mentionIndexes[position]);
   if (!tagsMatchMentions) {
-    throw new Error("提示词中的图片引用必须与资产胶囊一一对应，请删除手工输入的无效 @图片N 后重试");
+    throw new Error("提示词中的图片引用必须与素材胶囊一一对应，请删除手工输入的无效 @图片N 后重试");
   }
 
   return { promptDoc, prompt, mentions };
@@ -124,7 +124,7 @@ export function clampDuration(v: number | null | undefined): number | null {
 /**
  * 解析视频参数。
  * @param json         已保存的 video_param_json
- * @param dbDuration   分镜数据库中存储的时长（video_duration ?? voice_duration），用作时长回退
+ * @param dbDuration   镜头数据库中存储的时长（video_duration ?? voice_duration），用作时长回退
  * @param videoModels  设置里配置的视频模型 → 分辨率映射
  */
 export function parseVideoParams(json: string | null, dbDuration: number | null, videoModels: Record<string, string[]>): VideoParams {

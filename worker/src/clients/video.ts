@@ -29,7 +29,7 @@ export interface VideoReference {
 
 /** 视频生成选项 */
 export interface VideoGenerateOptions {
-  /** 覆盖设置中当前激活模型；分镜选择的模型以此为准。 */
+  /** 覆盖设置中当前激活模型；镜头选择的模型以此为准。 */
   model?: string;
   /** 分辨率：480p / 720p */
   resolution?: "480p" | "720p" | "1080p" | "2k" | "4k";

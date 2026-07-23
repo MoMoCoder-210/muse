@@ -130,7 +130,7 @@ export interface ThemeTokens {
   modalCloseBtnColor: string;
   // select caret 箭头颜色
   selectCaretColor: string;
-  // 项目列表激活项背景
+  // 作品列表激活项背景
   projectItemActiveBg: string;
   // workflow step 未完成背景（半透明）
   stepPendingBg: string;
@@ -295,7 +295,7 @@ export const darkTheme: ThemeTokens = {
   modalCloseBtnColor:  "rgba(226, 232, 240, 0.82)",
   // select caret 箭头颜色
   selectCaretColor:    "rgba(226, 232, 240, 0.90)",
-  // 项目列表激活项背景
+  // 作品列表激活项背景
   projectItemActiveBg: "rgba(30, 41, 59, 0.92)",
   // workflow step 未完成背景（半透明）
   stepPendingBg:       "rgba(15, 23, 42, 0.72)",

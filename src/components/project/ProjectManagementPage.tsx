@@ -14,9 +14,9 @@ type ProjectManagementPageProps = {
 };
 
 /**
- * 项目管理页
+ * 作品管理页
  *
- * 集成侧边栏、工作区与弹窗的项目管理主界面。
+ * 集成侧边栏、工作区与弹窗的作品管理主界面。
  */
 export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();
@@ -85,7 +85,7 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
       <div
         className="sidebar-grabber"
         onClick={() => setSidebarOpen(true)}
-        title="展开项目列表"
+        title="展开作品列表"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
@@ -133,8 +133,8 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
 
       {deleteTarget && (
         <DeleteConfirmModal
-          title="删除项目"
-          description={<>确认删除 <strong>{deleteTarget.name}</strong> 项目？</>}
+          title="删除作品"
+          description={<>确认删除 <strong>{deleteTarget.name}</strong> 作品？</>}
           checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
           confirmText={deleting ? "删除中…" : "删除"}
           onConfirm={confirmProjectDeletion}

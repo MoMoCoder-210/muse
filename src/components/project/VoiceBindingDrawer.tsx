@@ -6,7 +6,7 @@ import type { AssetCardData } from "./AssetCard";
 import type { VoiceBinding } from "../../types/project";
 
 type VoiceBindingDrawerProps = {
-  /** 目标资产卡片（仅角色） */
+  /** 目标素材卡片（仅人物） */
   card: AssetCardData;
   /** 关闭抽屉 */
   onClose: () => void;
@@ -18,7 +18,7 @@ type VoiceBindingDrawerProps = {
 };
 
 /**
- * 角色声音绑定抽屉。
+ * 人物声音绑定抽屉。
  */
 export function VoiceBindingDrawer({
   card,

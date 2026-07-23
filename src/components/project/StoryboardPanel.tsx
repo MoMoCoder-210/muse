@@ -48,10 +48,10 @@ import {
 } from "./storyboard-helpers";
 
 /* ========================================================================
-   StoryboardPanel — 分镜管理（含视频生成）
+   StoryboardPanel — 镜头管理（含视频生成）
 
-   上方：选中分镜的视频 + 提示词 + 资产
-   下方：分镜缩略图条，点击切换
+   上方：选中镜头的视频 + 提示词 + 素材
+   下方：镜头缩略图条，点击切换
    ======================================================================== */
 
 type Props = { project: ProjectInfo };
@@ -92,7 +92,7 @@ export function StoryboardPanel({ project }: Props) {
       return next;
     });
   }, []);
-  // ── 左侧片段栏：手动展开/收起 ──
+  // ── 左侧分集栏：手动展开/收起 ──
   const [railCollapsed, setRailCollapsed] = useState(false);
   const toggleRail = useCallback(() => setRailCollapsed((v) => !v), []);
 
@@ -106,9 +106,9 @@ export function StoryboardPanel({ project }: Props) {
   const terminalVideoTaskEventsRef = useRef(new Map<string, VideoTaskTerminalEvent>());
   const videoTaskStatesRef = useRef(videoTaskStates);
   videoTaskStatesRef.current = videoTaskStates;
-  // 新增分镜：undefined=不弹窗, "__end__"=末尾添加, null=最前插入, string=在某分镜后插入
+  // 新增镜头：undefined=不弹窗, "__end__"=末尾添加, null=最前插入, string=在某镜头后插入
   const [insertAfterId, setInsertAfterId] = useState<string | null | undefined>(undefined);
-  // 缩略图条悬停插入位：number=在第i个分镜后插入, "__first__"=在最前插入
+  // 缩略图条悬停插入位：number=在第i个镜头后插入, "__first__"=在最前插入
   const [hoverGap, setHoverGap] = useState<string | null>(null);
 
   // ── 数据 ────────────────────────────────────────
@@ -118,7 +118,7 @@ export function StoryboardPanel({ project }: Props) {
     try {
       const c = await listClips(project.id);
       setClips(c);
-      // 进入该步骤时自动选中第一个已拆解片段（无符合片段则不选择）
+      // 进入该步骤时自动选中第一个已拆解分集（无符合分集则不选择）
       const dec = c.filter((x) => isClipDecomposed(x.status));
       setClipId((prev) => (prev && dec.some((x) => x.id === prev) ? prev : (dec[0]?.id ?? null)));
     }
@@ -126,7 +126,7 @@ export function StoryboardPanel({ project }: Props) {
   }, [project?.id]);
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // 监听拆解完成事件，实时刷新片段列表
+  // 监听拆解完成事件，实时刷新分集列表
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
@@ -162,11 +162,11 @@ export function StoryboardPanel({ project }: Props) {
       await loadAllVideos(sb);
       setDataMap((p) => ({ ...p, [cid]: { storyboards: sb, assets: as, loaded: true } }));
     }
-    catch { toast("加载分镜失败", "error"); }
+    catch { toast("加载镜头失败", "error"); }
   }, [toast, loadAllVideos]);
   useEffect(() => { if (clip) loadSb(clip.id); }, [clip?.id, loadSb]);
 
-  // 切片段时重置选中索引
+  // 切分集时重置选中索引
   useEffect(() => { setActiveIdx(0); }, [clipId]);
 
   const data = clip ? dataMap[clip.id] : null;
@@ -177,7 +177,7 @@ export function StoryboardPanel({ project }: Props) {
   const safeIdx = Math.min(activeIdx, Math.max(sbList.length - 1, 0));
   const activeSb = sbList[safeIdx] ?? null;
 
-  // 片段中已有绑定视频时，锁定分辨率+宽高比，避免拼接时比例不一致
+  // 分集中已有绑定视频时，锁定分辨率+宽高比，避免拼接时比例不一致
   const lockedRatio = useMemo(() => {
     const bound = sbList
       .filter((s) => s.selected_video_id != null)
@@ -194,7 +194,7 @@ export function StoryboardPanel({ project }: Props) {
     return null;
   }, [sbList]);
 
-  // ── 资产关联 ────────────────────────────────────
+  // ── 素材关联 ────────────────────────────────────
 
   const toggleLink = useCallback(async (sb: Storyboard, a: StoryboardAssetInfo) => {
     const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
@@ -207,7 +207,7 @@ export function StoryboardPanel({ project }: Props) {
     } catch { toast("更新失败", "error"); } finally { setSaving(null); }
   }, [toast]);
 
-  // 批量绑定资产（一次调用 API，避免逐个覆盖）
+  // 批量绑定素材（一次调用 API，避免逐个覆盖）
   const batchToggleLink = useCallback(async (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => {
     const cArr = [...ids.character], sArr = [...ids.scene], iArr = [...ids.item];
     setSaving(sb.id);
@@ -217,7 +217,7 @@ export function StoryboardPanel({ project }: Props) {
     } catch { toast("批量关联失败", "error"); } finally { setSaving(null); }
   }, [toast]);
 
-  // 实时更新分镜时长（秒），写回分镜记录本身；同步更新本地数据使缩略图条即时刷新
+  // 实时更新镜头时长（秒），写回镜头记录本身；同步更新本地数据使缩略图条即时刷新
   const updateSbDuration = useCallback(async (sb: Storyboard, duration: number | null) => {
     try {
       await updateStoryboardDuration({ storyboard_id: sb.id, duration });
@@ -307,7 +307,7 @@ export function StoryboardPanel({ project }: Props) {
     };
   }, [refreshVideoState, toast]);
 
-  // ── 新增/插入/删除分镜 ────────────────────────
+  // ── 新增/插入/删除镜头 ────────────────────────
 
   const addSb = useCallback(async () => {
     if (!clip) return; setSaving("__new__");
@@ -367,9 +367,9 @@ export function StoryboardPanel({ project }: Props) {
         <div className="rail-clips-inner">
           <div className="rail-clips-head">
             <span className="rail-clips-head-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
-            <span className="rail-clips-head-text">片段列表</span>
+            <span className="rail-clips-head-text">分集列表</span>
           </div>
-          {loading ? <p className="rail-clips-empty">加载中…</p> : filtered.length === 0 ? <p className="rail-clips-empty">暂无片段</p> : (
+          {loading ? <p className="rail-clips-empty">加载中…</p> : filtered.length === 0 ? <p className="rail-clips-empty">暂无分集</p> : (
             <div className="rail-clips-list">
               {filtered.map((c) => {
                 const colors = avatarColor(c.sort_index);
@@ -387,8 +387,8 @@ export function StoryboardPanel({ project }: Props) {
           type="button"
           className="rail-clips-toggle"
           onClick={toggleRail}
-          title={railCollapsed ? "展开片段列表" : "收起片段列表"}
-          aria-label={railCollapsed ? "展开片段列表" : "收起片段列表"}
+          title={railCollapsed ? "展开分集列表" : "收起分集列表"}
+          aria-label={railCollapsed ? "展开分集列表" : "收起分集列表"}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             {railCollapsed ? (
@@ -404,14 +404,14 @@ export function StoryboardPanel({ project }: Props) {
       <div className="rail-main">
         <div className="sb-scroll">
           {!clip ? (
-            <div className="sb-empty"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg><p>从左侧选择片段</p></div>
+            <div className="sb-empty"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg><p>从左侧选择分集</p></div>
           ) : !data?.loaded ? (
             <div className="sb-empty"><p>加载中…</p></div>
           ) : sbList.length === 0 ? (
-            <div className="sb-empty"><p>暂无分镜</p></div>
+            <div className="sb-empty"><p>暂无镜头</p></div>
           ) : (
             <div className="sb-view">
-              {/* ========== 上方：选中分镜详情 ========== */}
+              {/* ========== 上方：选中镜头详情 ========== */}
               {activeSb && (
                 <DetailView
                   key={activeSb.id}
@@ -430,7 +430,7 @@ export function StoryboardPanel({ project }: Props) {
                 />
               )}
 
-              {/* ========== 第四行：分镜缩略列表 ========== */}
+              {/* ========== 第四行：镜头缩略列表 ========== */}
               <div className="sd-row-card sd-row-card--strip">
                 <div
                   className="sb-strip-wrap"
@@ -465,7 +465,7 @@ export function StoryboardPanel({ project }: Props) {
                     const sec = Math.round(selVid?.duration ?? sb.video_duration ?? sb.voice_duration ?? 0);
                     const storyboardTasks = videoTaskStates[sb.id] ?? [];
                     // 仅任务表中真实存在的 pending/running 批次才显示生成状态；
-                    // 新分镜默认 video_state 和历史失败批次都不能影响缩略条。
+                    // 新镜头默认 video_state 和历史失败批次都不能影响缩略条。
                     const isVideoGenerating = storyboardTasks.some((task) => task.status === "pending" || task.status === "running");
                     return (
                       <div key={sb.id} style={{ display: "contents" }}>
@@ -542,8 +542,8 @@ export function StoryboardPanel({ project }: Props) {
 
       {deleteTarget && (
         <DeleteConfirmModal
-          title="删除分镜"
-          description={<>确认删除分镜 <strong>「#{deleteTarget.seq_num}」</strong>？</>}
+          title="删除镜头"
+          description={<>确认删除镜头 <strong>「#{deleteTarget.seq_num}」</strong>？</>}
           checkbox={{ label: "同时删除磁盘文件", checked: deleteFiles, onChange: setDeleteFiles }}
           onConfirm={delSb}
           onCancel={() => {
@@ -554,11 +554,11 @@ export function StoryboardPanel({ project }: Props) {
         />
       )}
 
-      {/* 新增分镜确认框（添加/插入统一） */}
+      {/* 新增镜头确认框（添加/插入统一） */}
       {insertAfterId !== undefined && (
         <StoryboardConfirm
-          title="新增分镜"
-          message="确认新增一个空分镜？"
+          title="新增镜头"
+          message="确认新增一个空镜头？"
           confirmText="新增"
           onConfirm={() => {
             const id = insertAfterId;
@@ -577,7 +577,7 @@ export function StoryboardPanel({ project }: Props) {
 }
 
 /* ========================================================================
-   DetailView — 上方选中分镜详情
+   DetailView — 上方选中镜头详情
 
    批次区域拆分为：
      左侧：视频批次缩略图（横排）
@@ -660,7 +660,7 @@ function DetailView({
 
   // 最终视频变更时同步播放到该视频
   useEffect(() => { setViewingVideoId(sb.selected_video_id || null); }, [sb.selected_video_id]);
-  // 切换分镜后重置观看状态
+  // 切换镜头后重置观看状态
   useEffect(() => { setViewingVideoId(null); }, [sb.id]);
 
   const playerVidId = viewingVideoId ?? sb.selected_video_id;
@@ -767,9 +767,9 @@ function DetailView({
   const promptRef = useRef(prompt); promptRef.current = prompt;
   const promptDocRef = useRef(promptDoc); promptDocRef.current = promptDoc;
   const sbIdRef = useRef(sb.id); sbIdRef.current = sb.id;
-  // 同一分镜的迁移、失焦保存与点击生成保存必须串行，避免旧迁移请求晚到覆盖新编辑。
+  // 同一镜头的迁移、失焦保存与点击生成保存必须串行，避免旧迁移请求晚到覆盖新编辑。
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  // 一个旧 JSON 版本最多迁移一次；资产缩略图刷新不能重新排队旧文本覆盖用户编辑。
+  // 一个旧 JSON 版本最多迁移一次；素材缩略图刷新不能重新排队旧文本覆盖用户编辑。
   const migratedPromptDocKeysRef = useRef(new Set<string>());
   const queueStoryboardSave = useCallback((input: {
     storyboard_id: string;
@@ -782,9 +782,9 @@ function DetailView({
     return write;
   }, []);
 
-  // 切换分镜：一次性恢复稳定的 mention_map 与 prompt_doc。
+  // 切换镜头：一次性恢复稳定的 mention_map 与 prompt_doc。
   // 旧数据缺失 mention_map，或曾被保存为“只有文本的 prompt_doc”时，严格按完整
-  // `资产名(@图片N)` 恢复；名称不唯一时宁可保留文本，也绝不猜错资产。
+  // `素材名(@图片N)` 恢复；名称不唯一时宁可保留文本，也绝不猜错素材。
   useEffect(() => {
     let rawParams: Record<string, unknown> = {};
     try {
@@ -818,7 +818,7 @@ function DetailView({
     const sourcePrompt = sb.video_prompt || "";
     const mentionByIndex = new Map(mentions.map((mention) => [mention.index, mention]));
 
-    // 按名称恢复资产映射（仅名称唯一时生效，避免误匹配）
+    // 按名称恢复素材映射（仅名称唯一时生效，避免误匹配）
     const assetsByName = (() => {
       const map = new Map<string, StoryboardAssetInfo[]>();
       for (const asset of assets) {
@@ -885,7 +885,7 @@ function DetailView({
     }
   }, [assets, sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
 
-  // lockedRatio 变化时（如其他分镜新绑定了视频），同步锁定当前参数
+  // lockedRatio 变化时（如其他镜头新绑定了视频），同步锁定当前参数
   useEffect(() => {
     if (lockedRatio) {
       setParams((prev) => ({
@@ -951,11 +951,11 @@ function DetailView({
   const [mentionPos, setMentionPos] = useState<MentionAnchor | null>(null);
   const editorRef = useRef<PromptEditorHandle>(null);
   const mentionMapRef = useRef<Map<number, AssetMention>>(new Map());
-  // mentionItems：已分配 index 的资产列表，作为 state 传给 PromptEditor 触发重渲染
+  // mentionItems：已分配 index 的素材列表，作为 state 传给 PromptEditor 触发重渲染
   const [mentionItems, setMentionItems] = useState<AssetMention[]>([]);
 
-  // 当前分镜可 @ 的资产。已分配项从 mention_map（或后端返回的 assetTag）取稳定编号；
-  // 新资产在用户选择时才分配 N，避免列表排序影响任何既有引用。
+  // 当前镜头可 @ 的素材。已分配项从 mention_map（或后端返回的 assetTag）取稳定编号；
+  // 新素材在用户选择时才分配 N，避免列表排序影响任何既有引用。
   const mentionAssets = useMemo<AssetMention[]>(() =>
     assets.filter(linked).map((asset) => {
       const assigned = mentionItems.find((mention) => mention.assetId === asset.asset_id);
@@ -973,13 +973,13 @@ function DetailView({
     [assets, mentionItems, sb.character_ids_json, sb.scene_ids_json, sb.item_ids_json],
   );
 
-  // 新资产在当前映射的末尾分配编号；保存或生成时会按仍存在的胶囊重排为连续编号。
+  // 新素材在当前映射的末尾分配编号；保存或生成时会按仍存在的胶囊重排为连续编号。
   const nextMentionIndex = useMemo(() => {
     const maxIndex = mentionItems.reduce((max, mention) => Math.max(max, mention.index), 0);
     return maxIndex + 1;
   }, [mentionItems]);
 
-  // assetId → 已分配序号（供下拉展示并复用同一资产编号）。
+  // assetId → 已分配序号（供下拉展示并复用同一素材编号）。
   const existingAssetIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const mention of mentionItems) map.set(mention.assetId, mention.index);
@@ -1009,8 +1009,8 @@ function DetailView({
     setPrompt(change.plainText);
   }, []);
 
-  // 选中资产：通过 editorRef 插入 mention 节点（Tiptap 内部处理）。
-  // 同一资产可多次插入胶囊；限制的是每分镜关联的资产数量，而不是胶囊数量。
+  // 选中素材：通过 editorRef 插入 mention 节点（Tiptap 内部处理）。
+  // 同一素材可多次插入胶囊；限制的是每镜头关联的素材数量，而不是胶囊数量。
   const handleMentionSelect = useCallback((asset: AssetMention) => {
     let assignedIndex: number | undefined;
     mentionMapRef.current.forEach((mention, index) => {
@@ -1019,7 +1019,7 @@ function DetailView({
 
     const index = assignedIndex ?? nextMentionIndex;
 
-    // 新资产先分配编号；保存或生成时会根据仍存在的胶囊清理并重排引用。
+    // 新素材先分配编号；保存或生成时会根据仍存在的胶囊清理并重排引用。
     if (assignedIndex === undefined) {
       const mention: AssetMention = {
         ...asset,
@@ -1039,11 +1039,11 @@ function DetailView({
   const [confirmGenerate, setConfirmGenerate] = useState(false);
   const handleGenerateVideo = useCallback(async () => {
     try {
-      // 检查是否有已删除的资产胶囊
+      // 检查是否有已删除的素材胶囊
       const deletedEntries = [...mentionMapRef.current.values()].filter((m) => m.deleted);
       if (deletedEntries.length > 0) {
         const names = deletedEntries.map((m) => `"${m.name}"`).join("、");
-        toast(`资产${names}已被删除，请先移除提示词中的红色胶囊后再生成视频`, "error");
+        toast(`素材${names}已被删除，请先移除提示词中的红色胶囊后再生成视频`, "error");
         return;
       }
 
@@ -1060,12 +1060,12 @@ function DetailView({
       setPromptDoc(normalized.promptDoc);
       setPrompt(normalized.prompt);
 
-      // 同步检查：所有绑定资产必须已选择参考图片
+      // 同步检查：所有绑定素材必须已选择参考图片
       const missingImageNames = normalized.mentions
         .filter((m) => !m.imagePath)
         .map((m) => `"${m.name}"`);
       if (missingImageNames.length > 0) {
-        toast(`资产${missingImageNames.join("、")}尚未绑定图片，请先在资产详情中选择参考图片`, "error");
+        toast(`素材${missingImageNames.join("、")}尚未绑定图片，请先在素材详情中选择参考图片`, "error");
         return;
       }
 
@@ -1246,7 +1246,7 @@ function DetailView({
               resetKey={sb.id}
               onChange={handlePromptChange}
               onBlur={saveParams}
-              placeholder="暂无提示词 · 输入 @ 引用资产"
+              placeholder="暂无提示词 · 输入 @ 引用素材"
               onMentionStart={handleMentionStart}
               onMentionUpdate={handleMentionUpdate}
               onMentionClose={closeMention}
@@ -1304,7 +1304,7 @@ function DetailView({
                   )}
                 </div>
                 <span className="sd-video-thumb-label">{batchLabel}</span>
-                {isSelected && <span className="sd-video-thumb-bound-badge" title="分镜绑定视频" />}
+                {isSelected && <span className="sd-video-thumb-bound-badge" title="镜头绑定视频" />}
                 {v.taskStatus === "failed" && v.task_id && (
                   <button
                     className="sd-video-thumb-delete"
@@ -1325,7 +1325,7 @@ function DetailView({
                   <button
                     className="sd-video-thumb-select"
                     onClick={(e) => { e.stopPropagation(); setPendingSelect(v); }}
-                    title="选为分镜最终视频"
+                    title="选为镜头最终视频"
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <polyline points="20 6 9 17 4 12" />
@@ -1366,12 +1366,12 @@ function DetailView({
         </div>
       </div>
 
-      {/* 第三行：关联资产 + 参数 */}
+      {/* 第三行：关联素材 + 参数 */}
       <div className="sd-row-split">
-        {/* 左侧：关联资产 */}
+        {/* 左侧：关联素材 */}
         <div className="sd-row-card sd-row-card--fixed">
           <div className="sd-section sd-section--assets">
-            <span className="sd-section-label">关联资产</span>
+            <span className="sd-section-label">关联素材</span>
             <div className="sd-detail-assets">
               {CATS.map((cat) => {
                 const linkedList = assets.filter((a) => a.type === cat.type && linked(a));
@@ -1416,7 +1416,7 @@ function DetailView({
                         className="sd-detail-chip sd-detail-chip--add"
                         disabled={busy || atLimit}
                         onClick={() => setPickerCat(cat.type)}
-                        title={atLimit ? "每个分镜最多关联 9 个资产" : `关联${cat.label}`}
+                        title={atLimit ? "每个镜头最多关联 9 个素材" : `关联${cat.label}`}
                       >+</button>
                     </div>
                   </div>
@@ -1491,7 +1491,7 @@ function DetailView({
         </div>
       </div>
 
-      {/* 资产选择弹窗 */}
+      {/* 素材选择弹窗 */}
       {pickerCat && (() => {
         const catLabel = CATS.find((c) => c.type === pickerCat)?.label ?? "";
         const catIcon = CATS.find((c) => c.type === pickerCat)?.icon ?? "";
@@ -1508,16 +1508,16 @@ function DetailView({
           setPickerSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
         };
         const confirmPick = async () => {
-          // 一次性收集所有选中的资产 ID，合并到现有关联中
+          // 一次性收集所有选中的素材 ID，合并到现有关联中
           const cIds = new Set(parseIds(sb.character_ids_json));
           const sIds = new Set(parseIds(sb.scene_ids_json));
           const iIds = new Set(parseIds(sb.item_ids_json));
           const newIds = freeList.filter((a) => pickerSelected.has(a.asset_id));
 
-          // 超过每分镜最多 9 个资产的上限时阻止关联
+          // 超过每镜头最多 9 个素材的上限时阻止关联
           const currentTotal = cIds.size + sIds.size + iIds.size;
           if (currentTotal + newIds.length > 9) {
-            toast(`每个分镜最多关联 9 个资产（当前已关联 ${currentTotal} 个，本次选择了 ${newIds.length} 个）`, "error");
+            toast(`每个镜头最多关联 9 个素材（当前已关联 ${currentTotal} 个，本次选择了 ${newIds.length} 个）`, "error");
             return;
           }
 
@@ -1587,7 +1587,7 @@ function DetailView({
                     className="primary-button btn-sm"
                     onClick={confirmPick}
                     disabled={busy || !hasSelection || overLimit}
-                    title={overLimit ? `最多可再关联 ${remainingSlots} 个资产（每分镜上限 9 个）` : undefined}
+                    title={overLimit ? `最多可再关联 ${remainingSlots} 个素材（每镜头上限 9 个）` : undefined}
                   >
                     {overLimit
                       ? `超出上限（最多再选 ${remainingSlots} 个）`
@@ -1600,11 +1600,11 @@ function DetailView({
         );
       })()}
 
-      {/* 首次生成确认：片段尚无绑定视频时锁定比例 */}
+      {/* 首次生成确认：分集尚无绑定视频时锁定比例 */}
       {confirmGenerate && (
         <DeleteConfirmModal
           title="确认生成"
-          description={<>确定生成 <strong>{params.resolution}</strong> 分辨率、<strong>{params.aspect_ratio}</strong> 比例的视频？生成后此片段分辨率、比例将不能更改！（删除全部视频后方可更改）</>}
+          description={<>确定生成 <strong>{params.resolution}</strong> 分辨率、<strong>{params.aspect_ratio}</strong> 比例的视频？生成后此分集分辨率、比例将不能更改！（删除全部视频后方可更改）</>}
           confirmText="生成"
           onConfirm={() => { setConfirmGenerate(false); handleGenerateVideo(); }}
           onCancel={() => setConfirmGenerate(false)}
@@ -1616,7 +1616,7 @@ function DetailView({
       {pendingSelect && (
         <DeleteConfirmModal
           title="确定视频"
-          description="将当前视频设为分镜最终视频？"
+          description="将当前视频设为镜头最终视频？"
           confirmText="确认"
           onConfirm={() => {
             const v = pendingSelect;
@@ -1689,7 +1689,7 @@ function DetailView({
         />
       )}
 
-      {/* 资产图片灯箱 */}
+      {/* 素材图片灯箱 */}
       {previewImg && <ImageLightbox src={previewImg} alt="" onClose={() => setPreviewImg(null)} />}
 
     </div>

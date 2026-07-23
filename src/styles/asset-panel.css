@@ -1,7 +1,7 @@
-/* ── 资产管理 ──────────────────────────────────── */
+/* ── 素材管理 ──────────────────────────────────── */
 
 /* ============================================================
-   悬停展开式左侧片段栏 (rail-layout)
+   悬停展开式左侧分集栏 (rail-layout)
    共用样式：AssetPanel & StoryboardPanel
    ============================================================ */
 
@@ -184,7 +184,7 @@
   white-space: nowrap;
 }
 
-/* 片段列表 */
+/* 分集列表 */
 .rail-clips-list {
   flex: 1;
   overflow-y: auto;
@@ -193,7 +193,7 @@
   gap: var(--spacing-xs);
 }
 
-/* 单个片段项 — macOS Finder 卡片风格 */
+/* 单个分集项 — macOS Finder 卡片风格 */
 .rail-clips-item {
   position: relative;
   display: flex;
@@ -247,7 +247,7 @@
   box-shadow: 0 0 8px rgba(var(--accent-primary-rgb), 0.45);
 }
 
-/* 片段序号 — Apple SF 风格圆角徽章（颜色由 inline style 动态注入，6 色循环方案） */
+/* 分集序号 — Apple SF 风格圆角徽章（颜色由 inline style 动态注入，6 色循环方案） */
 .rail-clips-item-num {
   flex-shrink: 0;
   min-width: 26px;
@@ -381,7 +381,7 @@
   white-space: nowrap;
 }
 
-/* 右侧资产展示面板 — macOS 毛玻璃风格，与 clip-list-panel 保持一致 */
+/* 右侧素材展示面板 — macOS 毛玻璃风格，与 clip-list-panel 保持一致 */
 .asset-display-panel {
   display: flex;
   flex-direction: column;
@@ -418,7 +418,7 @@
   padding: 0 var(--spacing-xl);
 }
 
-/* 资产分类 */
+/* 素材分类 */
 .asset-category-header {
   display: flex;
   align-items: center;
@@ -450,7 +450,7 @@
   letter-spacing: 0.02em;
 }
 
-/* 资产工具栏：与片段管理页 .clip-list-toolbar 一致，无单独盒子 */
+/* 素材工具栏：与分集管理页 .clip-list-toolbar 一致，无单独盒子 */
 .asset-toolbar {
   display: flex;
   align-items: center;
@@ -589,7 +589,7 @@
   max-width: 460px;
 }
 
-/* ── 资产详情+生成抽屉 ── */
+/* ── 素材详情+生成抽屉 ── */
 
 /* 遮罩层 */
 .asset-drawer-backdrop {
@@ -1219,7 +1219,7 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-/* 添加资产按钮 */
+/* 添加素材按钮 */
 .asset-add-btn {
   margin-left: auto;
   min-height: 28px;
@@ -1233,7 +1233,7 @@
   font-size: var(--font-size-sm);
 }
 
-/* 添加资产弹窗 */
+/* 添加素材弹窗 */
 .add-asset-panel {
   max-width: 460px;
   padding: 0;
@@ -1316,7 +1316,7 @@
   field-sizing: content;
 }
 
-/* 资产详情弹窗 */
+/* 素材详情弹窗 */
 .asset-detail-panel {
   max-width: 480px;
 }
@@ -1413,7 +1413,7 @@
   50% { opacity: 0.7; }
 }
 
-/* ── 资产图片预览组件（大厂风格） ── */
+/* ── 素材图片预览组件（大厂风格） ── */
 
 .asset-gallery {
   display: flex;
@@ -1747,7 +1747,7 @@
   width: 100%;
 }
 
-/* 选择图片按钮行：本地图片 + 项目内其他资产 */
+/* 选择图片按钮行：本地图片 + 作品内其他素材 */
 .asset-gallery-local-row {
   display: flex;
   gap: var(--spacing-sm);
@@ -1883,7 +1883,7 @@
   transform: scale(1.08);
 }
 
-/* 详情只读内容：与添加资产表单同风格，但不可编辑 */
+/* 详情只读内容：与添加素材表单同风格，但不可编辑 */
 .add-asset-readonly {
   color: var(--text-primary);
   font-size: var(--font-size-sm);
@@ -2024,7 +2024,7 @@
   gap: var(--spacing-md);
 }
 
-/* 虚拟卡片：添加资产入口，与普通卡片结构对齐（上图区 + 下文字区）— macOS 风格 */
+/* 虚拟卡片：添加素材入口，与普通卡片结构对齐（上图区 + 下文字区）— macOS 风格 */
 .asset-card--add {
   position: relative;
   display: flex;
@@ -2150,7 +2150,7 @@
   transform: scale(1.05);
 }
 
-/* 资产信息 */
+/* 素材信息 */
 .asset-card-info {
   display: flex;
   flex-direction: column;
@@ -2202,7 +2202,7 @@
   border-color: rgba(var(--accent-primary-rgb), 0.45);
 }
 
-/* 资产卡片已绑定图片缩略图 */
+/* 素材卡片已绑定图片缩略图 */
 .asset-card-img {
   width: 100%;
   height: 100%;
@@ -2303,7 +2303,7 @@
   pointer-events: none;
 }
 
-/* ── 资产图片选择器抽屉（左侧） ── */
+/* ── 素材图片选择器抽屉（左侧） ── */
 
 /* 遮罩层 */
 .asset-picker-backdrop {
@@ -2465,14 +2465,14 @@
   filter: grayscale(0.3);
 }
 
-/* 资产卡片网格 */
+/* 素材卡片网格 */
 .asset-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--spacing-md);
 }
 
-/* 单个资产卡片 — macOS 卡片风格 */
+/* 单个素材卡片 — macOS 卡片风格 */
 .asset-picker-card {
   display: flex;
   flex-direction: column;

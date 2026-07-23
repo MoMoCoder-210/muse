@@ -3,7 +3,7 @@ import { listProjects } from "../services/tauri";
 import type { ProjectInfo } from "../types/project";
 
 /**
- * 项目管理 Hook
+ * 作品管理 Hook
  *
  */
 export function useProjects() {
@@ -20,7 +20,7 @@ export function useProjects() {
       setProjects(items);
       return items;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "项目列表加载失败";
+      const message = err instanceof Error ? err.message : "作品列表加载失败";
       setError(message);
       throw err;
     } finally {
@@ -28,7 +28,7 @@ export function useProjects() {
     }
   }, []);
 
-  // 实时轮询：每 1 秒刷新一次项目列表
+  // 实时轮询：每 1 秒刷新一次作品列表
   useEffect(() => {
     load().then(() => { mountedRef.current = true; });
     const timer = setInterval(() => {

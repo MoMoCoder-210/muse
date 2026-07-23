@@ -19,13 +19,13 @@ pub struct ImportScriptResult {
     pub source_id: String,
 }
 
-/// 生成片段拆解输入
+/// 生成分集拆解输入
 #[derive(Debug, Deserialize)]
 pub struct GenerateClipScriptInput {
     pub clip_id: String,
 }
 
-/// 资产生图输入
+/// 素材生图输入
 #[derive(Debug, Deserialize)]
 pub struct GenerateAssetImageInput {
     pub project_id: String,
@@ -38,7 +38,7 @@ pub struct GenerateAssetImageInput {
     pub style: Option<String>,
 }
 
-/// 添加资产输入
+/// 添加素材输入
 #[derive(Debug, Deserialize)]
 pub struct AddAssetInput {
     pub clip_id: String,
@@ -48,18 +48,18 @@ pub struct AddAssetInput {
     pub prompt: String,
 }
 
-/// 删除资产输入
+/// 删除素材输入
 #[derive(Debug, Deserialize)]
 pub struct DeleteAssetInput {
     pub clip_id: String,
     pub asset_type: String,
     pub name: String,
-    /// 是否同时删除数据库记录所引用的项目工作区内本地文件，默认不删除。
+    /// 是否同时删除数据库记录所引用的作品工作区内本地文件，默认不删除。
     #[serde(default)]
     pub delete_files: bool,
 }
 
-/// 资产查询输入
+/// 素材查询输入
 #[derive(Debug, Deserialize)]
 pub struct AssetQueryInput {
     pub clip_id: String,
@@ -67,7 +67,7 @@ pub struct AssetQueryInput {
     pub name: String,
 }
 
-/// 片段拆解脚本信息
+/// 分集拆解脚本信息
 #[derive(Debug, Serialize)]
 pub struct ClipScriptInfo {
     pub id: String,
@@ -165,7 +165,7 @@ pub fn import_script(
     Ok(ImportScriptResult { source_id })
 }
 
-/// 生成片段拆解脚本
+/// 生成分集拆解脚本
 #[tauri::command]
 pub fn generate_clip_script(
     input: GenerateClipScriptInput,
@@ -176,30 +176,30 @@ pub fn generate_clip_script(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
 
-    // 查询片段所属项目、原文和当前状态
+    // 查询分集所属作品、原文和当前状态
     let row = conn
         .query_row(
             "SELECT project_id, source_text, status FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             rusqlite::params![&input.clip_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
         )
-        .map_err(|e| format!("片段查询失败：{}", e))?;
+        .map_err(|e| format!("分集查询失败：{}", e))?;
 
     let (project_id, source_text, clip_status) = row;
 
-    // 只有 pending 或 failed 状态的片段才能拆解
+    // 只有 pending 或 failed 状态的分集才能拆解
     if clip_status != "pending" && clip_status != "failed" {
         return Err(format!(
-            "当前片段状态为「{}」，不允许重新拆解。只有待处理或失败的片段可以拆解",
+            "当前分集状态为「{}」，不允许重新拆解。只有待处理或失败的分集可以拆解",
             clip_status
         ));
     }
 
     if source_text.trim().is_empty() {
-        return Err("片段原文为空，无法拆解".to_string());
+        return Err("分集原文为空，无法拆解".to_string());
     }
 
-    // 查询项目风格（用于视频提示词风格拼接）
+    // 查询作品风格（用于视频提示词风格拼接）
     let style_mode: String = conn
         .query_row(
             "SELECT style_mode FROM projects WHERE id = ?1",
@@ -222,7 +222,7 @@ pub fn generate_clip_script(
     })
     .to_string();
 
-    // 事务：创建 clip_script 记录 + 插入任务 + 更新片段状态
+    // 事务：创建 clip_script 记录 + 插入任务 + 更新分集状态
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     // 先删旧的拆解记录（重拆）
@@ -253,7 +253,7 @@ pub fn generate_clip_script(
     )
     .map_err(|e| e.to_string())?;
 
-    // 标记片段拆解中
+    // 标记分集拆解中
     tx.execute(
         "UPDATE clips SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
         rusqlite::params![&input.clip_id],
@@ -286,9 +286,9 @@ pub fn generate_clip_script(
     Ok(serde_json::json!({ "task_id": task_id }))
 }
 
-/// 资产生图
+/// 素材生图
 ///
-/// 根据资产拆解阶段生成的 prompt 创建 image 生成任务，由 Worker 异步调用生图模型。
+/// 根据素材拆解阶段生成的 prompt 创建 image 生成任务，由 Worker 异步调用生图模型。
 #[tauri::command]
 pub fn generate_asset_image(
     input: GenerateAssetImageInput,
@@ -301,7 +301,7 @@ pub fn generate_asset_image(
     util::ensure_worker_running(&state, &app, &input.project_id)?;
 
     // 一个图片对应一个任务：抽屉可以从提交起就完整展示每个待生成图片。
-    // 所有子任务共享同一 lock_key，Worker 会按顺序生成，仍保持单资产串行。
+    // 所有子任务共享同一 lock_key，Worker 会按顺序生成，仍保持单素材串行。
     let image_count = input.n.unwrap_or(1).clamp(1, 4) as usize;
     let batch_id = uuid::Uuid::new_v4().to_string();
     let task_ids: Vec<String> = (0..image_count)
@@ -352,10 +352,10 @@ pub fn generate_asset_image(
 
     crate::project_log::append_log(
         &log_path,
-        "资产生图",
+        "素材生图",
         "INFO",
         &format!(
-            "资产生图批次已入队 projectId={} clipId={} assetType={} name={} batchId={} imageCount={}",
+            "素材生图批次已入队 projectId={} clipId={} assetType={} name={} batchId={} imageCount={}",
             input.project_id, input.clip_id, input.asset_type, input.name, batch_id, image_count
         ),
     );
@@ -364,7 +364,7 @@ pub fn generate_asset_image(
         if let Err(e) = util::send_enqueue_to_worker(&state, task_id, "generate_asset_image") {
             crate::project_log::append_log(
                 &log_path,
-                "资产生图",
+                "素材生图",
                 "WARN",
                 &format!(
                     "发送 enqueue 通知失败 taskId={}（任务仍会被轮询拾取）：{}",
@@ -381,7 +381,7 @@ pub fn generate_asset_image(
     }))
 }
 
-/// 重试失败的资产生图任务
+/// 重试失败的素材生图任务
 ///
 /// 将已有的 failed 任务重置为 pending 并重新入队 Worker，
 /// 而非创建新任务——在原记录上重试，不会新增图片生成记录。
@@ -426,7 +426,7 @@ pub fn retry_asset_image_task(
 
     crate::project_log::append_log(
         &log_path,
-        "资产生图",
+        "素材生图",
         "INFO",
         &format!("重试失败任务 taskId={}", input.task_id),
     );
@@ -435,7 +435,7 @@ pub fn retry_asset_image_task(
     if let Err(e) = util::send_enqueue_to_worker(&state, &input.task_id, "generate_asset_image") {
         crate::project_log::append_log(
             &log_path,
-            "资产生图",
+            "素材生图",
             "WARN",
             &format!(
                 "重试发送 enqueue 通知失败 taskId={}（任务仍会被轮询拾取）：{}",
@@ -447,7 +447,7 @@ pub fn retry_asset_image_task(
     Ok(())
 }
 
-/// 取消片段拆解任务
+/// 取消分集拆解任务
 #[tauri::command]
 pub fn cancel_clip_script(
     input: GenerateClipScriptInput,
@@ -515,7 +515,7 @@ pub fn cancel_clip_script(
     Ok(())
 }
 
-/// 获取项目片段拆解结果
+/// 获取作品分集拆解结果
 #[tauri::command]
 pub fn get_clip_scripts(
     project_id: String,
@@ -558,9 +558,9 @@ pub fn get_clip_scripts(
     Ok(results)
 }
 
-/// 添加单个资产到 clip_scripts.extracted_resources_json
+/// 添加单个素材到 clip_scripts.extracted_resources_json
 ///
-/// 读取当前 clip 的拆解结果，将新资产追加到对应分类，再写回。
+/// 读取当前 clip 的拆解结果，将新素材追加到对应分类，再写回。
 #[tauri::command]
 pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<(), String> {
     let conn = util::open_app_conn(&app)?;
@@ -573,7 +573,7 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
             rusqlite::params![&input.clip_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
         )
-        .map_err(|e| format!("未找到该片段的拆解记录：{}", e))?;
+        .map_err(|e| format!("未找到该分集的拆解记录：{}", e))?;
 
     let (script_id, resources_json) = row;
 
@@ -587,7 +587,7 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
         "character" => "characters",
         "scene" => "scenes",
         "item" => "items",
-        _ => return Err(format!("无效的资产类型：{}", input.asset_type)),
+        _ => return Err(format!("无效的素材类型：{}", input.asset_type)),
     };
 
     let new_item = serde_json::json!({
@@ -613,10 +613,10 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
         &format!(
-            "已添加资产 clipId={} type={} name={}",
+            "已添加素材 clipId={} type={} name={}",
             input.clip_id, input.asset_type, input.name
         ),
     );
@@ -624,10 +624,10 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
     Ok(())
 }
 
-/// 从片段拆解结果中删除单个资产。
+/// 从分集拆解结果中删除单个素材。
 ///
-/// 卡片展示依赖 `clip_scripts.extracted_resources_json`，而分镜、图片和任务依赖
-/// `assets` 记录；两侧必须在同一事务内同步删除，避免 UI 已消失但数据库仍残留资产。
+/// 卡片展示依赖 `clip_scripts.extracted_resources_json`，而镜头、图片和任务依赖
+/// `assets` 记录；两侧必须在同一事务内同步删除，避免 UI 已消失但数据库仍残留素材。
 #[tauri::command]
 pub fn delete_asset_from_clip(
     input: DeleteAssetInput,
@@ -638,7 +638,7 @@ pub fn delete_asset_from_clip(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 保持原有语义：只能从已有拆解结果中删除资产。
+    // 保持原有语义：只能从已有拆解结果中删除素材。
     let script_exists: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM clip_scripts WHERE clip_id = ?1",
@@ -647,10 +647,10 @@ pub fn delete_asset_from_clip(
         )
         .map_err(|error| error.to_string())?;
     if script_exists == 0 {
-        return Err(format!("未找到该片段的拆解记录：{}", input.clip_id));
+        return Err(format!("未找到该分集的拆解记录：{}", input.clip_id));
     }
 
-    // 资产表通过所属片段关联项目；在删除任何记录前一并读取工作区和仅属于该资产的文件。
+    // 素材表通过所属分集关联作品；在删除任何记录前一并读取工作区和仅属于该素材的文件。
     let assets = {
         let mut statement = tx
             .prepare(
@@ -686,15 +686,15 @@ pub fn delete_asset_from_clip(
                          WHERE id = ?1 AND generated_image_path IS NOT NULL",
                     )
                     .map_err(|error| {
-                        format!("读取资产关联文件失败 assetId={}: {}", asset_id, error)
+                        format!("读取素材关联文件失败 assetId={}: {}", asset_id, error)
                     })?;
                 let rows = statement
                     .query_map(rusqlite::params![asset_id], |row| row.get::<_, String>(0))
                     .map_err(|error| {
-                        format!("查询资产关联文件失败 assetId={}: {}", asset_id, error)
+                        format!("查询素材关联文件失败 assetId={}: {}", asset_id, error)
                     })?;
                 rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
-                    format!("读取资产关联文件失败 assetId={}: {}", asset_id, error)
+                    format!("读取素材关联文件失败 assetId={}: {}", asset_id, error)
                 })?
             };
             for file_path in file_paths {
@@ -732,14 +732,14 @@ pub fn delete_asset_from_clip(
     };
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         if input.delete_files && result.failed_file_count > 0 {
             "WARN"
         } else {
             "INFO"
         },
         &format!(
-            "已删除资产及其关联数据 clipId={} type={} name={}；文件已删除 {}，跳过 {}，失败 {}",
+            "已删除素材及其关联数据 clipId={} type={} name={}；文件已删除 {}，跳过 {}，失败 {}",
             input.clip_id,
             input.asset_type,
             input.name,
@@ -751,7 +751,7 @@ pub fn delete_asset_from_clip(
     Ok(result)
 }
 
-/// 更新 clip_scripts 中的单个资产（提示词/描述）。
+/// 更新 clip_scripts 中的单个素材（提示词/描述）。
 ///
 /// 按 type + name 匹配并就地更新对应字段，再写回 extracted_resources_json。
 #[tauri::command]
@@ -766,7 +766,7 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
             rusqlite::params![&input.clip_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
         )
-        .map_err(|e| format!("未找到该片段的拆解记录：{}", e))?;
+        .map_err(|e| format!("未找到该分集的拆解记录：{}", e))?;
 
     let (script_id, resources_json) = row;
 
@@ -780,7 +780,7 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
         "character" => "characters",
         "scene" => "scenes",
         "item" => "items",
-        _ => return Err(format!("无效的资产类型：{}", input.asset_type)),
+        _ => return Err(format!("无效的素材类型：{}", input.asset_type)),
     };
 
     let mut found = false;
@@ -796,7 +796,7 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
                         "description".to_string(),
                         serde_json::Value::String(input.description.clone()),
                     );
-                    // 角色绑定声音：写回 extracted_resources_json 的角色对象，
+                    // 人物绑定声音：写回 extracted_resources_json 的人物对象，
                     // 使前端 AssetResource.voiceBinding 能直接读取。
                     if let Some(vb) = &input.voice_binding {
                         obj.remove("voice_binding"); // 清理旧命名
@@ -816,7 +816,7 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
     }
 
     if !found {
-        return Err(format!("未找到资产：{}/{}", input.asset_type, input.name));
+        return Err(format!("未找到素材：{}/{}", input.asset_type, input.name));
     }
 
     let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
@@ -846,10 +846,10 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
         &format!(
-            "已更新资产 clipId={} type={} name={}",
+            "已更新素材 clipId={} type={} name={}",
             input.clip_id, input.asset_type, input.name
         ),
     );
@@ -857,7 +857,7 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
     Ok(())
 }
 
-/// 更新资产输入
+/// 更新素材输入
 #[derive(Debug, Deserialize)]
 pub struct UpdateAssetInput {
     pub clip_id: String,
@@ -865,12 +865,12 @@ pub struct UpdateAssetInput {
     pub name: String,
     pub description: String,
     pub prompt: String,
-    /// 角色绑定声音（JSON 字符串：公共音色 / 本地上传），场景与物品为空
+    /// 人物绑定声音（JSON 字符串：公共音色 / 本地上传），场景与道具为空
     #[serde(default)]
     pub voice_binding: Option<String>,
 }
 
-/// 返回项目工作区中已导入的音频文件列表（用于本地上传 tab 的文件选择）。
+/// 返回作品工作区中已导入的音频文件列表（用于本地上传 tab 的文件选择）。
 #[derive(Debug, Serialize)]
 pub struct VoiceFileEntry {
     pub file_path: String,
@@ -889,7 +889,7 @@ pub fn list_workspace_voice_files(
             rusqlite::params![&clip_id],
             |row| row.get(0),
         )
-        .map_err(|_| "未找到项目工作区".to_string())?;
+        .map_err(|_| "未找到作品工作区".to_string())?;
 
     let voices_dir = std::path::PathBuf::from(&workspace)
         .join("audio")
@@ -922,7 +922,7 @@ pub fn list_workspace_voice_files(
     Ok(files)
 }
 
-/// 将外部音频文件导入项目工作区，返回工作区内的路径。
+/// 将外部音频文件导入作品工作区，返回工作区内的路径。
 #[derive(Debug, Serialize)]
 pub struct ImportVoiceResult {
     pub file_path: String,
@@ -942,7 +942,7 @@ pub fn import_voice_file(
             rusqlite::params![&clip_id],
             |row| row.get(0),
         )
-        .map_err(|_| "未找到项目工作区".to_string())?;
+        .map_err(|_| "未找到作品工作区".to_string())?;
 
     let voices_dir = std::path::PathBuf::from(&workspace)
         .join("audio")
@@ -964,7 +964,7 @@ pub fn import_voice_file(
     })
 }
 
-/// 查询资产图片信息
+/// 查询素材图片信息
 #[derive(Debug, Serialize)]
 pub struct AssetImageInfo {
     pub generated_image_path: Option<String>,
@@ -973,7 +973,7 @@ pub struct AssetImageInfo {
     pub image_count: i64,
 }
 
-/// 获取指定资产的图片信息（按 clip_id + type + name 查 assets 表）
+/// 获取指定素材的图片信息（按 clip_id + type + name 查 assets 表）
 #[tauri::command]
 pub fn get_asset_image_info(
     input: AssetQueryInput,
@@ -1006,11 +1006,11 @@ pub fn get_asset_image_info(
             status: "draft".to_string(),
             image_count: 0,
         }),
-        Err(e) => Err(format!("查询资产图片信息失败：{}", e)),
+        Err(e) => Err(format!("查询素材图片信息失败：{}", e)),
     }
 }
 
-/// 资产图片列表项
+/// 素材图片列表项
 #[derive(Debug, Serialize)]
 pub struct AssetImageItem {
     pub id: String,
@@ -1021,7 +1021,7 @@ pub struct AssetImageItem {
     pub created_at: String,
 }
 
-/// 资产图片+任务混合列表项（供抽屉实时展示：生成中/成功/失败）
+/// 素材图片+任务混合列表项（供抽屉实时展示：生成中/成功/失败）
 #[derive(Debug, Serialize)]
 pub struct AssetImageTaskItem {
     pub id: String,
@@ -1036,7 +1036,7 @@ pub struct AssetImageTaskItem {
     pub created_at: String,
 }
 
-/// 获取指定资产的所有生成图片列表
+/// 获取指定素材的所有生成图片列表
 #[tauri::command]
 pub fn list_asset_images(
     input: AssetQueryInput,
@@ -1083,7 +1083,7 @@ pub fn list_asset_images(
     Ok(items)
 }
 
-/// 获取资产图片+任务混合列表（含 pending / running / failed 任务）
+/// 获取素材图片+任务混合列表（含 pending / running / failed 任务）
 ///
 /// 抽屉实时轮询：已完成的图片 + 进行中的任务，统一按时间排序展示。
 #[tauri::command]
@@ -1193,7 +1193,7 @@ pub fn list_asset_image_tasks(
     Ok(results)
 }
 
-/// 选中资产图片输入
+/// 选中素材图片输入
 #[derive(Debug, Deserialize)]
 pub struct SelectAssetImageInput {
     pub clip_id: String,
@@ -1202,7 +1202,7 @@ pub struct SelectAssetImageInput {
     pub image_id: String,
 }
 
-/// 批量查询资产选定图片
+/// 批量查询素材选定图片
 #[derive(Debug, Deserialize)]
 pub struct BatchAssetImageQuery {
     pub clip_id: String,
@@ -1216,7 +1216,7 @@ pub struct BatchAssetImageItem {
     pub selected_image_path: Option<String>,
 }
 
-/// 批量获取指定片段下所有资产的选定图片
+/// 批量获取指定分集下所有素材的选定图片
 ///
 /// AssetPanel 用来快速渲染卡片缩略图，避免逐卡查询。
 #[tauri::command]
@@ -1253,10 +1253,10 @@ pub fn batch_get_asset_selected_images(
     Ok(items)
 }
 
-/// 查询片段下「正在生成图片」的资产
+/// 查询分集下「正在生成图片」的素材
 ///
 /// 返回所有存在 `generate_asset_image` 类型、且状态为 pending/running 任务的
-/// 资产（按 assetType + name 去重）。供资产列表实时展示「生成中」角标。
+/// 素材（按 assetType + name 去重）。供素材列表实时展示「生成中」角标。
 #[derive(Debug, Deserialize)]
 pub struct BatchAssetGeneratingQuery {
     pub clip_id: String,
@@ -1329,7 +1329,7 @@ fn sanitize_file_name(name: &str) -> String {
         .collect::<String>()
 }
 
-/// 将指定图片设为资产的选中图片
+/// 将指定图片设为素材的选中图片
 ///
 /// 纯 DB 操作：只更新 is_selected 标记和 assets.selected_image_id，
 /// 不做任何文件重命名。文件路径创建后不可变。
@@ -1351,7 +1351,7 @@ pub fn select_asset_image(
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
-        .map_err(|e| format!("未找到资产：{}", e))?;
+        .map_err(|e| format!("未找到素材：{}", e))?;
 
     // 查新选中图片的路径
     let image_path: String = tx
@@ -1362,7 +1362,7 @@ pub fn select_asset_image(
         )
         .map_err(|e| format!("图片记录不存在：{}", e))?;
 
-    // 1. 清除该资产所有图片的选中状态
+    // 1. 清除该素材所有图片的选中状态
     tx.execute(
         "UPDATE asset_images SET is_selected = 0 WHERE asset_id = ?1",
         rusqlite::params![&asset_id],
@@ -1387,7 +1387,7 @@ pub fn select_asset_image(
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
         &format!(
             "已切换绑定图片 clipId={} type={} name={} imageId={} path={}",
@@ -1398,7 +1398,7 @@ pub fn select_asset_image(
     Ok(())
 }
 
-/// 删除单张资产图片输入
+/// 删除单张素材图片输入
 #[derive(Debug, Deserialize)]
 pub struct DeleteAssetImageInput {
     pub clip_id: String,
@@ -1435,7 +1435,7 @@ pub fn delete_asset_image(
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| format!("未找到资产：{}", e))?;
+        .map_err(|e| format!("未找到素材：{}", e))?;
 
     // 先尝试 asset_images 表（已完成图片）
     let img_result = tx.query_row(
@@ -1474,7 +1474,7 @@ pub fn delete_asset_image(
 
         crate::project_log::append_log(
             &log_path,
-            "资产",
+            "素材",
             "INFO",
             &format!("已删除失败任务 taskId={}", input.image_id),
         );
@@ -1525,7 +1525,7 @@ pub fn delete_asset_image(
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    // 数据库事务已提交后再删除文件，且只能清理该项目工作区内的安全路径。
+    // 数据库事务已提交后再删除文件，且只能清理该作品工作区内的安全路径。
     let result = if input.delete_file {
         crate::commands::clip::delete_managed_files(vec![
             crate::commands::clip::ClipFileCandidate {
@@ -1543,14 +1543,14 @@ pub fn delete_asset_image(
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         if result.failed_file_count > 0 {
             "WARN"
         } else {
             "INFO"
         },
         &format!(
-            "已删除资产图片 imageId={} deleteFile={} arkFileId={}；本地文件已删除 {}，失败 {}",
+            "已删除素材图片 imageId={} deleteFile={} arkFileId={}；本地文件已删除 {}，失败 {}",
             input.image_id,
             input.delete_file,
             ark_file_id.as_deref().unwrap_or("none"),
@@ -1566,7 +1566,7 @@ pub fn delete_asset_image(
             Ok(()) => {
                 crate::project_log::append_log(
                     &log_path,
-                    "资产",
+                    "素材",
                     "INFO",
                     &format!(
                         "方舟文件删除成功 imageId={} arkFileId={}",
@@ -1577,7 +1577,7 @@ pub fn delete_asset_image(
             Err(e) => {
                 crate::project_log::append_log(
                     &log_path,
-                    "资产",
+                    "素材",
                     "WARN",
                     &format!(
                         "方舟文件删除失败（本地记录已删除） imageId={} arkFileId={}: {}",
@@ -1608,10 +1608,10 @@ pub struct ImportLocalAssetImageResult {
     pub is_selected: bool,
 }
 
-/// 导入本地图片到指定资产
+/// 导入本地图片到指定素材
 ///
-/// 将用户本地图片复制到项目 assets 目录，注册为资产图片，与生成图片同等处理。
-/// 若资产尚无绑定图片，自动绑定该图片。
+/// 将用户本地图片复制到作品 assets 目录，注册为素材图片，与生成图片同等处理。
+/// 若素材尚无绑定图片，自动绑定该图片。
 #[tauri::command]
 pub fn import_local_asset_image(
     input: ImportLocalAssetImageInput,
@@ -1634,7 +1634,7 @@ pub fn import_local_asset_image(
     let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
     let ext = if ext.is_empty() { "png" } else { ext };
 
-    // 2. 查片段所属项目 + 工作区路径
+    // 2. 查分集所属作品 + 工作区路径
     let row = conn
         .query_row(
             "SELECT c.project_id, p.workspace_path FROM clips c
@@ -1643,7 +1643,7 @@ pub fn import_local_asset_image(
             rusqlite::params![&input.clip_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|e| format!("片段不存在或已删除：{}", e))?;
+        .map_err(|e| format!("分集不存在或已删除：{}", e))?;
 
     let (project_id, workspace_path) = row;
 
@@ -1735,7 +1735,7 @@ pub fn import_local_asset_image(
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
         &format!(
             "已导入本地图片 clipId={} type={} name={} imageId={} path={} isSelected={}",
@@ -1750,7 +1750,7 @@ pub fn import_local_asset_image(
     })
 }
 
-/// 项目资产图片简要信息（资产选择器用）
+/// 作品素材图片简要信息（素材选择器用）
 #[derive(Debug, Serialize)]
 pub struct ProjectAssetImageItem {
     pub asset_id: String,
@@ -1763,10 +1763,10 @@ pub struct ProjectAssetImageItem {
     pub selected_image_id: String,
 }
 
-/// 查询项目下指定类型的所有资产及其选中图片
+/// 查询作品下指定类型的所有素材及其选中图片
 ///
-/// 供资产选择器抽屉使用：展示同项目内同类型的所有资产图片，
-/// 排除当前分镜的所有资产（通过 exclude_clip_id）。
+/// 供素材选择器抽屉使用：展示同作品内同类型的所有素材图片，
+/// 排除当前镜头的所有素材（通过 exclude_clip_id）。
 #[tauri::command]
 pub fn list_project_asset_images(
     app: tauri::AppHandle,
@@ -1812,7 +1812,7 @@ pub fn list_project_asset_images(
     Ok(items)
 }
 
-/// 从其他资产复制图片输入
+/// 从其他素材复制图片输入
 #[derive(Debug, Deserialize)]
 pub struct CopyAssetImageFromInput {
     pub source_image_id: String,
@@ -1821,7 +1821,7 @@ pub struct CopyAssetImageFromInput {
     pub target_name: String,
 }
 
-/// 从其他资产复制图片返回结果
+/// 从其他素材复制图片返回结果
 #[derive(Debug, Serialize)]
 pub struct CopyAssetImageFromResult {
     pub image_id: String,
@@ -1829,10 +1829,10 @@ pub struct CopyAssetImageFromResult {
     pub is_selected: bool,
 }
 
-/// 从项目内另一个资产复制选中图片到当前资产
+/// 从作品内另一个素材复制选中图片到当前素材
 ///
 /// 复制磁盘文件 + 创建新的 asset_images 记录。
-/// 若目标资产尚无绑定图片，自动绑定。
+/// 若目标素材尚无绑定图片，自动绑定。
 #[tauri::command]
 pub fn copy_asset_image_from(
     input: CopyAssetImageFromInput,
@@ -1859,7 +1859,7 @@ pub fn copy_asset_image_from(
         return Err(format!("源图片文件不存在：{}", source_image_path));
     }
 
-    // 2. 查目标片段所属项目 + 工作区路径
+    // 2. 查目标分集所属作品 + 工作区路径
     let (project_id, workspace_path): (String, String) = conn
         .query_row(
             "SELECT c.project_id, p.workspace_path FROM clips c
@@ -1868,7 +1868,7 @@ pub fn copy_asset_image_from(
             rusqlite::params![&input.target_clip_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| format!("目标片段不存在：{}", e))?;
+        .map_err(|e| format!("目标分集不存在：{}", e))?;
 
     // 3. 构造目标文件路径
     let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
@@ -1955,7 +1955,7 @@ pub fn copy_asset_image_from(
         if let Err(remove_err) = fs::remove_file(&target_path) {
             crate::project_log::append_log(
                 &log_path,
-                "资产",
+                "素材",
                 "WARN",
                 &format!(
                     "事务回滚后清理残留文件失败 path={} error={}",
@@ -1969,10 +1969,10 @@ pub fn copy_asset_image_from(
 
     crate::project_log::append_log(
         &log_path,
-        "资产",
+        "素材",
         "INFO",
         &format!(
-            "已从其他资产复制图片 sourceImageId={} targetClipId={} targetType={} targetName={} newImageId={} isSelected={}",
+            "已从其他素材复制图片 sourceImageId={} targetClipId={} targetType={} targetName={} newImageId={} isSelected={}",
             input.source_image_id, input.target_clip_id, input.target_asset_type, input.target_name, new_image_id, is_selected
         ),
     );

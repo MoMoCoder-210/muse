@@ -16,7 +16,7 @@ type Tab = "paste" | "file";
 /**
  * 剧本导入面板
  *
- * 支持粘贴文本或导入 TXT 文件，将剧本内容导入到项目中并触发拆分。
+ * 支持粘贴文本或导入 TXT 文件，将剧本内容导入到作品中并触发拆分。
  *
  */
 export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProps) {
@@ -64,7 +64,7 @@ export function ScriptImportPanel({ project, onImported }: ScriptImportPanelProp
     <div className="script-import-panel">
       <div className="panel-header">
         <h3>导入剧本</h3>
-        <p>将剧本文本导入后，系统会自动按集数拆分为片段</p>
+        <p>将剧本文本导入后，系统会自动按集数拆分为分集</p>
       </div>
 
       <div className="import-tabs">

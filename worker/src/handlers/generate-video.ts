@@ -51,7 +51,7 @@ type VoiceBinding = {
 type VoiceEntry = { n: number; characterName: string; label?: string; filePath?: string };
 
 /**
- * 解析 prompt 中的台词段，为有音色的角色注入 [@音频N] 并构建音频引用。
+ * 解析 prompt 中的台词段，为有音色的人物注入 [@音频N] 并构建音频引用。
  * 返回 { annotatedPrompt, voiceEntries }
  */
 async function injectVoiceReferences(
@@ -78,7 +78,7 @@ async function injectVoiceReferences(
   // 上限校验
   if (voicedChars.size > MAX_SEEDANCE_REFERENCE_AUDIOS) {
     throw new Error(
-      `角色绑定音色最高仅支持${MAX_SEEDANCE_REFERENCE_AUDIOS}个，当前已绑定${voicedChars.size}个，请移除多余角色音色后重试`,
+      `人物绑定音色最高仅支持${MAX_SEEDANCE_REFERENCE_AUDIOS}个，当前已绑定${voicedChars.size}个，请移除多余人物音色后重试`,
     );
   }
 
@@ -141,7 +141,7 @@ async function resolveReferences(
       image_path: string | null;
     } | undefined;
     if (!row?.image_id || !row.image_path) {
-      throw new Error(`资产"${mention.name}"（@图片${mention.n}）尚未选择参考图片`);
+      throw new Error(`素材"${mention.name}"（@图片${mention.n}）尚未选择参考图片`);
     }
 
     const imageDataUrl = await fileToDataUrl(row.image_path);
@@ -181,7 +181,7 @@ function stableMentions(raw: StoredMention[] | undefined, prompt: string): Store
   for (let position = 0; position < mentions.length; position++) {
     const expected = position + 1;
     if (mentions[position].n !== expected) {
-      throw new Error(`图片引用编号不连续：缺少 @图片${expected}，请在提示词中重新插入该资产后再生成`);
+      throw new Error(`图片引用编号不连续：缺少 @图片${expected}，请在提示词中重新插入该素材后再生成`);
     }
   }
   if (mentions.length > MAX_SEEDANCE_REFERENCE_IMAGES) {
@@ -216,7 +216,7 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
   const videoClient = ctx.clients?.video;
   if (!videoClient) throw new Error("视频生成不可用：视频模型客户端未初始化");
 
-  // 新任务的输入在 Tauri 入队时已冻结。仅兼容升级前遗留任务时才读取分镜当前值，
+  // 新任务的输入在 Tauri 入队时已冻结。仅兼容升级前遗留任务时才读取镜头当前值，
   // 避免用户后续编辑覆盖已经排队的批次。
   const storyboard = ctx.db.prepare(`
     SELECT seq_num, video_prompt, video_param_json
@@ -227,7 +227,7 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
     video_prompt: string | null;
     video_param_json: string | null;
   } | undefined;
-  if (!storyboard) throw new Error("分镜不存在或不属于当前项目");
+  if (!storyboard) throw new Error("镜头不存在或不属于当前作品");
   const hasPromptSnapshot = typeof input.videoPrompt === "string";
   const hasParamsSnapshot = Object.prototype.hasOwnProperty.call(input, "videoParamJson");
   const prompt = (hasPromptSnapshot ? input.videoPrompt : storyboard.video_prompt)?.trim() ?? "";
@@ -250,7 +250,7 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
   const project = ctx.db.prepare("SELECT workspace_path FROM projects WHERE id = ?").get(input.projectId) as {
     workspace_path: string;
   } | undefined;
-  if (!project) throw new Error("项目不存在");
+  if (!project) throw new Error("作品不存在");
 
   const outputDir = join(project.workspace_path, "videos", "storyboards");
   await mkdir(outputDir, { recursive: true });

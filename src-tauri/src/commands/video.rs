@@ -1,4 +1,4 @@
-// 视频编辑 — 将片段选中分镜视频拼接为完整视频（ffmpeg concat）
+// 视频编辑 — 将分集选中镜头视频拼接为完整视频（ffmpeg concat）
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -15,7 +15,7 @@ use tauri::Emitter;
 use crate::app_paths;
 use crate::commands::util;
 
-/// 可拼接的分镜视频片段（前端展示用，按 seq_num 排序）
+/// 可拼接的镜头视频分集（前端展示用，按 seq_num 排序）
 #[derive(Debug, Serialize)]
 pub struct ConcatSegment {
     pub seq: i32,
@@ -26,7 +26,7 @@ pub struct ConcatSegment {
     pub duration: Option<f64>,
 }
 
-/// 查询指定片段「已选中分镜视频」的有序列表（按 seq_num 升序）
+/// 查询指定分集「已选中镜头视频」的有序列表（按 seq_num 升序）
 #[tauri::command]
 pub fn list_clip_concat_videos(
     clip_id: String,
@@ -64,16 +64,16 @@ pub fn list_clip_concat_videos(
     Ok(out)
 }
 
-/// 拼接输入：前端传递「有序、已启用」的片段文件路径
+/// 拼接输入：前端传递「有序、已启用」的分集文件路径
 #[derive(Debug, Deserialize)]
 pub struct ConcatClipsInput {
     pub clip_id: String,
     /// 有序的视频文件路径（即最终拼接顺序）
     pub segments: Vec<String>,
-    /// 目标高度（px）；为 0 时采用首个片段的原生分辨率（视频默认）
+    /// 目标高度（px）；为 0 时采用首个分集的原生分辨率（视频默认）
     #[serde(default = "default_height")]
     pub height: u32,
-    /// 目标宽高比，如 "16:9"；为空时采用首个片段的原生比例（视频默认）
+    /// 目标宽高比，如 "16:9"；为空时采用首个分集的原生比例（视频默认）
     #[serde(default = "default_aspect")]
     pub aspect_ratio: String,
     /// 输出文件名（不含扩展名），默认 final
@@ -245,14 +245,14 @@ fn sanitize_name(name: &str) -> String {
     }
 }
 
-/// 将片段选中视频拼接为完整视频（ffmpeg filter_complex concat，统一缩放+黑边填充）
+/// 将分集选中视频拼接为完整视频（ffmpeg filter_complex concat，统一缩放+黑边填充）
 #[tauri::command]
 pub fn concat_clip_videos(
     input: ConcatClipsInput,
     app: tauri::AppHandle,
 ) -> Result<ConcatResult, String> {
     if input.segments.is_empty() {
-        return Err("没有可拼接的视频片段".to_string());
+        return Err("没有可拼接的视频分集".to_string());
     }
 
     let ffmpeg =
@@ -298,7 +298,7 @@ pub fn concat_clip_videos(
 
     let any_audio = seg_audio.iter().any(|&b| b);
 
-    // 目标画布：若未明确指定高度/比例，则采用首个片段的原生分辨率（视频默认）
+    // 目标画布：若未明确指定高度/比例，则采用首个分集的原生分辨率（视频默认）
     let (w, h) = if input.height == 0 || input.aspect_ratio.trim().is_empty() {
         let mut w = native_w.max(2);
         let mut h = native_h.max(2);
@@ -368,7 +368,7 @@ pub fn concat_clip_videos(
                 ))
             },
         )
-        .map_err(|e| format!("片段不存在：{}", e))?;
+        .map_err(|e| format!("分集不存在：{}", e))?;
 
     let workspace = util::get_project_workspace_path(&app, &project_id)?;
     let out_dir = Path::new(&workspace).join("output");
@@ -506,7 +506,7 @@ pub fn concat_clip_videos(
                 "视频拼接",
                 "INFO",
                 &format!(
-                    "拼接成功 clipId={} 片段数={} 时长={:.1}s 音频={}",
+                    "拼接成功 clipId={} 分集数={} 时长={:.1}s 音频={}",
                     input.clip_id, n, total_duration, any_audio
                 ),
             );
@@ -610,7 +610,7 @@ pub fn save_concat_output(
             rusqlite::params![&input.clip_id],
             |row| Ok((row.get(0)?,)),
         )
-        .map_err(|e| format!("查询片段失败：{}", e))?;
+        .map_err(|e| format!("查询分集失败：{}", e))?;
 
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
@@ -637,7 +637,7 @@ pub fn save_concat_output(
             "视频拼接",
             "INFO",
             &format!(
-                "已保存成片记录 id={} clipId={} 时长={:.1}s 片段数={}",
+                "已保存成片记录 id={} clipId={} 时长={:.1}s 分集数={}",
                 id, input.clip_id, input.duration, input.segment_count
             ),
         );
@@ -665,7 +665,7 @@ pub fn delete_concat_output(
 ) -> Result<crate::commands::clip::DeleteClipsResult, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 在删记录前读取所属项目工作区；提交后仅清理该工作区内的输出文件。
+    // 在删记录前读取所属作品工作区；提交后仅清理该工作区内的输出文件。
     let file_candidate = if input.delete_file {
         let (file_path, workspace_path): (String, String) = conn
             .query_row(
@@ -724,7 +724,7 @@ pub fn delete_concat_output(
     Ok(result)
 }
 
-/// 查询指定片段的所有拼接成片
+/// 查询指定分集的所有拼接成片
 #[derive(Debug, Serialize)]
 pub struct ConcatOutputRow {
     pub id: String,

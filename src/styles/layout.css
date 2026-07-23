@@ -223,7 +223,7 @@
   font-size: var(--font-size-xs);
 }
 
-/* ── 项目管理页双栏 — macOS 风格 ───────────────────── */
+/* ── 作品管理页双栏 — macOS 风格 ───────────────────── */
 
 .projects-screen {
   display: grid;

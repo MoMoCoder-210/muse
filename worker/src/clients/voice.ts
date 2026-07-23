@@ -55,7 +55,7 @@ function extractJsonObjects(s: string): any[] {
           try {
             out.push(JSON.parse(s.slice(start, i + 1)));
           } catch {
-            // 跳过无法解析的片段
+            // 跳过无法解析的分集
           }
           start = -1;
         }
@@ -133,7 +133,7 @@ export class VoiceClient {
 
       // OpenSpeech V3 为单向流式：响应是「多个 JSON 对象首尾拼接」
       // （每个对象是一段音频块，含 data 字段的 base64 音频）。
-      // 成功对象 -> {"code":0,"message":"OK","data":"<base64 片段>",...}
+      // 成功对象 -> {"code":0,"message":"OK","data":"<base64 分集>",...}
       // 失败对象 -> {"code":<非零>,"message":"<错误描述>",...}
       // 个别情况下也可能直接返回裸二进制流（首字节非 '{'），一并兼容。
       const buf = Buffer.from(await resp.arrayBuffer());
@@ -159,7 +159,7 @@ export class VoiceClient {
         }
       }
       if (!audioBuf) {
-        // 非 JSON（裸二进制流）或无可解析片段：按原 buffer 处理
+        // 非 JSON（裸二进制流）或无可解析分集：按原 buffer 处理
         audioBuf = buf;
       }
 

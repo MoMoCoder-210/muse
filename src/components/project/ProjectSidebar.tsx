@@ -12,9 +12,9 @@ type ProjectSidebarProps = {
 };
 
 /**
- * 项目侧边栏 — macOS 风格
+ * 作品侧边栏 — macOS 风格
  *
- * 极简侧边导航：品牌头 → 新建按钮 → 项目列表 → 底部返回
+ * 极简侧边导航：品牌头 → 新建按钮 → 作品列表 → 底部返回
  */
 export function ProjectSidebar({
   projects,
@@ -29,7 +29,7 @@ export function ProjectSidebar({
       {/* 品牌头部 */}
       <div className="sidebar-header">
         <h2 className="sidebar-title">{APP_NAME}</h2>
-        <span className="sidebar-subtitle">项目管理</span>
+        <span className="sidebar-subtitle">作品管理</span>
       </div>
 
       {/* 新建按钮 — 胶囊主按钮 */}
@@ -38,11 +38,11 @@ export function ProjectSidebar({
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
           </svg>
-          新建项目
+          新建作品
         </button>
       </div>
 
-      {/* 项目列表 */}
+      {/* 作品列表 */}
       <div className="project-list">
         <ProjectList
           projects={projects}

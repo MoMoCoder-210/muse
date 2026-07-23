@@ -16,7 +16,7 @@ export function StepPlaceholder({ stepIndex, projectName }: StepPlaceholderProps
     <div className="step-placeholder">
       <h2>{step?.label ?? "未知阶段"}</h2>
       <p>
-        项目「{projectName}」的 {step?.label ?? "该阶段"} 功能正在开发中，敬请期待。
+        作品「{projectName}」的 {step?.label ?? "该阶段"} 功能正在开发中，敬请期待。
       </p>
     </div>
   );

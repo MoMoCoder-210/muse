@@ -1,5 +1,5 @@
 /* ============================================================
-   分镜管理 — 提示词 + PromptEditor（Tiptap） + Chip 样式
+   镜头管理 — 提示词 + PromptEditor（Tiptap） + Chip 样式
    ============================================================ */
 
 /* 提示词 */
@@ -139,7 +139,7 @@
   transform: translateY(-0.5px);
 }
 
-/* 角色：橙色系 */
+/* 人物：橙色系 */
 .prompt-chip[data-kind='character'] {
   background: rgba(var(--asset-character-rgb), 0.1);
   border-color: rgba(var(--asset-character-rgb), 0.28);
@@ -163,7 +163,7 @@
 }
 .prompt-chip[data-kind='scene'] .prompt-chip-dot { background: var(--asset-scene-dot); }
 
-/* 物品：蓝色系 */
+/* 道具：蓝色系 */
 .prompt-chip[data-kind='item'] {
   background: rgba(var(--asset-item-rgb), 0.1);
   border-color: rgba(var(--asset-item-rgb), 0.26);
@@ -198,7 +198,7 @@
   flex-shrink: 0;
 }
 
-/* 资产名标签 */
+/* 素材名标签 */
 .prompt-chip-label,
 .prompt-chip [data-mention-label] {
   line-height: 1;
@@ -207,12 +207,12 @@
   max-width: 10em;
 }
 
-/* 角色圆点颜色跟随 data-kind */
+/* 人物圆点颜色跟随 data-kind */
 .prompt-chip[data-kind='character'] [data-mention-dot] { background: var(--asset-character-dot); }
 .prompt-chip[data-kind='scene']     [data-mention-dot] { background: var(--asset-scene-dot); }
 .prompt-chip[data-kind='item']      [data-mention-dot] { background: var(--asset-item-dot); }
 
-/* 已删除资产：红色警告胶囊 */
+/* 已删除素材：红色警告胶囊 */
 .prompt-chip[data-deleted='true'] {
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.35);

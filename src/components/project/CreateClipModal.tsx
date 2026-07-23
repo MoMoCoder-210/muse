@@ -15,7 +15,7 @@ type MainTab = "manual" | "smart";
 type SmartTab = "paste" | "file";
 
 /**
- * 新建片段弹窗
+ * 新建分集弹窗
  *
  */
 export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipModalProps) {
@@ -35,12 +35,12 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
   const handleManualCreate = useCallback(async () => {
     const t = title.trim();
     const c = text.trim();
-    if (!t || !c) { toast("请填写片段标题和正文", "warning"); return; }
-    if (c.length > 2000) { toast("单片段不能超过 2000 字符", "warning"); return; }
+    if (!t || !c) { toast("请填写分集标题和正文", "warning"); return; }
+    if (c.length > 2000) { toast("单分集不能超过 2000 字符", "warning"); return; }
     setLoading(true);
     try {
       await createClip({ project_id: projectId, title: t, source_text: c });
-      toast("片段已创建", "success");
+      toast("分集已创建", "success");
       onCreated();
     } catch (err) {
       toast("创建失败，请重试", "error");
@@ -69,7 +69,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="modal-panel create-clip-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>新建片段</h3>
+          <h3>新建分集</h3>
           <button type="button" className="icon-button modal-close-button" aria-label="关闭" onClick={onClose}>×</button>
         </div>
 
@@ -83,20 +83,20 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
           <div style={{ visibility: tab === "manual" ? "visible" : "hidden" }}>
             <div className="import-body">
               <label className="form-field">
-                <span className="form-label">片段标题</span>
+                <span className="form-label">分集标题</span>
                 <input
                   type="text" className="form-input"
-                  placeholder="输入片段标题"
+                  placeholder="输入分集标题"
                   value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100}
                 />
               </label>
               <label className="form-field">
                 <span className="form-label">
-                  片段正文 <span className="form-label-hint">（{text.length}/1500）</span>
+                  分集正文 <span className="form-label-hint">（{text.length}/1500）</span>
                 </span>
                 <textarea
                   className="script-textarea"
-                  placeholder="输入片段正文"
+                  placeholder="输入分集正文"
                   value={text} onChange={(e) => setText(e.target.value)}
                   maxLength={1500} rows={10}
                 />

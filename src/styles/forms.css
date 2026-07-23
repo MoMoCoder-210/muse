@@ -256,7 +256,7 @@
   color: var(--text-secondary);
 }
 
-/* 选中态：用 segmented-active token，与项目内分段控件风格统一 */
+/* 选中态：用 segmented-active token，与作品内分段控件风格统一 */
 .tab-btn.active {
   background: var(--segmented-active-bg);
   color: var(--color-white);

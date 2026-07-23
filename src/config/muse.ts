@@ -1,5 +1,5 @@
 export const APP_NAME = "Muse";
-// 默认项目根目录留空，由后端在创建项目时回退到应用数据目录下的默认路径，
+// 默认作品根目录留空，由后端在创建作品时回退到应用数据目录下的默认路径，
 // 避免硬编码平台相关绝对路径（如 D:\projects）在非目标环境下失效。
 export const DEFAULT_PROJECT_ROOT = "";
 
@@ -31,7 +31,7 @@ export const STYLE_VALUE_MAP: Record<StyleMode, string> = {
 /**
  * 风格名称 → 视频生成前缀提示词映射
  *
- * 在大模型返回分镜存库时，自动拼接到 video_prompt 头部，
+ * 在大模型返回镜头存库时，自动拼接到 video_prompt 头部，
  * 并追加到 video_prompt 末尾的"画面风格"说明行。
  * 格式：{ prefix: 视频开头风格描述, suffix: 末尾画面风格说明 }
  */
@@ -45,7 +45,7 @@ export const VIDEO_STYLE_PROMPT_MAP: Record<StyleMode, { prefix: string; suffix:
     suffix: "画面风格：动漫，精致手绘，细腻色彩，电影感光影，2K高清，视频无任何字幕。",
   },
   日漫: {
-    prefix: "日本动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    prefix: "日本动漫风格短剧分集，赛璐璞上色，电影感光影。",
     suffix: "画面风格：日本动漫，赛璐璞上色，精致线条，电影感光影，2K高清，视频无任何字幕。",
   },
   韩漫: {
@@ -53,7 +53,7 @@ export const VIDEO_STYLE_PROMPT_MAP: Record<StyleMode, { prefix: string; suffix:
     suffix: "画面风格：韩国动漫，简洁线条，柔和色调，电影感光影，2K高清，视频无任何字幕。",
   },
   二次元: {
-    prefix: "二次元日系动漫风格短剧片段，赛璐璞上色，电影感光影。",
+    prefix: "二次元日系动漫风格短剧分集，赛璐璞上色，电影感光影。",
     suffix: "画面风格：二次元日系动漫，赛璐璞上色，精致线条，电影感光影，2K高清，视频无任何字幕。",
   },
   真人: {
@@ -67,9 +67,9 @@ export const VIDEO_STYLE_PROMPT_MAP: Record<StyleMode, { prefix: string; suffix:
  *
  */
 export const WORKFLOW_STEPS = [
-  { id: "script", label: "片段管理" },
-  { id: "asset", label: "资产管理" },
-  { id: "storyboard", label: "分镜管理" },
+  { id: "script", label: "分集管理" },
+  { id: "asset", label: "素材管理" },
+  { id: "storyboard", label: "镜头管理" },
   { id: "video", label: "视频编辑" },
 ] as const;
 

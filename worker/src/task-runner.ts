@@ -284,7 +284,7 @@ export class TaskRunner {
       ffmpeg: this.ffmpeg,
     };
 
-    // 资产生图任务：向前端推送实时进度，避免前端仅依赖轮询
+    // 素材生图任务：向前端推送实时进度，避免前端仅依赖轮询
     const assetInput = taskType === "generate_asset_image"
       ? (ctx.taskInput as { clipId?: string; assetType?: string; name?: string } | undefined)
       : undefined;
@@ -301,7 +301,7 @@ export class TaskRunner {
     };
     emitAssetProgress("running");
 
-    // 片段拆解任务：完成/失败时通知前端即时刷新片段列表
+    // 分集拆解任务：完成/失败时通知前端即时刷新分集列表
     const emitClipScriptReady = (status: "success" | "failed", errorMessage?: string) => {
       if (taskType === "generate_clip_script") {
         const input = ctx.taskInput as { projectId?: string; clipId?: string } | undefined;

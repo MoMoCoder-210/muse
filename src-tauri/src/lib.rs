@@ -76,13 +76,13 @@ pub fn run() {
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
             log::info!("应用数据目录已就绪");
 
-            // ── 扩展 asset 协议作用域，确保前端能加载项目目录中的图片/视频 ──
+            // ── 扩展 asset 协议作用域，确保前端能加载作品目录中的图片/视频 ──
             let asset_scope = app.handle().asset_protocol_scope();
             let projects_root = app_paths::default_projects_root();
-            log::info!("asset scope: 项目根目录 = {:?}", projects_root);
+            log::info!("asset scope: 作品根目录 = {:?}", projects_root);
             match asset_scope.allow_directory(&projects_root, true) {
-                Ok(_) => log::info!("asset scope: 已添加项目根目录 {:?}", projects_root),
-                Err(e) => log::warn!("asset scope: 无法添加项目根目录 {:?}: {}", projects_root, e),
+                Ok(_) => log::info!("asset scope: 已添加作品根目录 {:?}", projects_root),
+                Err(e) => log::warn!("asset scope: 无法添加作品根目录 {:?}: {}", projects_root, e),
             }
             if let Some(home) = dirs::home_dir() {
                 log::info!("asset scope: 用户主目录 = {:?}", home);

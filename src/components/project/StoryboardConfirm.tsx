@@ -10,7 +10,7 @@ type StoryboardConfirmProps = {
 };
 
 /**
- * 分镜操作确认弹窗（添加/插入/删除通用）。
+ * 镜头操作确认弹窗（添加/插入/删除通用）。
  *
  */
 export function StoryboardConfirm({ title, message, confirmText, onConfirm, onCancel, disabled, checkbox }: StoryboardConfirmProps) {

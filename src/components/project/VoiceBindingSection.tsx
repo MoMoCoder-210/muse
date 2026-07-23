@@ -18,13 +18,13 @@ interface VoiceBindingSectionProps {
   /** 绑定变化回调（解除传 undefined） */
   onChange: (binding: VoiceBinding | undefined) => void;
   disabled?: boolean;
-  /** 当前片段 ID，用于列出项目工作区已导入的音频 */
+  /** 当前分集 ID，用于列出作品工作区已导入的音频 */
   clipId: string;
 }
 
 type Tab = "public" | "local";
 
-/** 角色资产「绑定声音」区块。 */
+/** 人物素材「绑定声音」区块。 */
 export function VoiceBindingSection({ value, onChange, disabled, clipId }: VoiceBindingSectionProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>(value?.source === "local" ? "local" : "public");
@@ -48,7 +48,7 @@ export function VoiceBindingSection({ value, onChange, disabled, clipId }: Voice
   }, []);
   useEffect(() => { refreshCache(); }, [refreshCache]);
 
-  // 加载项目工作区已导入的本地音频
+  // 加载作品工作区已导入的本地音频
   const loadLocalFiles = useCallback(async () => {
     try {
       const files = await listWorkspaceVoiceFiles(clipId);

@@ -1,4 +1,4 @@
-// 分镜查询与关联资产管理
+// 镜头查询与关联素材管理
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -6,7 +6,7 @@ use serde::Serialize;
 use super::util;
 use crate::sidecar::SharedSidecarManager;
 
-/// 分镜信息（前端展示用）
+/// 镜头信息（前端展示用）
 #[derive(Debug, Serialize)]
 pub struct StoryboardInfo {
     pub id: String,
@@ -34,7 +34,7 @@ pub struct StoryboardInfo {
     pub selected_video_id: Option<String>,
 }
 
-/// 分镜关联资产简要信息
+/// 镜头关联素材简要信息
 #[derive(Debug, Serialize)]
 pub struct StoryboardAssetInfo {
     pub asset_id: String,
@@ -43,14 +43,14 @@ pub struct StoryboardAssetInfo {
     pub description: String,
     pub prompt: String,
     pub selected_image_path: Option<String>,
-    /// 分镜专属的稳定图片编号；未被该分镜引用时为 null。
+    /// 镜头专属的稳定图片编号；未被该镜头引用时为 null。
     pub index: Option<i32>,
-    /// 完整引用文本（资产名(@图片N)）；前端用它精确水合为一个胶囊。
+    /// 完整引用文本（素材名(@图片N)）；前端用它精确水合为一个胶囊。
     #[serde(rename = "assetTag")]
     pub asset_tag: Option<String>,
 }
 
-/// 查询指定片段的分镜列表（按 seq_num 排序）
+/// 查询指定分集的镜头列表（按 seq_num 排序）
 #[tauri::command]
 pub fn list_storyboards(
     clip_id: String,
@@ -122,8 +122,8 @@ pub fn list_storyboards(
     Ok(results)
 }
 
-/// 查询指定片段的资产；传入 storyboard_id 时，后端会按该分镜的 mention_map
-/// 为每一项补齐 index 与 assetTag（资产名(@图片N)）。
+/// 查询指定分集的素材；传入 storyboard_id 时，后端会按该镜头的 mention_map
+/// 为每一项补齐 index 与 assetTag（素材名(@图片N)）。
 #[tauri::command]
 pub fn list_clip_assets(
     clip_id: String,
@@ -203,7 +203,7 @@ pub fn list_clip_assets(
     Ok(results)
 }
 
-/// 更新分镜关联资产输入
+/// 更新镜头关联素材输入
 #[derive(Debug, Deserialize)]
 pub struct UpdateStoryboardAssetsInput {
     pub storyboard_id: String,
@@ -212,7 +212,7 @@ pub struct UpdateStoryboardAssetsInput {
     pub item_ids: Vec<String>,
 }
 
-/// 更新分镜关联资产
+/// 更新镜头关联素材
 ///
 /// 同时写入 storyboards 表的 *_ids_json 列和 storyboard_assets 关联表。
 #[tauri::command]
@@ -287,10 +287,10 @@ pub fn update_storyboard_assets(
 
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
         &format!(
-            "已更新分镜资产关联 storyboardId={} characters={} scenes={} items={}",
+            "已更新镜头素材关联 storyboardId={} characters={} scenes={} items={}",
             input.storyboard_id,
             input.character_ids.len(),
             input.scene_ids.len(),
@@ -301,16 +301,16 @@ pub fn update_storyboard_assets(
     Ok(())
 }
 
-// ── 分镜增删 ────────────────────────────────────────────
+// ── 镜头增删 ────────────────────────────────────────────
 
-/// 新增分镜输入
+/// 新增镜头输入
 #[derive(Debug, Deserialize)]
 pub struct CreateStoryboardInput {
     pub clip_id: String,
     pub project_id: String,
 }
 
-/// 在当前片段的最大 seq_num 之后新增一个空分镜
+/// 在当前分集的最大 seq_num 之后新增一个空镜头
 #[tauri::command]
 pub fn create_storyboard(
     input: CreateStoryboardInput,
@@ -321,7 +321,7 @@ pub fn create_storyboard(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 获取当前片段的最大 seq_num（事务内查询，防止并发竞争）
+    // 获取当前分集的最大 seq_num（事务内查询，防止并发竞争）
     let max_seq: Option<i32> = tx
         .query_row(
             "SELECT MAX(seq_num) FROM storyboards WHERE clip_id = ?1",
@@ -354,10 +354,10 @@ pub fn create_storyboard(
 
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
         &format!(
-            "已新增分镜 id={} clipId={} sbid={} seq={}",
+            "已新增镜头 id={} clipId={} sbid={} seq={}",
             id, input.clip_id, sbid, next_seq
         ),
     );
@@ -389,19 +389,19 @@ pub fn create_storyboard(
     })
 }
 
-/// 删除分镜输入
+/// 删除镜头输入
 #[derive(Debug, Deserialize)]
 pub struct DeleteStoryboardInput {
     pub storyboard_id: String,
-    /// 是否同时删除关联视频批次的项目工作区文件，默认不删除。
+    /// 是否同时删除关联视频批次的作品工作区文件，默认不删除。
     #[serde(default)]
     pub delete_files: bool,
 }
 
-/// 删除一个分镜及其关联记录；可选清理关联视频批次的工作区文件。
+/// 删除一个镜头及其关联记录；可选清理关联视频批次的工作区文件。
 ///
 /// 视频文件路径会在事务中收集，待数据库事务提交后才执行物理删除，避免事务回滚
-/// 时已删除文件。清理仅限项目工作区内，且会拒绝解析符号链接后越界的文件。
+/// 时已删除文件。清理仅限作品工作区内，且会拒绝解析符号链接后越界的文件。
 #[tauri::command]
 pub fn delete_storyboard(
     input: DeleteStoryboardInput,
@@ -412,7 +412,7 @@ pub fn delete_storyboard(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 先读取位置和项目工作区；不存在时不触碰任何关联记录。
+    // 先读取位置和作品工作区；不存在时不触碰任何关联记录。
     let (clip_id, deleted_seq, workspace_path): (String, i32, String) = tx
         .query_row(
             "SELECT s.clip_id, s.seq_num, p.workspace_path
@@ -422,19 +422,19 @@ pub fn delete_storyboard(
             rusqlite::params![&input.storyboard_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .map_err(|e| format!("分镜不存在：{}", e))?;
+        .map_err(|e| format!("镜头不存在：{}", e))?;
 
     let file_candidates = if input.delete_files {
         let mut statement = tx
             .prepare("SELECT file_path FROM storyboard_videos WHERE storyboard_id = ?1")
-            .map_err(|e| format!("读取分镜关联视频失败：{}", e))?;
+            .map_err(|e| format!("读取镜头关联视频失败：{}", e))?;
         let file_paths = statement
             .query_map(rusqlite::params![&input.storyboard_id], |row| {
                 row.get::<_, String>(0)
             })
-            .map_err(|e| format!("读取分镜关联视频失败：{}", e))?
+            .map_err(|e| format!("读取镜头关联视频失败：{}", e))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("读取分镜关联视频失败：{}", e))?;
+            .map_err(|e| format!("读取镜头关联视频失败：{}", e))?;
         file_paths
             .into_iter()
             .map(|file_path| crate::commands::clip::ClipFileCandidate {
@@ -458,35 +458,35 @@ pub fn delete_storyboard(
             OR locked_by IN (SELECT id FROM tasks WHERE storyboard_id = ?1)",
         rusqlite::params![&input.storyboard_id],
     )
-    .map_err(|e| format!("无法删除分镜任务锁：{}", e))?;
-    // 视频依赖分镜和任务，必须在两张父表之前删除。
+    .map_err(|e| format!("无法删除镜头任务锁：{}", e))?;
+    // 视频依赖镜头和任务，必须在两张父表之前删除。
     tx.execute(
         "DELETE FROM storyboard_videos WHERE storyboard_id = ?1",
         rusqlite::params![&input.storyboard_id],
     )
-    .map_err(|e| format!("无法删除分镜视频：{}", e))?;
+    .map_err(|e| format!("无法删除镜头视频：{}", e))?;
     tx.execute(
         "DELETE FROM tasks WHERE storyboard_id = ?1",
         rusqlite::params![&input.storyboard_id],
     )
-    .map_err(|e| format!("无法删除分镜任务：{}", e))?;
+    .map_err(|e| format!("无法删除镜头任务：{}", e))?;
     tx.execute(
         "DELETE FROM storyboard_assets WHERE storyboard_id = ?1",
         rusqlite::params![&input.storyboard_id],
     )
-    .map_err(|e| format!("无法删除分镜资产关联：{}", e))?;
+    .map_err(|e| format!("无法删除镜头素材关联：{}", e))?;
 
     let affected = tx
         .execute(
             "DELETE FROM storyboards WHERE id = ?1",
             rusqlite::params![&input.storyboard_id],
         )
-        .map_err(|e| format!("无法删除分镜：{}", e))?;
+        .map_err(|e| format!("无法删除镜头：{}", e))?;
     if affected != 1 {
-        return Err("分镜已被删除或不存在".to_string());
+        return Err("镜头已被删除或不存在".to_string());
     }
 
-    // 仅重排同一个片段的后续分镜。
+    // 仅重排同一个分集的后续镜头。
     tx.execute(
         "UPDATE storyboards SET seq_num = seq_num - 1, updated_at = datetime('now') WHERE clip_id = ?1 AND seq_num > ?2",
         rusqlite::params![&clip_id, deleted_seq],
@@ -505,10 +505,10 @@ pub fn delete_storyboard(
     };
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
         &format!(
-            "已删除分镜及其关联数据 storyboardId={} clipId={} seq={} deletedFiles={} skippedFiles={} failedFiles={}",
+            "已删除镜头及其关联数据 storyboardId={} clipId={} seq={} deletedFiles={} skippedFiles={} failedFiles={}",
             input.storyboard_id,
             clip_id,
             deleted_seq,
@@ -520,18 +520,18 @@ pub fn delete_storyboard(
     Ok(result)
 }
 
-// ── 插入分镜（指定位置 + 自动重排） ──────────────
+// ── 插入镜头（指定位置 + 自动重排） ──────────────
 
-/// 插入分镜输入
+/// 插入镜头输入
 #[derive(Debug, Deserialize)]
 pub struct InsertStoryboardInput {
     pub clip_id: String,
     pub project_id: String,
-    /// 插入到此分镜 ID 之后；为 None 则插入到最前面
+    /// 插入到此镜头 ID 之后；为 None 则插入到最前面
     pub after_storyboard_id: Option<String>,
 }
 
-/// 在指定位置插入分镜，自动重排后续 seq_num
+/// 在指定位置插入镜头，自动重排后续 seq_num
 #[tauri::command]
 pub fn insert_storyboard(
     input: InsertStoryboardInput,
@@ -551,7 +551,7 @@ pub fn insert_storyboard(
                     rusqlite::params![target_id],
                     |row| row.get(0),
                 )
-                .map_err(|e| format!("目标分镜不存在：{}", e))?;
+                .map_err(|e| format!("目标镜头不存在：{}", e))?;
             target_seq
         }
         None => 0, // 插入到最前面
@@ -559,7 +559,7 @@ pub fn insert_storyboard(
 
     let new_seq = insert_seq + 1;
 
-    // 将 >= new_seq 的分镜后移一位
+    // 将 >= new_seq 的镜头后移一位
     tx.execute(
         "UPDATE storyboards SET seq_num = seq_num + 1, updated_at = datetime('now') WHERE clip_id = ?1 AND seq_num >= ?2",
         rusqlite::params![&input.clip_id, new_seq],
@@ -590,10 +590,10 @@ pub fn insert_storyboard(
 
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
         &format!(
-            "已插入分镜 id={} clipId={} sbid={} seq={} after={:?}",
+            "已插入镜头 id={} clipId={} sbid={} seq={} after={:?}",
             id, input.clip_id, sbid, new_seq, input.after_storyboard_id
         ),
     );
@@ -625,7 +625,7 @@ pub fn insert_storyboard(
     })
 }
 
-// ── 更新分镜视频参数 ──────────────────────────────
+// ── 更新镜头视频参数 ──────────────────────────────
 
 /// 视频参数 JSON（前端自行序列化）
 #[derive(Debug, Deserialize)]
@@ -636,7 +636,7 @@ pub struct UpdateStoryboardParamsInput {
     pub video_prompt: Option<String>,
 }
 
-/// 请求生成一个分镜视频。
+/// 请求生成一个镜头视频。
 ///
 /// 入队时冻结提示词与视频参数，保证后续编辑不会改变已经创建的视频批次。
 #[derive(Debug, Deserialize)]
@@ -667,12 +667,12 @@ pub fn generate_storyboard_video(
                 ))
             },
         )
-        .map_err(|_| "分镜不存在".to_string())?;
+        .map_err(|_| "镜头不存在".to_string())?;
     if prompt.trim().is_empty() {
         return Err("提示词为空，无法生成视频".to_string());
     }
 
-    // 同步检查：分镜绑定的资产必须已选择参考图片
+    // 同步检查：镜头绑定的素材必须已选择参考图片
     if let Some(ref param_json) = video_param_json {
         if let Ok(param_value) = serde_json::from_str::<serde_json::Value>(param_json) {
             if let Some(mention_map) = param_value.get("mention_map").and_then(|v| v.as_array()) {
@@ -697,7 +697,7 @@ pub fn generate_storyboard_video(
                 }
                 if !missing_names.is_empty() {
                     return Err(format!(
-                        "资产{}尚未绑定图片，请先在资产详情中选择参考图片",
+                        "素材{}尚未绑定图片，请先在素材详情中选择参考图片",
                         missing_names.join("、")
                     ));
                 }
@@ -705,7 +705,7 @@ pub fn generate_storyboard_video(
         }
     }
 
-    // 每次点击都是一个独立视频批次。lock_key 必须绑定 task_id，避免同一分镜的
+    // 每次点击都是一个独立视频批次。lock_key 必须绑定 task_id，避免同一镜头的
     // 多次生成互相视为重复消费；实际并发仍由 Worker 的 video 限流器控制。
     let task_id = uuid::Uuid::new_v4().to_string();
     let lock_key = format!("generate_video:{}:{}", input.storyboard_id, task_id);
@@ -756,7 +756,7 @@ pub fn generate_storyboard_video(
     Ok(serde_json::json!({ "task_id": task_id }))
 }
 
-/// 更新分镜的视频生成参数和提示词（失焦保存）
+/// 更新镜头的视频生成参数和提示词（失焦保存）
 #[tauri::command]
 pub fn update_storyboard_params(
     input: UpdateStoryboardParamsInput,
@@ -774,15 +774,15 @@ pub fn update_storyboard_params(
 
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
-        &format!("已更新分镜视频参数 storyboardId={}", input.storyboard_id),
+        &format!("已更新镜头视频参数 storyboardId={}", input.storyboard_id),
     );
 
     Ok(())
 }
 
-/// 实时更新分镜时长（秒），写回分镜记录本身（模型拆解的分镜秒数）
+/// 实时更新镜头时长（秒），写回镜头记录本身（模型拆解的镜头秒数）
 #[tauri::command]
 pub fn update_storyboard_duration(
     input: UpdateStoryboardDurationInput,
@@ -800,9 +800,9 @@ pub fn update_storyboard_duration(
 
     crate::project_log::append_log(
         &log_path,
-        "分镜",
+        "镜头",
         "INFO",
-        &format!("已更新分镜时长 storyboardId={}", input.storyboard_id),
+        &format!("已更新镜头时长 storyboardId={}", input.storyboard_id),
     );
 
     Ok(())
@@ -815,7 +815,7 @@ pub struct UpdateStoryboardDurationInput {
     pub duration: Option<f64>,
 }
 
-/// 将视频文件导入项目工作区
+/// 将视频文件导入作品工作区
 #[derive(Debug, Serialize)]
 pub struct ImportVideoResult {
     pub file_path: String,
@@ -835,7 +835,7 @@ pub fn import_video_file(
             rusqlite::params![&clip_id],
             |row| row.get(0),
         )
-        .map_err(|_| "未找到项目工作区".to_string())?;
+        .map_err(|_| "未找到作品工作区".to_string())?;
 
     let video_dir = std::path::PathBuf::from(&workspace).join("video");
     std::fs::create_dir_all(&video_dir).map_err(|e| format!("创建视频目录失败：{}", e))?;
@@ -864,7 +864,7 @@ pub fn import_video_file(
     })
 }
 
-/// 分镜视频记录（storyboard_videos 表）
+/// 镜头视频记录（storyboard_videos 表）
 #[derive(Debug, Serialize)]
 pub struct StoryboardVideoInfo {
     pub id: String,
@@ -877,14 +877,14 @@ pub struct StoryboardVideoInfo {
     pub duration: Option<f64>,
 }
 
-/// 分镜视频尚未成功落库的任务状态（待处理、运行中或最终失败）。
+/// 镜头视频尚未成功落库的任务状态（待处理、运行中或最终失败）。
 #[derive(Debug, Serialize)]
 pub struct StoryboardVideoTaskInfo {
     pub task_id: String,
     pub status: String,
 }
 
-/// 追加视频到分镜（INSERT storyboard_videos + 自动选中）
+/// 追加视频到镜头（INSERT storyboard_videos + 自动选中）
 #[derive(Deserialize)]
 pub struct AddStoryboardVideoInput {
     pub storyboard_id: String,
@@ -914,7 +914,7 @@ pub fn add_storyboard_video(
     )
     .map_err(|e| e.to_string())?;
 
-    // 仅当分镜尚未绑定视频时才自动选中新上传的视频
+    // 仅当镜头尚未绑定视频时才自动选中新上传的视频
     conn.execute(
         "UPDATE storyboards SET selected_video_id = ?1, updated_at = datetime('now')
          WHERE id = ?2 AND selected_video_id IS NULL",
@@ -933,7 +933,7 @@ pub fn add_storyboard_video(
     })
 }
 
-/// 切换分镜选中的视频
+/// 切换镜头选中的视频
 #[derive(Deserialize)]
 pub struct SelectStoryboardVideoInput {
     pub storyboard_id: String,
@@ -959,12 +959,12 @@ pub fn select_storyboard_video(
         )
         .map_err(|e| e.to_string())?;
     if affected != 1 {
-        return Err("视频不存在，或不属于该分镜".to_string());
+        return Err("视频不存在，或不属于该镜头".to_string());
     }
     Ok(())
 }
 
-/// 列出分镜的所有已完成视频批次。
+/// 列出镜头的所有已完成视频批次。
 #[tauri::command]
 pub fn list_storyboard_videos(
     storyboard_id: String,
@@ -999,7 +999,7 @@ pub fn list_storyboard_videos(
     Ok(results)
 }
 
-/// 列出分镜所有仍未成功落库的视频批次。
+/// 列出镜头所有仍未成功落库的视频批次。
 ///
 /// 任务表是多批次状态的唯一来源，页面重挂载后可据此恢复 pending、running 与 failed 卡片；
 /// 成功任务改由 storyboard_videos 的 task_id 表示。
@@ -1044,7 +1044,7 @@ pub struct DeleteStoryboardVideoTaskInput {
 
 /// 删除一个最终失败的视频生成批次。
 ///
-/// 只允许删除属于给定分镜的 `generate_video` 失败任务，且若异常存在同 task_id 的
+/// 只允许删除属于给定镜头的 `generate_video` 失败任务，且若异常存在同 task_id 的
 /// 视频落库记录则拒绝删除，避免影响已生成的真实视频批次。
 #[tauri::command]
 pub fn delete_storyboard_video_task(
@@ -1089,17 +1089,17 @@ pub fn delete_storyboard_video_task(
     Ok(())
 }
 
-/// 删除分镜视频输入
+/// 删除镜头视频输入
 #[derive(Deserialize)]
 pub struct DeleteStoryboardVideoInput {
     pub storyboard_id: String,
     pub video_id: String,
-    /// 是否同时删除项目工作区内的磁盘视频文件，默认不删除。
+    /// 是否同时删除作品工作区内的磁盘视频文件，默认不删除。
     #[serde(default)]
     pub delete_file: bool,
 }
 
-/// 删除分镜视频（数据库记录，可选同时删除文件）。
+/// 删除镜头视频（数据库记录，可选同时删除文件）。
 ///
 /// 先在事务内解除 `selected_video_id`，再删视频记录；文件操作在提交后执行，
 /// 避免文件已删除而数据库事务仍回滚。
@@ -1111,7 +1111,7 @@ pub fn delete_storyboard_video(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 由分镜所属项目确定工作区；最终视频受保护，不允许通过删除批次移除。
+    // 由镜头所属作品确定工作区；最终视频受保护，不允许通过删除批次移除。
     let (file_path, workspace_path, selected_video_id): (String, String, Option<String>) = tx
         .query_row(
             "SELECT sv.file_path, p.workspace_path, s.selected_video_id
@@ -1122,9 +1122,9 @@ pub fn delete_storyboard_video(
             rusqlite::params![&input.video_id, &input.storyboard_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .map_err(|_| "视频记录不存在，或不属于该分镜".to_string())?;
+        .map_err(|_| "视频记录不存在，或不属于该镜头".to_string())?;
     if selected_video_id.as_deref() == Some(input.video_id.as_str()) {
-        return Err("当前视频已选为分镜最终视频，不能删除".to_string());
+        return Err("当前视频已选为镜头最终视频，不能删除".to_string());
     }
 
     // SQL 条件再次保护最终视频，防止检查和删除之间状态被并发更新。
@@ -1140,7 +1140,7 @@ pub fn delete_storyboard_video(
         )
         .map_err(|e| format!("删除视频记录失败：{}", e))?;
     if affected != 1 {
-        return Err("视频记录不存在、已选为最终视频，或不属于该分镜".to_string());
+        return Err("视频记录不存在、已选为最终视频，或不属于该镜头".to_string());
     }
     tx.commit().map_err(|e| e.to_string())?;
 

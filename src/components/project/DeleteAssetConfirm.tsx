@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { AssetCardData } from "./AssetCard";
 
 type DeleteAssetConfirmProps = {
-  /** 待删除的资产列表 */
+  /** 待删除的素材列表 */
   cards: AssetCardData[];
   onConfirm: (cards: AssetCardData[], deleteFiles: boolean) => void;
   onCancel: () => void;
@@ -10,7 +10,7 @@ type DeleteAssetConfirmProps = {
 };
 
 /**
- * 资产删除确认弹窗。
+ * 素材删除确认弹窗。
  */
 export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: DeleteAssetConfirmProps) {
   const [deleteFiles, setDeleteFiles] = useState(false);
@@ -21,7 +21,7 @@ export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: Del
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
       <div className="modal-panel delete-panel" onClick={(e) => e.stopPropagation()}>
         <div className="delete-panel-header">
-          <h2 className="delete-panel-title">删除资产</h2>
+          <h2 className="delete-panel-title">删除素材</h2>
           <button
             type="button"
             className="modal-close"
@@ -34,8 +34,8 @@ export function DeleteAssetConfirm({ cards, onConfirm, onCancel, disabled }: Del
         </div>
         <p className="delete-panel-desc">
           {count === 1
-            ? <>确认删除资产 <strong>「{first.resource.name}」</strong>？</>
-            : <>确认删除 <strong>{count}</strong> 个资产？</>
+            ? <>确认删除素材 <strong>「{first.resource.name}」</strong>？</>
+            : <>确认删除 <strong>{count}</strong> 个素材？</>
           }
         </p>
         <label className="delete-panel-check">

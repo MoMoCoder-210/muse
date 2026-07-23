@@ -28,14 +28,14 @@ const STATUS_LABEL: Record<string, string> = {
   running: "拆解中",
   done: "已完成",
   failed: "失败",
-  clips_ready: "片段就绪",
-  asset_ready: "资产就绪",
-  storyboard_ready: "分镜就绪",
+  clips_ready: "分集就绪",
+  asset_ready: "素材就绪",
+  storyboard_ready: "镜头就绪",
   media_ready: "媒体就绪",
 };
 
 /**
- * 片段列表面板。
+ * 分集列表面板。
  *
  */
 export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPanelProps) {
@@ -76,7 +76,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const getCanDisassemble = (clip: Clip) =>
     clip.status === "pending" || clip.status === "failed";
 
-  /** 可被选中的片段（排除已拆解完成的，它们只能删除不能重新拆解） */
+  /** 可被选中的分集（排除已拆解完成的，它们只能删除不能重新拆解） */
   const selectableClips = clips.filter(getCanDisassemble);
   const allSelected = selectableClips.length > 0 && selectableClips.every((c) => selectedIds.has(c.id));
 
@@ -152,7 +152,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   }, [deleteConfirmClipId, deleteFiles, refresh, toast]);
 
   const handleExtract = useCallback(async (clipIds: string[]) => {
-    // 过滤掉已拆解的片段（仅拆解 pending/failed 状态的片段）
+    // 过滤掉已拆解的分集（仅拆解 pending/failed 状态的分集）
     const validIds = clipIds.filter((id) => {
       const clip = clips.find((c) => c.id === id);
       return clip && getCanDisassemble(clip);
@@ -221,14 +221,14 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
     <>
     <div className="clip-list-panel">
       <div className="panel-header">
-        <h3>片段列表</h3>
+        <h3>分集列表</h3>
         <button
           type="button"
           className="clip-panel-create-btn"
           onClick={onCreateClip}
           disabled={operating}
         >
-          + 新建片段
+          + 新建分集
         </button>
       </div>
 
@@ -287,11 +287,11 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
       {clips.length === 0 ? (
         <div className="empty-clip-list">
           {splitStatus === "running" ? (
-            <><span className="spinner spinner--inline" aria-hidden />剧本拆分中，片段生成后将在此显示…</>
+            <><span className="spinner spinner--inline" aria-hidden />剧本拆分中，分集生成后将在此显示…</>
           ) : splitStatus === "pending" ? (
-            "智能拆解排队中，片段生成后将在此显示…"
+            "智能拆解排队中，分集生成后将在此显示…"
           ) : (
-            "暂无片段"
+            "暂无分集"
           )}
         </div>
       ) : (
@@ -318,7 +318,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                     onChange={() => canDisassemble && toggleSelect(clip.id)}
                     disabled={operating || !canDisassemble}
                     onClick={(e) => e.stopPropagation()}
-                    title={canDisassemble ? undefined : "已拆解的片段不可重新拆解"}
+                    title={canDisassemble ? undefined : "已拆解的分集不可重新拆解"}
                   />
 
                   {/* 左侧序号头像 */}
@@ -409,7 +409,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                         handleExtract([clip.id]);
                       }}
                       disabled={operating}
-                      title="送模型分析，生成资产与提示词"
+                      title="送模型分析，生成素材与提示词"
                     >
                       拆解
                     </button>
@@ -428,8 +428,8 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                       handleDeleteOne(clip);
                     }}
                     disabled={operating}
-                    aria-label="删除片段"
-                    title="删除片段"
+                    aria-label="删除分集"
+                    title="删除分集"
                   >
                     <svg width="12" height="13" viewBox="0 0 12 13" fill="none">
                       <path
@@ -461,10 +461,10 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
       )}
     </div>
 
-      {/* 单个删除确认弹窗 — 复用项目列表的 DeleteConfirmModal 样式 */}
+      {/* 单个删除确认弹窗 — 复用作品列表的 DeleteConfirmModal 样式 */}
       {deletingClip && (
         <DeleteConfirmModal
-          title="删除片段"
+          title="删除分集"
           description={<>确认删除 <strong>第 {deletingClip.sort_index} 集</strong> ？</>}
           checkbox={{
             label: "同时删除磁盘文件",
@@ -480,8 +480,8 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
 
       {batchDeletePending && (
         <DeleteConfirmModal
-          title="批量删除片段"
-          description={<>确认删除 <strong>{selectedIds.size} 个片段</strong> ？</>}
+          title="批量删除分集"
+          description={<>确认删除 <strong>{selectedIds.size} 个分集</strong> ？</>}
           checkbox={{
             label: "同时删除磁盘文件",
             checked: deleteFiles,

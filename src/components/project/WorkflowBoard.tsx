@@ -30,7 +30,7 @@ export function WorkflowBoard({ activeIndex, disabledSteps, onStepClick }: Workf
             aria-selected={isActive}
             aria-disabled={disabled}
             tabIndex={isActive && !disabled ? 0 : -1}
-            title={disabled ? "尚未有片段完成拆解，无法进入" : `前往「${step.label}」`}
+            title={disabled ? "尚未有分集完成拆解，无法进入" : `前往「${step.label}」`}
             onClick={() => {
               if (disabled || isActive) return;
               onStepClick?.(index);

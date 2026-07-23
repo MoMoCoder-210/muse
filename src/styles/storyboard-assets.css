@@ -1,5 +1,5 @@
 /* ============================================================
-   分镜管理 — 资产关联与资产选择弹窗
+   镜头管理 — 素材关联与素材选择弹窗
    ============================================================ */
 
 /* 通用区块 */
@@ -16,13 +16,13 @@
   flex-shrink: 0;
 }
 
-/* 资产区块：撑满卡片高度，超长则内部滚动 */
+/* 素材区块：撑满卡片高度，超长则内部滚动 */
 .sd-section--assets {
   flex: 1; min-height: 0;
   overflow-y: auto;
 }
 
-/* 资产 */
+/* 素材 */
 .sd-detail-assets { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
 
 .sd-detail-asset-row { display: flex; align-items: center; gap: var(--spacing-sm); }
@@ -97,7 +97,7 @@
 }
 .sd-detail-chip-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── 资产选择弹窗 ── */
+/* ── 素材选择弹窗 ── */
 .sd-picker-panel {
   width: 440px;
   max-width: 440px;

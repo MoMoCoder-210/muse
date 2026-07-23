@@ -1,5 +1,5 @@
 /**
- * 智能拆片段
+ * 智能拆分集
  *
  * 两段式拆分：
  *   1. 规则拆分，失败时回退模型拆分
@@ -34,8 +34,8 @@ const EPISODE_PATTERNS = [
 
 // 设定部分关键词
 const SETTING_KEYWORDS = [
-  "人物介绍", "角色介绍", "背景设定", "故事梗概", "故事背景",
-  "主要人物", "人物设定", "角色设定", "剧情简介", "内容简介",
+  "人物介绍", "人物介绍", "背景设定", "故事梗概", "故事背景",
+  "主要人物", "人物设定", "人物设定", "剧情简介", "内容简介",
 ];
 
 type ClipDraft = {
@@ -202,13 +202,13 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
   // 成功判定
   if (clips.length === 0) {
-    logLine("剧本拆分", "DEBUG", "规则拆分：解析后无有效片段");
+    logLine("剧本拆分", "DEBUG", "规则拆分：解析后无有效分集");
     return null;
   }
 
   const shortClips = clips.filter((c) => c.wordCount < 50);
   if (shortClips.length > 0) {
-    logLine("剧本拆分", "DEBUG", `规则拆分：${shortClips.length} 个片段字数不足50，放弃`);
+    logLine("剧本拆分", "DEBUG", `规则拆分：${shortClips.length} 个分集字数不足50，放弃`);
     return null;
   }
 
@@ -225,7 +225,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
 
 // ─── 写入数据库 ────────────────────────────────────────────────────
 /**
- * 写入片段到数据库
+ * 写入分集到数据库
  */
 function insertClips(
   db: DatabaseType,
@@ -581,7 +581,7 @@ export async function splitScriptWithInput(
     if (ctx.signal?.aborted) {
       throw new Error("任务已取消");
     }
-    l("剧本拆分", `规则拆分成功：共 ${ruleClips.length} 个片段`);
+    l("剧本拆分", `规则拆分成功：共 ${ruleClips.length} 个分集`);
     insertClips(db, input.projectId, input.sourceId, ruleClips);
     emit({ type: "task_success", taskId: ctx.taskId });
     return JSON.stringify({
@@ -598,7 +598,7 @@ export async function splitScriptWithInput(
 
   try {
     const modelClips = await modelSplit(ctx, text);
-    l("剧本拆分", `模型拆分成功：共 ${modelClips.length} 个片段`);
+    l("剧本拆分", `模型拆分成功：共 ${modelClips.length} 个分集`);
     insertClips(db, input.projectId, input.sourceId, modelClips);
     emit({ type: "task_success", taskId: ctx.taskId });
     return JSON.stringify({

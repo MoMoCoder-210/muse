@@ -4,9 +4,9 @@ import { listProjectAssetImages } from "../../services/tauri";
 import type { AssetType } from "../../types/project";
 
 const TYPE_LABELS: Record<string, string> = {
-  character: "角色",
+  character: "人物",
   scene: "场景",
-  item: "物品",
+  item: "道具",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -27,13 +27,13 @@ type ProjectAsset = {
 };
 
 type AssetPickerDrawerProps = {
-  /** 当前项目 ID */
+  /** 当前作品 ID */
   projectId: string;
-  /** 要查询的资产类型 */
+  /** 要查询的素材类型 */
   assetType: AssetType;
-  /** 排除的当前分镜 clip_id */
+  /** 排除的当前镜头 clip_id */
   excludeClipId: string;
-  /** 选中某个资产的图片后回调 */
+  /** 选中某个素材的图片后回调 */
   onPick: (sourceImageId: string, sourceName: string) => void;
   /** 关闭抽屉 */
   onClose: () => void;
@@ -42,10 +42,10 @@ type AssetPickerDrawerProps = {
 };
 
 /**
- * 资产图片选择器抽屉（左侧弹出）
+ * 素材图片选择器抽屉（左侧弹出）
  *
- * 展示当前项目下同类型的所有资产及其选中图片，
- * 用户点击后将其图片复制到当前编辑的资产。
+ * 展示当前作品下同类型的所有素材及其选中图片，
+ * 用户点击后将其图片复制到当前编辑的素材。
  *
  */
 export function AssetPickerDrawer({
@@ -139,7 +139,7 @@ export function AssetPickerDrawer({
           ) : assets.length === 0 ? (
             <div className="asset-picker-empty">
               <span className="asset-picker-empty-icon">{icon}</span>
-              <span>暂无其他{typeLabel}资产图片</span>
+              <span>暂无其他{typeLabel}素材图片</span>
             </div>
           ) : (
             <div className="asset-picker-grid">

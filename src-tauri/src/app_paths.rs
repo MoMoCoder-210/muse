@@ -21,7 +21,7 @@ pub fn app_db_path<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String
     Ok(resolve_app_data_dir(app)?.join("app.sqlite"))
 }
 
-/// 获取默认项目根目录
+/// 获取默认作品根目录
 pub fn default_projects_root() -> PathBuf {
     let drive_d = Path::new(r"D:\");
     if drive_d.exists() {
@@ -34,7 +34,7 @@ pub fn default_projects_root() -> PathBuf {
         .join("projects")
 }
 
-/// 清理项目目录名称
+/// 清理作品目录名称
 pub fn sanitize_project_dir_name(name: &str) -> String {
     let sanitized: String = name
         .chars()

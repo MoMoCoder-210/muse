@@ -8,7 +8,7 @@
   overflow: hidden;
 }
 
-/* ve-main 与分镜管理 sb-scroll 一致的毛玻璃容器 */
+/* ve-main 与镜头管理 sb-scroll 一致的毛玻璃容器 */
 .ve-main {
   display: flex;
   flex-direction: column;
@@ -24,7 +24,7 @@
   box-shadow: var(--shadow-glass);
 }
 
-/* 视频页复用分镜管理的悬停抽屉，保持 --rail-width 与分镜管理一致（206px） */
+/* 视频页复用镜头管理的悬停抽屉，保持 --rail-width 与镜头管理一致（206px） */
 
 /* 主区纵向分栏：上拼接 / 下成片 */
 .ve-split {
@@ -215,7 +215,7 @@
   font-size: var(--font-size-xs);
 }
 
-/* ── 分镜视频卡片区 ──
+/* ── 镜头视频卡片区 ──
    横向单排，卡片高度 = 100% 容器（随窗口动态变化），
    宽度由 CSS aspect-ratio 按视频比例自动算出，
    超出容器部分横向滚动。
@@ -668,7 +668,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-/* 分镜编号角标 */
+/* 镜头编号角标 */
 .ve-card-seq {
   position: absolute;
   top: var(--spacing-sm);
@@ -771,7 +771,7 @@
   white-space: nowrap;
 }
 
-/* 拼接区：右下角分镜序号，与左下时长对称 */
+/* 拼接区：右下角镜头序号，与左下时长对称 */
 .ve-card-seq-b {
   position: absolute;
   bottom: 6px;

@@ -6,7 +6,7 @@ import type { TaskContext } from "../types.js";
 import { l, le } from "../utils/utils.js";
 
 /**
- * 资产生图任务 handler。
+ * 素材生图任务 handler。
  */
 export async function generateAssetImageHandler(ctx: TaskContext): Promise<string> {
   const input = ctx.taskInput as {
@@ -26,7 +26,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
 
   const imageClient = ctx.clients?.image;
   if (!imageClient) {
-    throw new Error("资产生图不可用：图片模型客户端未初始化");
+    throw new Error("素材生图不可用：图片模型客户端未初始化");
   }
 
   const { db, emit } = ctx;
@@ -36,12 +36,12 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     "SELECT workspace_path FROM projects WHERE id = ?"
   ).get(input.projectId) as { workspace_path: string } | undefined;
   if (!projectRow) {
-    throw new Error(`项目不存在：${input.projectId}`);
+    throw new Error(`作品不存在：${input.projectId}`);
   }
 
   const workspacePath = projectRow.workspace_path;
   const safeName = sanitizeFileName(input.name);
-  // 使用项目预创建的 assets/{assetType}s 扁平目录
+  // 使用作品预创建的 assets/{assetType}s 扁平目录
   const typeDir = `${input.assetType}s`; // characters / scenes / items
   const saveDir = join(workspacePath, "assets", typeDir);
   await mkdir(saveDir, { recursive: true });
@@ -49,7 +49,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
   const assetId = ensureAssetRow(db, input);
   const count = Math.max(input.n ?? 1, 1);
 
-  // 检查资产是否已有绑定图片（已选中）
+  // 检查素材是否已有绑定图片（已选中）
   const existingSelected = db.prepare(
     "SELECT COUNT(*) as cnt FROM asset_images WHERE asset_id = ? AND is_selected = 1"
   ).get(assetId) as { cnt: number } | undefined;
@@ -60,13 +60,13 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     db.prepare("UPDATE asset_images SET is_selected = 0 WHERE asset_id = ?").run(assetId);
   }
 
-  l("资产生图", `开始生成 assetType=${input.assetType} name=${input.name} n=${count} size=${input.size ?? "默认"}`);
+  l("素材生图", `开始生成 assetType=${input.assetType} name=${input.name} n=${count} size=${input.size ?? "默认"}`);
 
   const generatedPaths: { path: string; imageId: string }[] = [];
   const batchStamp = Date.now();
 
   for (let i = 0; i < count; i++) {
-    // 文件名：资产名_uuid短码_批次时间戳[_序号].png，与 Rust 侧命名规范一致
+    // 文件名：素材名_uuid短码_批次时间戳[_序号].png，与 Rust 侧命名规范一致
     const imageUuid = randomUUID();
     const uuidShort = imageUuid.slice(0, 8);
     const suffix = count > 1 ? `_${batchStamp}_${i + 1}` : `_${batchStamp}`;
@@ -83,7 +83,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
         }
       }
       const genOptions = { signal: ctx.signal, size: input.size } as { signal: AbortSignal; size?: string };
-      l("资产生图", `使用 size=${input.size ?? "默认"} prompt长度=${input.prompt.length} prompt=${input.prompt}`);
+      l("素材生图", `使用 size=${input.size ?? "默认"} prompt长度=${input.prompt.length} prompt=${input.prompt}`);
 
       await imageClient.generateAndSave(input.prompt, savePath, genOptions);
 
@@ -102,7 +102,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
       );
 
       generatedPaths.push({ path: savePath, imageId });
-      l("资产生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath}`);
+      l("素材生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath}`);
 
       // 单张图片已 ready，通知前端即时刷新画廊
       emit({
@@ -117,7 +117,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
       // 生图阶段仅落盘并登记为待上传；方舟文件仅在视频任务实际需要参考图时上传。
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      le("资产生图", `第${i + 1}张失败 assetType=${input.assetType} name=${input.name} 错误=${msg}`);
+      le("素材生图", `第${i + 1}张失败 assetType=${input.assetType} name=${input.name} 错误=${msg}`);
       if (i === 0 && generatedPaths.length === 0) throw err;
       // 后续图片失败不影响已生成的结果
     }
@@ -141,7 +141,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     ).run(assetId);
   }
 
-  l("资产生图", `成功 assetId=${assetId} 已生成=${generatedPaths.length}/${count}张`);
+  l("素材生图", `成功 assetId=${assetId} 已生成=${generatedPaths.length}/${count}张`);
   emit({ type: "task_success", taskId: ctx.taskId });
 
   return JSON.stringify({ assetId, imageCount: generatedPaths.length, imageIds: generatedPaths.map((p) => p.imageId) });

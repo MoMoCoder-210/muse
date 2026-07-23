@@ -60,7 +60,7 @@ export async function openLogDir(): Promise<void> {
 }
 
 /**
- * 列出所有项目
+ * 列出所有作品
  *
  */
 export async function listProjects(): Promise<ProjectInfo[]> {
@@ -68,7 +68,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
 }
 
 /**
- * 获取单个项目详情
+ * 获取单个作品详情
  *
  */
 export async function getProject(projectId: string): Promise<ProjectInfo> {
@@ -76,7 +76,7 @@ export async function getProject(projectId: string): Promise<ProjectInfo> {
 }
 
 /**
- * 创建新项目
+ * 创建新作品
  *
  */
 export async function createProject(input: CreateProjectInput): Promise<ProjectInfo> {
@@ -100,7 +100,7 @@ export async function importScript(input: ImportScriptInput): Promise<ImportScri
 }
 
 /**
- * 手动创建单个片段（无剧本归属）
+ * 手动创建单个分集（无剧本归属）
  *
  */
 export async function createClip(input: { project_id: string; title: string; source_text: string }): Promise<Clip> {
@@ -108,7 +108,7 @@ export async function createClip(input: { project_id: string; title: string; sou
 }
 
 /**
- * 列出项目下的所有片段
+ * 列出作品下的所有分集
  *
  */
 export async function listClips(projectId: string): Promise<Clip[]> {
@@ -124,7 +124,7 @@ export async function getScriptSource(projectId: string): Promise<ScriptSource |
 }
 
 /**
- * 列出项目所有剧本源
+ * 列出作品所有剧本源
  *
  */
 export async function listScriptSources(projectId: string): Promise<ScriptSourceListItem[]> {
@@ -132,14 +132,14 @@ export async function listScriptSources(projectId: string): Promise<ScriptSource
 }
 
 /**
- * 删除项目
+ * 删除作品
  *
  */
 export async function deleteProject(projectId: string, deleteFiles: boolean): Promise<FileDeletionResult> {
   return invoke<FileDeletionResult>("delete_project", { projectId, deleteFiles });
 }
 
-/** 新增片段级写操作 IPC */
+/** 新增分集级写操作 IPC */
 
 /** 所有删除命令共用的本地文件清理统计。 */
 export interface FileDeletionResult {
@@ -151,8 +151,8 @@ export interface FileDeletionResult {
 export type DeleteClipsResult = FileDeletionResult;
 
 /**
- * 批量软删除片段，支持单条（传长度1数组）或多条。
- * `deleteFiles` 默认关闭；开启时仅删除数据库记录引用的项目工作区内文件。
+ * 批量软删除分集，支持单条（传长度1数组）或多条。
+ * `deleteFiles` 默认关闭；开启时仅删除数据库记录引用的作品工作区内文件。
  */
 export async function deleteClips(clipIds: string[], deleteFiles = false): Promise<DeleteClipsResult> {
   return invoke<DeleteClipsResult>("delete_clips", {
@@ -161,7 +161,7 @@ export async function deleteClips(clipIds: string[], deleteFiles = false): Promi
 }
 
 /**
- * 更新片段标题/摘要/正文，返回更新后的片段
+ * 更新分集标题/摘要/正文，返回更新后的分集
  *
  */
 export async function updateClip(input: UpdateClipInput): Promise<Clip> {
@@ -169,7 +169,7 @@ export async function updateClip(input: UpdateClipInput): Promise<Clip> {
 }
 
 /**
- * 在指定字符位置把一个片段拆成两个，返回两段 id
+ * 在指定字符位置把一个分集拆成两个，返回两段 id
  *
  */
 export async function splitClip(input: SplitClipInput): Promise<SplitClipResult> {
@@ -217,11 +217,11 @@ export async function checkChannelPendingTasks(channelType: string): Promise<boo
   return invoke<boolean>("check_channel_pending_tasks", { channelType });
 }
 
-// ── 片段拆解 ──────────────────────────────────────────────
+// ── 分集拆解 ──────────────────────────────────────────────
 import type { ClipScriptInfo, GenerateClipScriptInput } from "../types/project";
 
 /**
- * 触发片段拆解任务
+ * 触发分集拆解任务
  *
  */
 export async function generateClipScript(input: GenerateClipScriptInput): Promise<{ task_id: string }> {
@@ -229,9 +229,9 @@ export async function generateClipScript(input: GenerateClipScriptInput): Promis
 }
 
 /**
- * 资产生图
+ * 素材生图
  *
- * 根据资产拆解阶段生成的 prompt 创建 image 生成任务。
+ * 根据素材拆解阶段生成的 prompt 创建 image 生成任务。
  *
  */
 export async function generateAssetImage(input: {
@@ -248,7 +248,7 @@ export async function generateAssetImage(input: {
 }
 
 /**
- * 重试失败的资产生图任务
+ * 重试失败的素材生图任务
  *
  * 将已有 failed 任务重置为 pending 并重新入队，在原记录上重试。
  */
@@ -259,7 +259,7 @@ export async function retryAssetImageTask(input: {
 }
 
 /**
- * 添加资产到片段拆解结果
+ * 添加素材到分集拆解结果
  *
  */
 export async function addAssetToClip(input: {
@@ -273,7 +273,7 @@ export async function addAssetToClip(input: {
 }
 
 /**
- * 更新资产的提示词与描述（按 clip_id + type + name 匹配）。
+ * 更新素材的提示词与描述（按 clip_id + type + name 匹配）。
  */
 export async function updateAssetInClip(input: {
   clip_id: string;
@@ -323,7 +323,7 @@ export async function checkVoicesCached(voiceIds: string[]): Promise<string[]> {
 }
 
 /**
- * 获取资产图片信息
+ * 获取素材图片信息
  *
  */
 export async function getAssetImageInfo(input: {
@@ -340,7 +340,7 @@ export async function getAssetImageInfo(input: {
 }
 
 /**
- * 批量获取片段下所有资产的选定图片路径
+ * 批量获取分集下所有素材的选定图片路径
  *
  * AssetPanel 快速渲染卡片缩略图用。
  *
@@ -352,7 +352,7 @@ export async function batchGetAssetSelectedImages(input: {
 }
 
 /**
- * 查询片段下正在生成图片的资产（实时展示「生成中」角标用）。
+ * 查询分集下正在生成图片的素材（实时展示「生成中」角标用）。
  */
 export async function batchGetAssetGenerating(input: {
   clip_id: string;
@@ -361,7 +361,7 @@ export async function batchGetAssetGenerating(input: {
 }
 
 /**
- * 导入本地图片到指定资产（复制到项目目录 + 注册 + 自动绑定）
+ * 导入本地图片到指定素材（复制到作品目录 + 注册 + 自动绑定）
  *
  */
 export async function importLocalAssetImage(input: {
@@ -374,7 +374,7 @@ export async function importLocalAssetImage(input: {
 }
 
 /**
- * 查询项目下指定类型的所有资产及其选中图片（资产选择器用）
+ * 查询作品下指定类型的所有素材及其选中图片（素材选择器用）
  *
  */
 export async function listProjectAssetImages(input: {
@@ -395,7 +395,7 @@ export async function listProjectAssetImages(input: {
 }
 
 /**
- * 从项目内另一个资产复制选中图片到当前资产
+ * 从作品内另一个素材复制选中图片到当前素材
  *
  */
 export async function copyAssetImageFrom(input: {
@@ -408,7 +408,7 @@ export async function copyAssetImageFrom(input: {
 }
 
 /**
- * 获取资产所有生成图片列表
+ * 获取素材所有生成图片列表
  *
  */
 export async function listAssetImages(input: {
@@ -427,7 +427,7 @@ export async function listAssetImages(input: {
 }
 
 /**
- * 获取资产图片+任务混合列表（含 pending / running / failed 任务）
+ * 获取素材图片+任务混合列表（含 pending / running / failed 任务）
  *
  * 供抽屉实时展示：已完成图片 + 进行中任务统一排序。
  *
@@ -450,7 +450,7 @@ export async function listAssetImageTasks(input: {
 }
 
 /**
- * 选中资产的指定图片作为最终使用图片
+ * 选中素材的指定图片作为最终使用图片
  *
  */
 export async function selectAssetImage(input: {
@@ -463,7 +463,7 @@ export async function selectAssetImage(input: {
 }
 
 /**
- * 删除单张资产图片（可选同时删除文件）
+ * 删除单张素材图片（可选同时删除文件）
  *
  */
 export async function deleteAssetImage(input: {
@@ -479,7 +479,7 @@ export async function deleteAssetImage(input: {
 export type ManagedFileDeletionResult = FileDeletionResult;
 
 /**
- * 从片段拆解结果中删除资产，可选清理项目工作区内关联的本地文件。
+ * 从分集拆解结果中删除素材，可选清理作品工作区内关联的本地文件。
  */
 export async function deleteAssetFromClip(input: {
   clip_id: string;
@@ -491,7 +491,7 @@ export async function deleteAssetFromClip(input: {
 }
 
 /**
- * 删除资产（批量）
+ * 删除素材（批量）
  *
  */
 export async function deleteAssets(assetIds: string[]): Promise<void> {
@@ -500,7 +500,7 @@ export async function deleteAssets(assetIds: string[]): Promise<void> {
 
 
 /**
- * 查询项目所有拆解记录（按 clip_id 去重，最新一条为准）
+ * 查询作品所有拆解记录（按 clip_id 去重，最新一条为准）
  *
  */
 export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[]> {
@@ -508,17 +508,17 @@ export async function getClipScripts(projectId: string): Promise<ClipScriptInfo[
 }
 
 /**
- * 取消片段拆解任务
+ * 取消分集拆解任务
  *
  */
 export async function cancelClipScript(clipId: string): Promise<void> {
   return invoke<void>("cancel_clip_script", { input: { clip_id: clipId } });
 }
 
-// ── 分镜 ─────────────────────────────────────────────────────────
+// ── 镜头 ─────────────────────────────────────────────────────────
 
 /**
- * 查询指定片段的分镜列表
+ * 查询指定分集的镜头列表
  *
  */
 export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
@@ -526,7 +526,7 @@ export async function listStoryboards(clipId: string): Promise<Storyboard[]> {
 }
 
 /**
- * 查询指定片段的所有资产（含绑定图片路径）
+ * 查询指定分集的所有素材（含绑定图片路径）
  *
  */
 export async function listClipAssets(
@@ -537,7 +537,7 @@ export async function listClipAssets(
 }
 
 /**
- * 更新分镜关联资产
+ * 更新镜头关联素材
  *
  */
 export async function updateStoryboardAssets(input: {
@@ -550,7 +550,7 @@ export async function updateStoryboardAssets(input: {
 }
 
 /**
- * 在当前片段末尾新增一个空白分镜
+ * 在当前分集末尾新增一个空白镜头
  *
  */
 export async function createStoryboard(input: {
@@ -561,7 +561,7 @@ export async function createStoryboard(input: {
 }
 
 /**
- * 在指定分镜后插入新分镜，自动重排序号
+ * 在指定镜头后插入新镜头，自动重排序号
  *
  */
 export async function insertStoryboard(input: {
@@ -573,7 +573,7 @@ export async function insertStoryboard(input: {
 }
 
 /**
- * 删除一个分镜及其关联记录；可选清理关联视频批次的工作区文件。
+ * 删除一个镜头及其关联记录；可选清理关联视频批次的工作区文件。
  */
 export async function deleteStoryboard(input: {
   storyboard_id: string;
@@ -583,7 +583,7 @@ export async function deleteStoryboard(input: {
 }
 
 /**
- * 更新分镜的视频生成参数与提示词（失焦保存）
+ * 更新镜头的视频生成参数与提示词（失焦保存）
  *
  */
 export async function updateStoryboardParams(input: {
@@ -594,7 +594,7 @@ export async function updateStoryboardParams(input: {
   return invoke<void>("update_storyboard_params", { input });
 }
 
-/** 提交一个分镜视频生成任务。入队时后端会冻结当前提示词和参数快照。 */
+/** 提交一个镜头视频生成任务。入队时后端会冻结当前提示词和参数快照。 */
 export async function generateStoryboardVideo(input: {
   storyboard_id: string;
 }): Promise<{ task_id: string }> {
@@ -602,7 +602,7 @@ export async function generateStoryboardVideo(input: {
 }
 
 /**
- * 实时更新分镜时长（秒），写回分镜记录本身。
+ * 实时更新镜头时长（秒），写回镜头记录本身。
  */
 export async function updateStoryboardDuration(input: {
   storyboard_id: string;
@@ -638,7 +638,7 @@ export interface StoryboardVideoInfo {
   duration: number | null;
 }
 
-/** 分镜视频的未完成或失败任务，可在组件重挂载后恢复批次状态。 */
+/** 镜头视频的未完成或失败任务，可在组件重挂载后恢复批次状态。 */
 export interface StoryboardVideoTaskInfo {
   task_id: string;
   status: "pending" | "running" | "failed";
@@ -677,7 +677,7 @@ export async function deleteStoryboardVideo(input: {
 
 // ── 视频拼接 ─────────────────────────────────────────────
 
-/** 可拼接的分镜视频片段（含选中视频路径、时长） */
+/** 可拼接的镜头视频分集（含选中视频路径、时长） */
 export interface ConcatSegment {
   seq: number;
   clip_title: string;
@@ -704,7 +704,7 @@ export interface ConcatProgressEvent {
   stage: string;
 }
 
-/** 查询片段下「已选中分镜视频」的有序列表 */
+/** 查询分集下「已选中镜头视频」的有序列表 */
 export async function listClipConcatVideos(clipId: string): Promise<ConcatSegment[]> {
   return invoke<ConcatSegment[]>("list_clip_concat_videos", { clipId });
 }
@@ -738,7 +738,7 @@ export interface ConcatOutputRow {
   created_at: string;
 }
 
-/** 查询指定片段的所有拼接成片 */
+/** 查询指定分集的所有拼接成片 */
 export async function listConcatOutputs(clipId: string): Promise<ConcatOutputRow[]> {
   return invoke<ConcatOutputRow[]>("list_concat_outputs", { clipId });
 }

@@ -81,14 +81,14 @@ export type ImportScriptResult = {
   source_id: string;
 };
 
-/** 新增片段级写操作类型 */
+/** 新增分集级写操作类型 */
 
-/** 批量删除片段（软删除） */
+/** 批量删除分集（软删除） */
 export type DeleteClipsInput = {
   clip_ids: string[];
 };
 
-/** 更新片段，三个内容字段均可选，传哪个改哪个 */
+/** 更新分集，三个内容字段均可选，传哪个改哪个 */
 export type UpdateClipInput = {
   clip_id: string;
   title?: string;
@@ -111,7 +111,7 @@ export type SplitClipResult = {
 
 export type AssetType = "character" | "scene" | "item";
 
-/** 角色绑定的声音（公共音色或本地上传） */
+/** 人物绑定的声音（公共音色或本地上传） */
 export type VoiceBinding =
   | { source: "public"; voiceId: string; label: string; arkFileId?: string }
   | { source: "local"; filePath: string; label: string; arkFileId?: string };
@@ -122,7 +122,7 @@ export type AssetResource = {
   description: string;
   prompt: string;
   tags?: string[];
-  /** 角色资产可绑定声音（公共音色 / 本地上传），场景与物品无此字段 */
+  /** 人物素材可绑定声音（公共音色 / 本地上传），场景与道具无此字段 */
   voiceBinding?: VoiceBinding;
 };
 
@@ -144,19 +144,19 @@ export type GenerateClipScriptInput = {
   clip_id: string;
 };
 
-/** 分镜状态 */
+/** 镜头状态 */
 export type StoryboardState = "pending" | "running" | "ready" | "failed" | "invalidated";
 
-/** 分镜数据（对应 storyboards 表） */
+/** 镜头数据（对应 storyboards 表） */
 export type StoryboardMention = {
-  /** 稳定的本分镜图片编号 N */
+  /** 稳定的本镜头图片编号 N */
   n: number;
   assetId: string;
   name: string;
   type: AssetType | string;
   /** 当前选定图片的本地路径；仅供前端预览，视频任务使用 ark_file_id */
   imagePath?: string | null;
-  /** 完整、可精确匹配的标记：资产名(@图片N) */
+  /** 完整、可精确匹配的标记：素材名(@图片N) */
   assetTag: string;
 };
 
@@ -190,11 +190,11 @@ export type Storyboard = {
   dialogue: string;
   visual_description: string;
   video_prompt: string;
-  /** JSON 数组字符串 — 关联角色资产 ID */
+  /** JSON 数组字符串 — 关联人物素材 ID */
   character_ids_json: string;
-  /** JSON 数组字符串 — 关联场景资产 ID */
+  /** JSON 数组字符串 — 关联场景素材 ID */
   scene_ids_json: string;
-  /** JSON 数组字符串 — 关联物品资产 ID */
+  /** JSON 数组字符串 — 关联道具素材 ID */
   item_ids_json: string;
   image_param_json: string | null;
   video_param_json: string | null;
@@ -204,23 +204,23 @@ export type Storyboard = {
   video_state: StoryboardState;
   voice_path: string | null;
   voice_duration: number | null;
-  /** 分镜时长（秒），由模型拆解或手动调整写回 */
+  /** 镜头时长（秒），由模型拆解或手动调整写回 */
   video_duration: number | null;
   /** 当前选中的 storyboard_videos.id */
   selected_video_id: string | null;
 };
 
-/** 分镜关联的资产简要信息（含绑定图片路径） */
+/** 镜头关联的素材简要信息（含绑定图片路径） */
 export type StoryboardAssetInfo = {
   asset_id: string;
   type: AssetType;
   name: string;
   description: string;
   prompt: string;
-  /** 资产选定的图片路径（可能为 null） */
+  /** 素材选定的图片路径（可能为 null） */
   selected_image_path: string | null;
-  /** 指定 storyboard 查询时由后端按该分镜 mention_map 注入；未引用为 null。 */
+  /** 指定 storyboard 查询时由后端按该镜头 mention_map 注入；未引用为 null。 */
   index?: number | null;
-  /** 完整引用文本：资产名(@图片N)，用于精确匹配为一个胶囊。 */
+  /** 完整引用文本：素材名(@图片N)，用于精确匹配为一个胶囊。 */
   assetTag?: string | null;
 };

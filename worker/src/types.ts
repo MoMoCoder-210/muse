@@ -10,11 +10,11 @@ export const PROTOCOL_VERSION = 1 as const;
 export type TaskType =
   | "split_script"          // 剧本拆分
   | "generate_clip_script"  // 剧本理解
-  | "generate_asset_image"  // 资产生图
-  | "generate_storyboard"   // 分镜生成
+  | "generate_asset_image"  // 素材生图
+  | "generate_storyboard"   // 镜头生成
   | "generate_voice"        // 语音生成
   | "generate_video"        // 视频生成
-  | "import_storyboard_voice" // 导入分镜语音
+  | "import_storyboard_voice" // 导入镜头语音
   | "export_video"          // 导出成片
   | "concat_video";        // 视频拼接
 
@@ -44,13 +44,13 @@ export type TaskEvent =
   | { type: "worker_failed"; message: string }
   | { type: "quota_exhausted"; apiType: ApiType; message: string }
   | { type: "quota_resumed"; apiType: ApiType }
-  /** 资产生图进度推送（供前端实时刷新生成中状态） */
+  /** 素材生图进度推送（供前端实时刷新生成中状态） */
   | { type: "asset_image_progress"; clipId: string; assetType: string; name: string; status: "running" | "success" | "failed" }
-  /** 单张资产生成图片状态更新（供 AssetDrawer 画廊即时刷新） */
+  /** 单张素材生成图片状态更新（供 AssetDrawer 画廊即时刷新） */
   | { type: "asset_image_task_update"; clipId: string; assetType: string; name: string; imageId: string; status: "ready" | "failed" }
-  /** 片段拆解任务完成/失败（供片段列表即时刷新） */
+  /** 分集拆解任务完成/失败（供分集列表即时刷新） */
   | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string }
-  /** 分镜视频任务完成/失败（供分镜视频批次即时刷新） */
+  /** 镜头视频任务完成/失败（供镜头视频批次即时刷新） */
   | { type: "storyboard_video_ready"; taskId: string; projectId: string; clipId: string; storyboardId: string; status: "success" | "failed"; errorMessage?: string };
 
 // ===== 批量进度事件 =====

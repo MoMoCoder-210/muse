@@ -1,13 +1,13 @@
-//! 项目相关命令
+//! 作品相关命令
 
 use crate::commands::util;
 use crate::sidecar::SharedSidecarManager;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-/// 删除项目工作区中的文件并统计实际结果；目录本身不计入文件数量。
+/// 删除作品工作区中的文件并统计实际结果；目录本身不计入文件数量。
 ///
-/// 仅用于删除该项目所属工作区。符号链接按文件删除，不会递归进入其指向的位置。
+/// 仅用于删除该作品所属工作区。符号链接按文件删除，不会递归进入其指向的位置。
 fn delete_project_workspace_files(
     workspace_path: &str,
 ) -> crate::commands::clip::DeleteClipsResult {
@@ -77,7 +77,7 @@ fn delete_project_workspace_files(
     result
 }
 
-/// 创建项目输入参数
+/// 创建作品输入参数
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
     pub name: String,
@@ -87,7 +87,7 @@ pub struct CreateProjectInput {
     pub style_mode: Option<String>,
 }
 
-/// 项目信息
+/// 作品信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub id: String,
@@ -105,7 +105,7 @@ pub fn prepare_app_runtime(app: &tauri::AppHandle) -> Result<(), String> {
     util::ensure_project_schema(&db_path, app)
 }
 
-/// 创建新项目
+/// 创建新作品
 #[tauri::command]
 pub fn create_project(
     input: CreateProjectInput,
@@ -135,10 +135,10 @@ pub fn create_project(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     crate::project_log::append_log(
         &log_path,
-        "项目",
+        "作品",
         "INFO",
         &format!(
-            "创建项目 name={} mode={} style={}",
+            "创建作品 name={} mode={} style={}",
             input.name, input_mode, style_mode
         ),
     );
@@ -178,9 +178,9 @@ pub fn create_project(
     .map_err(|e| format!("Failed to write manifest.json: {}", e))?;
     crate::project_log::append_log(
         &log_path,
-        "项目",
+        "作品",
         "INFO",
-        &format!("项目已创建 projectId={}", project_id),
+        &format!("作品已创建 projectId={}", project_id),
     );
 
     Ok(ProjectInfo {
@@ -195,7 +195,7 @@ pub fn create_project(
     })
 }
 
-/// 获取项目详情
+/// 获取作品详情
 #[tauri::command]
 pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectInfo, String> {
     let conn = util::open_app_conn(&app)?;
@@ -218,17 +218,17 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
     )
     .map_err(|e| e.to_string())?;
 
-    // 动态扩展 asset 协议作用域，确保前端能访问该项目的工作区文件
+    // 动态扩展 asset 协议作用域，确保前端能访问该作品的工作区文件
     log::info!("asset scope: get_project 扩展作用域 -> {:?}", project.workspace_path);
     match app.asset_protocol_scope().allow_directory(&project.workspace_path, true) {
-        Ok(_) => log::info!("asset scope: 已添加项目工作区 {:?}", project.workspace_path),
-        Err(e) => log::warn!("asset scope: 无法添加项目工作区 {:?}: {}", project.workspace_path, e),
+        Ok(_) => log::info!("asset scope: 已添加作品工作区 {:?}", project.workspace_path),
+        Err(e) => log::warn!("asset scope: 无法添加作品工作区 {:?}: {}", project.workspace_path, e),
     }
 
     Ok(project)
 }
 
-/// 列出所有项目
+/// 列出所有作品
 #[tauri::command]
 pub fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> {
     let conn = util::open_app_conn(&app)?;
@@ -283,7 +283,7 @@ pub fn stop_worker(state: tauri::State<'_, SharedSidecarManager>) -> Result<(), 
     Ok(())
 }
 
-/// 删除项目及关联数据
+/// 删除作品及关联数据
 #[tauri::command]
 pub fn delete_project(
     project_id: String,
@@ -299,8 +299,8 @@ pub fn delete_project(
 
     let mut conn = util::open_app_conn(&app)?;
 
-    // ── 先取消 Worker 中该项目的 running 任务，避免写入冲突 ──
-    // 查出该项目所有 running 状态的任务 ID
+    // ── 先取消 Worker 中该作品的 running 任务，避免写入冲突 ──
+    // 查出该作品所有 running 状态的任务 ID
     let running_task_ids: Vec<String> = {
         let mut stmt = conn
             .prepare("SELECT id FROM tasks WHERE project_id = ?1 AND status = 'running'")
@@ -318,7 +318,7 @@ pub fn delete_project(
         if let Err(e) = util::send_cancel_to_worker(&state, task_id) {
             crate::project_log::append_log(
                 &log_path,
-                "项目",
+                "作品",
                 "WARN",
                 &format!("取消运行中任务失败（任务可能已完成）：{}", e),
             );
@@ -474,7 +474,7 @@ pub fn delete_project(
                 &log_path,
                 "拆解",
                 "INFO",
-                &format!("片段拆解任务已取消（共{}个）", clip_task_count),
+                &format!("分集拆解任务已取消（共{}个）", clip_task_count),
             );
         }
 
@@ -487,9 +487,9 @@ pub fn delete_project(
             // 事务自动 rollback，记录错误
             crate::project_log::append_log(
                 &log_path,
-                "项目",
+                "作品",
                 "ERROR",
-                &format!("删除项目事务失败，已回滚：{}", e),
+                &format!("删除作品事务失败，已回滚：{}", e),
             );
             return Err(e);
         }
@@ -497,10 +497,10 @@ pub fn delete_project(
 
     crate::project_log::append_log(
         &log_path,
-        "项目",
+        "作品",
         "INFO",
         &format!(
-            "项目已删除：projectId={} deleteFiles={}",
+            "作品已删除：projectId={} deleteFiles={}",
             project_id, delete_files
         ),
     );
@@ -515,7 +515,7 @@ pub fn delete_project(
         };
         crate::project_log::append_log(
             &log_path,
-            "项目",
+            "作品",
             level,
             &format!(
                 "工作区文件清理完成：已删除 {}，失败 {}，workspace={}",

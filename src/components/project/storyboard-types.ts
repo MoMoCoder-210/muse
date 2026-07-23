@@ -1,15 +1,15 @@
 /**
- * 分镜模块共享类型与常量
+ * 镜头模块共享类型与常量
  */
 import type { Storyboard, StoryboardAssetInfo, AssetType } from "../../types/project";
 import type { StoryboardVideoInfo } from "../../services/tauri";
 
-// ── 资产分类 ──────────────────────────────────────────
+// ── 素材分类 ──────────────────────────────────────────
 
 export const CATS: { type: AssetType; label: string; icon: string }[] = [
-  { type: "character", label: "角色", icon: "👤" },
+  { type: "character", label: "人物", icon: "👤" },
   { type: "scene", label: "场景", icon: "🏞" },
-  { type: "item", label: "物品", icon: "📦" },
+  { type: "item", label: "道具", icon: "📦" },
 ];
 
 // ── 视频任务状态 ──────────────────────────────────────
@@ -50,14 +50,14 @@ export type DetailProps = {
   videoModels: Record<string, string[]>;
   onToggle: (a: StoryboardAssetInfo) => void;
   onBatchToggle: (sb: Storyboard, ids: { character: Set<string>; scene: Set<string>; item: Set<string> }) => Promise<void>;
-  /** 实时写回分镜时长的回调（分镜记录上的秒数，可编辑） */
+  /** 实时写回镜头时长的回调（镜头记录上的秒数，可编辑） */
   onDurationWrite: (sb: Storyboard, duration: number | null) => void;
   /** 视频变更后同步 dataMap/videosMap → 底部缩略图条即时刷新 */
   onVideoRefresh: (sbId: string) => void;
-  /** 当前分镜尚未落库为真实视频的生成批次。 */
+  /** 当前镜头尚未落库为真实视频的生成批次。 */
   videoTaskStates: VideoTaskState[];
   /** 成功入队后立即创建前端临时视频批次。 */
   onVideoTaskQueued: (storyboardId: string, taskId: string) => void;
-  /** 片段中已有绑定视频时锁定的分辨率+宽高比；null 表示未锁定 */
+  /** 分集中已有绑定视频时锁定的分辨率+宽高比；null 表示未锁定 */
   lockedRatio: { resolution: string; aspect_ratio: string } | null;
 };

@@ -1,4 +1,4 @@
-//! 项目日志模块
+//! 作品日志模块
 
 use chrono::Datelike;
 use chrono::Timelike;

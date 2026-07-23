@@ -59,7 +59,7 @@ function sendMessage(msg: WorkerMessage): void {
 }
 
 /**
- * 发送日志（统一通过 stdout 转发到 Rust 项目日志，避免双写）
+ * 发送日志（统一通过 stdout 转发到 Rust 作品日志，避免双写）
  */
 function sendLog(level: "info" | "warn" | "error", message: string): void {
   sendMessage({ version: PROTOCOL_VERSION, msg: "log", level, message });
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
       logLine("主进程", "INFO", `已恢复 ${recoveredTasks} 个前一 Worker 遗留任务`);
     }
 
-    // 清理已删除片段的孤儿任务
+    // 清理已删除分集的孤儿任务
     const orphanTasks = db.prepare(`
       DELETE FROM tasks WHERE type = 'generate_clip_script'
       AND status IN ('pending', 'running')
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
       )
     `).run();
     if (orphanTasks.changes > 0) {
-      logLine("主进程", "INFO", `已清理 ${orphanTasks.changes} 个孤儿拆解任务（片段已删除）`);
+      logLine("主进程", "INFO", `已清理 ${orphanTasks.changes} 个孤儿拆解任务（分集已删除）`);
     }
 
     const pendingCount = db.prepare("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").get() as { cnt: number };

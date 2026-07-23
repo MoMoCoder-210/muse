@@ -38,7 +38,7 @@
   --spacing-xl:           20px;
   --spacing-2xl:          24px;
   --spacing-3xl:          32px;
-  --spacing-toolbar-gap:  14px;  /* 工具栏按钮间隙（片段/资产管理共有模式） */
+  --spacing-toolbar-gap:  14px;  /* 工具栏按钮间隙（分集/素材管理共有模式） */
 
   /* 高透明度 hover / 卡片背景（供 rgba 组合使用） */
   --bg-hover-subtle:      rgba(255, 255, 255, 0.04);
@@ -89,7 +89,7 @@
   --accent-primary-rgb:   0, 113, 227;
   --border-accent-rgb:    10, 132, 255;
 
-  /* ── 资产类型颜色（角色/场景/物品） ── */
+  /* ── 素材类型颜色（人物/场景/道具） ── */
   --asset-character:        #fdba74;
   --asset-character-rgb:    253, 186, 116;
   --asset-character-dot:    #f97316;

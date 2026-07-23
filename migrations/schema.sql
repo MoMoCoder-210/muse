@@ -5,7 +5,7 @@
 -- ============================================================================
 
 -- ============================================================================
--- 1. projects — 项目主表
+-- 1. projects — 作品主表
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS projects (
     style_mode                TEXT NOT NULL DEFAULT '国漫',
     -- active | archived | failed
     status                    TEXT NOT NULL DEFAULT 'active',
-    -- 聚合值（所有片段中最慢的步骤）
+    -- 聚合值（所有分集中最慢的步骤）
     current_step              TEXT NOT NULL DEFAULT 'project',
     -- asset | storyboard | voice | video | export
     stop_step                 TEXT,
@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_script_sources_project
 
 
 -- ============================================================================
--- 3. clips — 片段
+-- 3. clips — 分集
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS clips (
@@ -83,14 +83,14 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE INDEX IF NOT EXISTS idx_clips_project_sort
     ON clips(project_id, sort_index);
 
--- 部分索引：仅覆盖未删除片段
+-- 部分索引：仅覆盖未删除分集
 CREATE INDEX IF NOT EXISTS idx_clips_project_alive
     ON clips(project_id, sort_index)
     WHERE deleted_at IS NULL;
 
 
 -- ============================================================================
--- 4. clip_scripts — 片段剧本（模型分析结果）
+-- 4. clip_scripts — 分集剧本（模型分析结果）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS clip_scripts (
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS clip_scripts (
     optimized_text           TEXT,
     script_summary           TEXT,
     raw_model_output         TEXT,
-    -- 模型抽取的候选资源 JSON（角色 / 场景 / 道具）
+    -- 模型抽取的候选资源 JSON（人物 / 场景 / 道具）
     extracted_resources_json TEXT,
     -- RS | TS | ZH
     mode                     TEXT,
@@ -119,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_clip_scripts_clip
 
 
 -- ============================================================================
--- 5. assets — 资产（角色 / 场景 / 道具）
+-- 5. assets — 素材（人物 / 场景 / 道具）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS assets (
@@ -151,7 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_assets_clip
 
 
 -- ============================================================================
--- 5.1 asset_images — 资产生成图片（一个资产可生成多张）
+-- 5.1 asset_images — 素材生成图片（一个素材可生成多张）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS asset_images (
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS public_voices (
 
 
 -- ============================================================================
--- 6. storyboards — 分镜
+-- 6. storyboards — 镜头
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS storyboards (
@@ -237,7 +237,7 @@ CREATE INDEX IF NOT EXISTS idx_storyboards_project
 
 
 -- ============================================================================
--- 6.1 storyboard_videos — 分镜视频（任务生成 + 手动上传）
+-- 6.1 storyboard_videos — 镜头视频（任务生成 + 手动上传）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS storyboard_videos (
@@ -257,7 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_sv_storyboard
 
 
 -- ============================================================================
--- 7. storyboard_assets — 分镜-资产关联
+-- 7. storyboard_assets — 镜头-素材关联
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS storyboard_assets (
@@ -357,7 +357,7 @@ CREATE INDEX IF NOT EXISTS idx_exports_project
 
 
 -- ============================================================================
--- 11. concat_outputs — 片段视频拼接成片记录（绑定 clip_id）
+-- 11. concat_outputs — 分集视频拼接成片记录（绑定 clip_id）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS concat_outputs (

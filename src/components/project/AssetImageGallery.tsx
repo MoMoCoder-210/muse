@@ -30,15 +30,15 @@ export type GalleryImage = {
 };
 
 type AssetImageGalleryProps = {
-  /** 该资产的所有图片+任务（含 pending / running / failed） */
+  /** 该素材的所有图片+任务（含 pending / running / failed） */
   images: GalleryImage[];
   /** 全局加载状态（初始拉取时） */
   status: "loading" | "ready" | "failed" | "none";
   /** 占位图标（无图时显示） */
   placeholderIcon?: string;
-  /** 资产名称（用于 alt） */
+  /** 素材名称（用于 alt） */
   altName: string;
-  /** 资产类型中文标签，如 "角色" / "场景" / "物品" */
+  /** 素材类型中文标签，如 "人物" / "场景" / "道具" */
   assetTypeLabel?: string;
   /** 选中某张图片回调 */
   onSelect?: (imageId: string) => void;
@@ -48,7 +48,7 @@ type AssetImageGalleryProps = {
   onRetry?: (taskId: string) => void;
   /** 选择本地图片回调 */
   onSelectLocal?: () => Promise<void>;
-  /** 从项目内其他资产选择图片回调 */
+  /** 从作品内其他素材选择图片回调 */
   onSelectFromProject?: () => void;
   /** 是否正在导入本地图片 */
   importing?: boolean;
@@ -56,7 +56,7 @@ type AssetImageGalleryProps = {
 };
 
 /**
- * 资产图片预览组件
+ * 素材图片预览组件
  *
  */
 export function AssetImageGallery({
@@ -102,7 +102,7 @@ export function AssetImageGallery({
     setActiveIndex((i) => (i < images.length - 1 ? i + 1 : 0));
   };
 
-  // 判断画廊是否有任何可展示的项目
+  // 判断画廊是否有任何可展示的作品
   const hasItems = images.length > 0;
   const showGlobalLoading = !hasItems && globalStatus === "loading";
 
@@ -151,7 +151,7 @@ export function AssetImageGallery({
       return <span className="asset-gallery-placeholder">{placeholderIcon}</span>;
     }
 
-    // 有项目：根据当前选中项的 status 渲染不同内容
+    // 有作品：根据当前选中项的 status 渲染不同内容
     if (!currentImage) {
       return <span className="asset-gallery-placeholder">{placeholderIcon}</span>;
     }
@@ -342,7 +342,7 @@ export function AssetImageGallery({
         ) : null}
       </div>
 
-      {/* 选择图片按钮行：本地图片 + 项目内其他资产 */}
+      {/* 选择图片按钮行：本地图片 + 作品内其他素材 */}
       {(onSelectLocal || onSelectFromProject) && (
         <div className="asset-gallery-local-row">
           {onSelectFromProject && (

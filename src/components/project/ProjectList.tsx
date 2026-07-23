@@ -8,7 +8,7 @@ type ProjectListProps = {
   onRequestDelete: (project: ProjectInfo) => void;
 };
 
-/** 取项目名首字作为图标文字 */
+/** 取作品名首字作为图标文字 */
 function iconLetter(name: string): string {
   const ch = name.trim().charAt(0);
   return ch || "?";
@@ -32,13 +32,13 @@ function styleColor(mode: string): { bg: string; text: string } {
 }
 
 /**
- * 项目列表 — macOS Finder 风格
+ * 作品列表 — macOS Finder 风格
  *
  * 左侧彩色头像图标 + 主信息区 + hover 时显示删除按钮
  */
 export function ProjectList({ projects, selectedProjectId, onSelect, onRequestDelete }: ProjectListProps) {
   if (projects.length === 0) {
-    return <div className="empty-panel">还没有项目，先创建一个吧。</div>;
+    return <div className="empty-panel">还没有作品，先创建一个吧。</div>;
   }
 
   return (
@@ -91,12 +91,12 @@ export function ProjectList({ projects, selectedProjectId, onSelect, onRequestDe
             <button
               type="button"
               className="project-item__delete"
-              title="删除项目"
+              title="删除作品"
               onClick={(e) => {
                 e.stopPropagation();
                 onRequestDelete(project);
               }}
-              aria-label="删除项目"
+              aria-label="删除作品"
             >
               <svg width="12" height="13" viewBox="0 0 12 13" fill="none">
                 <path

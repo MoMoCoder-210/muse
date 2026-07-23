@@ -21,10 +21,10 @@ export function HomePage({ version, onCreateProject, onGoToProjects }: HomePageP
 
         <div className="home-actions">
           <button type="button" className="primary-button" onClick={onCreateProject}>
-            创建项目
+            创建作品
           </button>
           <button type="button" className="secondary-button" onClick={onGoToProjects}>
-            项目管理
+            作品管理
           </button>
         </div>
 

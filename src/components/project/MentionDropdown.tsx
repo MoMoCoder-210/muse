@@ -1,7 +1,7 @@
 /**
- * @mention 资产选择下拉组件。
+ * @mention 素材选择下拉组件。
  *
- * 由 Tiptap suggestion 的 clientRect 定位，选中后插入资产引用节点。
+ * 由 Tiptap suggestion 的 clientRect 定位，选中后插入素材引用节点。
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
@@ -19,12 +19,12 @@ export interface AssetMention {
   assetTag: string;
   /** 图片序号 N */
   index: number;
-  /** 资产是否已被删除（仅渲染标记，不持久化） */
+  /** 素材是否已被删除（仅渲染标记，不持久化） */
   deleted?: boolean;
 }
 
 interface Props {
-  /** 可被引用的资产列表 */
+  /** 可被引用的素材列表 */
   assets: AssetMention[];
   /** 是否显示下拉 */
   isOpen: boolean;
@@ -36,9 +36,9 @@ interface Props {
   onSelect: (asset: AssetMention) => void;
   /** 关闭回调 */
   onClose: () => void;
-  /** 下一个可用序号（用于尚未引用的资产） */
+  /** 下一个可用序号（用于尚未引用的素材） */
   nextIndex: number;
-  /** assetId -> 已分配序号（已在 prompt 中引用过的资产，选择时复用此序号） */
+  /** assetId -> 已分配序号（已在 prompt 中引用过的素材，选择时复用此序号） */
   existingIndexMap?: Map<string, number>;
 }
 
@@ -49,9 +49,9 @@ const typeIcons: Record<string, string> = {
 };
 
 const typeLabels: Record<string, string> = {
-  character: "角色",
+  character: "人物",
   scene: "场景",
-  item: "物品",
+  item: "道具",
 };
 
 export function MentionDropdown({
@@ -189,7 +189,7 @@ export function MentionDropdown({
     >
       {groups.length === 0 ? (
         <div className="mention-empty">
-          {filter.trim() ? `没有匹配 "${filter}" 的资产` : "暂无可用资产"}
+          {filter.trim() ? `没有匹配 "${filter}" 的素材` : "暂无可用素材"}
         </div>
       ) : (
         groups.map((g, gi) => {

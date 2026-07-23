@@ -15,9 +15,9 @@ type ProjectWorkspaceProps = {
 };
 
 /**
- * 项目工作区主视图
+ * 作品工作区主视图
  *
- * 管理 4 个工作流阶段：片段管理 → 资产管理 → 分镜管理 → 视频编辑。
+ * 管理 4 个工作流阶段：分集管理 → 素材管理 → 镜头管理 → 视频编辑。
  * 通过轮询 clipScripts 驱动后续阶段的禁用/启用状态。
  */
 export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
@@ -26,7 +26,7 @@ export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
   const [showCreateClip, setShowCreateClip] = useState(false);
   const [clipRefreshKey, setClipRefreshKey] = useState(0);
 
-  // 切项目时重置
+  // 切作品时重置
   useEffect(() => {
     setActiveStep(0);
     setShowCreateClip(false);
@@ -61,7 +61,7 @@ export function ProjectWorkspace({ project }: ProjectWorkspaceProps) {
   if (!project) {
     return (
       <div className="empty-workspace">
-        <h2>选择或创建一个项目开始工作</h2>
+        <h2>选择或创建一个作品开始工作</h2>
       </div>
     );
   }

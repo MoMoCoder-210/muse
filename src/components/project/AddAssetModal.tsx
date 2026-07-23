@@ -2,9 +2,9 @@ import { useState } from "react";
 import type { AssetType } from "../../types/project";
 
 const TYPE_LABELS: Record<AssetType, string> = {
-  character: "角色",
+  character: "人物",
   scene: "场景",
-  item: "物品",
+  item: "道具",
 };
 
 export type AddAssetInput = {
@@ -15,7 +15,7 @@ export type AddAssetInput = {
 };
 
 type AddAssetModalProps = {
-  /** 预置的资产类型，从哪个分类打开就添加哪种类型 */
+  /** 预置的素材类型，从哪个分类打开就添加哪种类型 */
   assetType: AssetType;
   onConfirm: (input: AddAssetInput) => void;
   onCancel: () => void;
@@ -23,9 +23,9 @@ type AddAssetModalProps = {
 };
 
 /**
- * 添加资产弹窗。
+ * 添加素材弹窗。
  *
- * 资产类型由调用方指定，堆叠式表单布局。
+ * 素材类型由调用方指定，堆叠式表单布局。
  *
  */
 export function AddAssetModal({ assetType, onConfirm, onCancel, disabled }: AddAssetModalProps) {

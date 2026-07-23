@@ -54,8 +54,8 @@ function cardStyle(ar: number): React.CSSProperties {
 }
 
 /**
- * 根据选中片段自动生成输出文件名：片段名（clip_title）+ 段数 + 时间戳，
- * 保证唯一且无需用户手动输入。中文片段名会被后端保留。
+ * 根据选中分集自动生成输出文件名：分集名（clip_title）+ 段数 + 时间戳，
+ * 保证唯一且无需用户手动输入。中文分集名会被后端保留。
  */
 function buildOutputName(segs: SegType[]): string {
   if (segs.length === 0) return "";
@@ -75,7 +75,7 @@ export function VideoEditorPage({ project }: Props) {
   const [clipId, setClipId] = useState<string | null>(null);
   const [loadingClips, setLoadingClips] = useState(true);
 
-  // ── 左侧片段栏：常驻展开，可点击收起 ──
+  // ── 左侧分集栏：常驻展开，可点击收起 ──
   const [railCollapsed, setRailCollapsed] = useState(false);
   const toggleRail = useCallback(() => setRailCollapsed((v) => !v), []);
 
@@ -278,7 +278,7 @@ export function VideoEditorPage({ project }: Props) {
     );
   };
 
-  // ── 加载片段列表（仅已拆解） ──
+  // ── 加载分集列表（仅已拆解） ──
   const loadClips = useCallback(() => {
     if (!project) return;
     setLoadingClips(true);
@@ -292,13 +292,13 @@ export function VideoEditorPage({ project }: Props) {
             : (decomposed[0]?.id ?? null),
         );
       })
-      .catch(() => toast("加载片段失败", "error"))
+      .catch(() => toast("加载分集失败", "error"))
       .finally(() => setLoadingClips(false));
   }, [project?.id, toast]);
 
   useEffect(() => { loadClips(); }, [loadClips]);
 
-  // 监听拆解完成事件，实时刷新片段列表
+  // 监听拆解完成事件，实时刷新分集列表
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
@@ -314,7 +314,7 @@ export function VideoEditorPage({ project }: Props) {
       .catch(() => setFfmpegOk(false));
   }, []);
 
-  // ── 加载选中片段的可拼接视频 + 已存成片 ──
+  // ── 加载选中分集的可拼接视频 + 已存成片 ──
   useEffect(() => {
     if (!clipId) {
       setSegments([]);
@@ -330,12 +330,12 @@ export function VideoEditorPage({ project }: Props) {
         setSegments(list.map((s) => ({ ...s, enabled: true })));
       })
       .catch(() => {
-        if (!cancelled) toast("加载分镜视频失败", "error");
+        if (!cancelled) toast("加载镜头视频失败", "error");
       })
       .finally(() => {
         if (!cancelled) setLoadingSegs(false);
       });
-    // 同时加载该片段已保存的成片
+    // 同时加载该分集已保存的成片
     listConcatOutputs(clipId)
       .then((rows) => {
         if (cancelled) return;
@@ -583,7 +583,7 @@ export function VideoEditorPage({ project }: Props) {
 
   return (
     <div className="rail-layout ve-layout">
-      {/* ── 左侧片段栏（常驻，可点击收起） ── */}
+      {/* ── 左侧分集栏（常驻，可点击收起） ── */}
       <div
         className={`rail-clips${railCollapsed ? " is-collapsed" : " is-expanded"}`}
       >
@@ -596,12 +596,12 @@ export function VideoEditorPage({ project }: Props) {
                 <line x1="9" y1="21" x2="9" y2="9" />
               </svg>
             </span>
-            <span className="rail-clips-head-text">片段列表</span>
+            <span className="rail-clips-head-text">分集列表</span>
           </div>
           {loadingClips ? (
             <p className="rail-clips-empty">加载中…</p>
           ) : showEmpty ? (
-            <p className="rail-clips-empty">暂无片段</p>
+            <p className="rail-clips-empty">暂无分集</p>
           ) : (
             <div className="rail-clips-list">
               {clips.map((c) => {
@@ -627,8 +627,8 @@ export function VideoEditorPage({ project }: Props) {
           type="button"
           className="rail-clips-toggle"
           onClick={toggleRail}
-          title={railCollapsed ? "展开片段列表" : "收起片段列表"}
-          aria-label={railCollapsed ? "展开片段列表" : "收起片段列表"}
+          title={railCollapsed ? "展开分集列表" : "收起分集列表"}
+          aria-label={railCollapsed ? "展开分集列表" : "收起分集列表"}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <path d={railCollapsed ? "M6 4L10 8L6 12" : "M10 4L6 8L10 12"} />
@@ -661,7 +661,7 @@ export function VideoEditorPage({ project }: Props) {
                     </svg>
                   </span>
                   <div className="ve-strip-title-texts">
-                    <span className="ve-strip-title">分镜视频</span>
+                    <span className="ve-strip-title">镜头视频</span>
                     <span className="ve-strip-sub">按此顺序拼接 · 可拖拽排序</span>
                   </div>
                 </div>
@@ -702,7 +702,7 @@ export function VideoEditorPage({ project }: Props) {
               {loadingSegs ? (
                 <div className="ve-strip-empty">加载中…</div>
               ) : segments.length === 0 ? (
-                <div className="ve-strip-empty">暂无分镜视频</div>
+                <div className="ve-strip-empty">暂无镜头视频</div>
               ) : (
                 <div className="ve-cards" ref={cardsRef} onWheel={handleCardsWheel}>
                   {segments.map((seg, i) => {

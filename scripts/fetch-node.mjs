@@ -1,5 +1,5 @@
 /**
- * 下载 Node.js 运行时并放置到项目根目录 node/ 下，供 Tauri 打包捆绑。
+ * 下载 Node.js 运行时并放置到作品根目录 node/ 下，供 Tauri 打包捆绑。
  *
  * 用法：node scripts/fetch-node.mjs [--arch x64|arm64] [--version v22.15.0]
  *

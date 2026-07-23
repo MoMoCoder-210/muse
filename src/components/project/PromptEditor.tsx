@@ -1,8 +1,8 @@
 /**
  * PromptEditor — 提示词富文本编辑器。
  *
- * 编辑态只操作 PromptDoc（Tiptap JSON）。资产胶囊是 atom mention 节点，绝不覆盖在
- * 普通文本之上；保存/提交时才将节点序列化为 `资产名(@图片N)`。
+ * 编辑态只操作 PromptDoc（Tiptap JSON）。素材胶囊是 atom mention 节点，绝不覆盖在
+ * 普通文本之上；保存/提交时才将节点序列化为 `素材名(@图片N)`。
  */
 
 import {
@@ -36,9 +36,9 @@ export interface PromptEditorHandle {
 }
 
 interface Props {
-  /** 当前分镜已持久化或水合后的主文档。 */
+  /** 当前镜头已持久化或水合后的主文档。 */
   document: PromptDoc;
-  /** 分镜 ID；切换分镜时强制恢复新文档。 */
+  /** 镜头 ID；切换镜头时强制恢复新文档。 */
   resetKey: string;
   onChange: (change: PromptEditorChange) => void;
   onBlur?: () => void;
@@ -232,7 +232,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, Props>(
       },
     });
 
-    // 同步分镜切换及异步水合文档；编辑器自身回传的相同 JSON 不会重置光标。
+    // 同步镜头切换及异步水合文档；编辑器自身回传的相同 JSON 不会重置光标。
     useEffect(() => {
       if (!editor) return;
       const resetKeyChanged = appliedResetKey.current !== resetKey;

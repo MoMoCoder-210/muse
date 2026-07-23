@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getClipScripts, listClips, listScriptSources } from "../services/tauri";
 import type { Clip, ClipScriptInfo, ScriptSourceListItem } from "../types/project";
 
-/** Worker → 前端的片段拆解完成/失败事件 */
+/** Worker → 前端的分集拆解完成/失败事件 */
 type ClipScriptReadyEvent = {
   project_id: string;
   clip_id: string;
@@ -12,7 +12,7 @@ type ClipScriptReadyEvent = {
 };
 
 /**
- * 片段列表数据与轮询 Hook。
+ * 分集列表数据与轮询 Hook。
  *
  */
 export function useClipPolling(projectId: string) {
@@ -48,7 +48,7 @@ export function useClipPolling(projectId: string) {
     }
   }, [projectId]);
 
-  // 监听 Worker 推送的拆解完成事件，即时刷新片段列表（事件驱动 + 轮询兜底）
+  // 监听 Worker 推送的拆解完成事件，即时刷新分集列表（事件驱动 + 轮询兜底）
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     listen<ClipScriptReadyEvent>("clip-script-ready", (e) => {

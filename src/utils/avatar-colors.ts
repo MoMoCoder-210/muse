@@ -1,5 +1,5 @@
 /**
- * 片段序号头像色调 — 循环 6 色方案。
+ * 分集序号头像色调 — 循环 6 色方案。
  * 用于 rail-clips-item-num 和 clip-index-avatar 的 inline style 注入。
  */
 export const AVATAR_COLORS = [
@@ -11,7 +11,7 @@ export const AVATAR_COLORS = [
   { bg: "rgba(90,200,250,0.18)", text: "#5ac8fa" },
 ] as const;
 
-/** 根据片段序号（从 1 开始）返回对应的头像颜色 */
+/** 根据分集序号（从 1 开始）返回对应的头像颜色 */
 export function avatarColor(index: number): { bg: string; text: string } {
   return AVATAR_COLORS[(index - 1) % AVATAR_COLORS.length];
 }
