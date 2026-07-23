@@ -309,6 +309,25 @@ async function callModelAndParse(
   }
 }
 
+// ─── 台词时长校验 ───────────────────────────────────────────────────
+
+/** 中文正常语速约 3 字/秒 */
+const CHARS_PER_SECOND = 3;
+
+/**
+ * 从 animationPrompt 中提取所有对话框台词的总字符数，推算最低所需时长（秒）。
+ * 台词格式：角色名说：<台词原文>
+ */
+function calcDialogueDuration(animationPrompt: string): number {
+  const dialogueRegex = /说：<([^>]*)>/g;
+  let totalChars = 0;
+  let match: RegExpExecArray | null;
+  while ((match = dialogueRegex.exec(animationPrompt)) !== null) {
+    totalChars += match[1].length;
+  }
+  return Math.ceil(totalChars / CHARS_PER_SECOND);
+}
+
 // ─── 结果保存 ───────────────────────────────────────────────────────
 /**
  * 将拆解结果（storyboards、resource 汇总）写入数据库
@@ -506,11 +525,22 @@ function saveResults(
       mention_map: mentionMap,
     });
 
+    // ── 台词时长校验：防止台词过长但视频秒数过短导致语速异常 ──
+    const dialogueMinDur = calcDialogueDuration(sb.animationPrompt);
+    const llmDuration = sb.duration ?? 15;
+    const finalDuration = Math.min(Math.max(llmDuration, dialogueMinDur), 15);
+    if (finalDuration > llmDuration) {
+      l("拆解", `分镜 ${sb.sbid} 台词需至少 ${dialogueMinDur}s，LLM 预估 ${llmDuration}s → 修正为 ${finalDuration}s`);
+    }
+    if (dialogueMinDur > 15) {
+      lw("拆解", `⚠ 分镜 ${sb.sbid} 台词 ${dialogueMinDur * CHARS_PER_SECOND} 字 / 需 ${dialogueMinDur}s 已超过 15s 上限，建议重新拆分`);
+    }
+
     insertSb.run(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
       sb.description, videoPrompt,
-      sb.duration ?? 15,
+      finalDuration,
       JSON.stringify(charIds),
       JSON.stringify(sceneIds),
       JSON.stringify(itemIds),

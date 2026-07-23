@@ -188,6 +188,59 @@
   gap: 32px;
 }
 
+/* ── 关于 Tab ───────────────────────────────────── */
+
+.sk-about {
+  display: grid;
+  gap: 28px;
+}
+
+.sk-about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 0 12px;
+}
+
+.sk-about-logo {
+  font-size: 28px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.sk-about-desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.sk-about-version {
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 12px;
+  border-radius: 10px;
+}
+
+.sk-about-text {
+  margin: 0;
+  padding: 14px 18px;
+  font-size: var(--font-size-sm);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.sk-about-copyright {
+  margin: 0;
+  padding: 14px 18px;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 .sk-group {
   display: grid;
   gap: var(--spacing-md);
@@ -405,61 +458,12 @@
   gap: 24px;
 }
 
-/* Section */
-.cm-section {
-  display: grid;
-  gap: var(--spacing-md);
-}
-
-.cm-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2px;
-}
-
-.cm-section-title {
-  font-size: var(--font-size-xxs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.cm-section-hint {
-  font-size: var(--font-size-xxs);
-  color: var(--text-muted);
-}
-
-.cm-add-top-btn {
-  padding: var(--spacing-xs) 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--accent-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 140ms ease;
-}
-.cm-add-top-btn:hover {
-  background: rgba(var(--accent-primary-rgb), 0.1);
-  border-color: rgba(var(--accent-primary-rgb), 0.25);
-}
-
-/* ── 全局参数卡片 ────────────────────────────────── */
-
-.cm-params-card {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-lg);
-  padding: 18px 20px;
+/* ── 渠道卡片（与 sk-card 统一视觉） ── */
+.cm-channels-card {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
-}
-.cm-params-card .cm-field {
-  min-width: 150px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 /* ── 提示条 ──────────────────────────────────────── */
@@ -643,16 +647,7 @@
 .cm-model-tag-del:hover { background: rgba(var(--color-danger-rgb), 0.15); color: var(--color-danger); }
 .cm-model-tag--active .cm-model-tag-del { border-left-color: rgba(var(--accent-primary-rgb), 0.2); }
 
-/* ── 渠道列表 ────────────────────────────────────── */
-
-.cm-channel-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
-  overflow: hidden;
-}
+/* ── 渠道列表（内嵌于 cm-channels-card） ────────── */
 
 .cm-channel-item {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -809,23 +804,31 @@
   border-radius: var(--radius-md);
 }
 
-/* ── 新增渠道按钮 ────────────────────────────────── */
+/* ── 新增渠道（卡内底部按钮） ──────────────────── */
 
-.cm-add-trigger {
+.cm-add-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  padding: 14px;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-lg);
+  padding: 13px 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
   background: transparent;
-  color: var(--accent-primary);
+  color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: all 160ms ease;
 }
-.cm-add-trigger:hover {
+.cm-add-footer:hover {
+  color: var(--accent-primary);
   background: rgba(var(--accent-primary-rgb), 0.04);
-  border-color: rgba(var(--accent-primary-rgb), 0.3);
+}
+.cm-add-footer-icon {
+  font-size: 15px;
+  line-height: 1;
 }
 
 /* ── 测试连接 ────────────────────────────────────── */

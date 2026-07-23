@@ -3,26 +3,17 @@
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
 
-/// 解析应用数据目录
-pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String> {
-    let app_name = app.package_info().name.clone();
-
-    if let Some(base_dir) = dirs::data_dir() {
-        let dir = base_dir.join(&app_name);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        return Ok(dir);
-    }
-
-    if let Ok(dir) = app.path().app_data_dir() {
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        return Ok(dir);
-    }
-
-    let fallback = dirs::home_dir()
-        .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?)
-        .join(format!(".{}", app_name));
-    std::fs::create_dir_all(&fallback).map_err(|e| e.to_string())?;
-    Ok(fallback)
+/// 解析应用数据目录（统一使用 ~/.muse）
+/// - Windows: C:\Users\<用户名>\.muse
+/// - macOS:   /Users/<用户名>/.muse
+/// - Linux:   /home/<用户名>/.muse
+pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(_app: &M) -> Result<PathBuf, String> {
+    let home = dirs::home_dir()
+        .or_else(|| std::env::current_dir().ok())
+        .ok_or("无法获取用户主目录".to_string())?;
+    let dir = home.join(".muse");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 /// 获取应用数据库文件路径

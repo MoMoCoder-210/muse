@@ -414,6 +414,7 @@ pub fn run() {
             commands::list_storyboard_video_tasks,
             commands::delete_storyboard_video_task,
             commands::delete_storyboard_video,
+            commands::util::check_channel_pending_tasks,
             commands::list_clip_concat_videos,
             commands::concat_clip_videos,
             commands::detect_ffmpeg,

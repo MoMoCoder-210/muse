@@ -14,11 +14,12 @@ import { useToast } from "../../hooks/useToast";
 
 // ── Tab 定义 ──────────────────────────────────────────
 
-type SettingsTab = "general" | "models";
+type SettingsTab = "general" | "models" | "about";
 
 const TABS = [
   { key: "general" as const, label: "通用", icon: "gear" },
   { key: "models" as const, label: "模型", icon: "cpu" },
+  { key: "about" as const, label: "关于", icon: "info" },
 ];
 
 type ModelTab = "text" | "image" | "video";
@@ -35,22 +36,6 @@ const CHANNEL_FIELDS = [
   { key: "name",   label: "名称",  type: "text" as const,     placeholder: "请输入名称" },
   { key: "apiKey", label: "API Key",  type: "password" as const, placeholder: "请输入Api Key" },
   { key: "baseUrl",label: "Base URL", type: "text" as const,     placeholder: "请输入URL" },
-];
-
-// ── 全局参数字段 ──────────────────────────────────────
-
-const TEXT_PARAMS_FIELDS = [
-  { key: "timeoutMs",   label: "超时 (ms)", type: "number" as const, min: 5000, max: 600000, step: 1000 },
-  { key: "maxTokens",   label: "最大 Token", type: "number" as const, min: 256, max: 256000, step: 256 },
-  { key: "temperature", label: "温度",       type: "number" as const, min: 0, max: 2, step: 0.1 },
-];
-
-const IMAGE_PARAMS_FIELDS = [
-  { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 600000, step: 1000 },
-];
-
-const VIDEO_PARAMS_FIELDS = [
-  { key: "timeoutMs", label: "超时 (ms)", type: "number" as const, min: 5000, max: 1200000, step: 1000 },
 ];
 
 // ── 组件 ──────────────────────────────────────────────
@@ -105,7 +90,7 @@ export function SettingsPage({ onClose }: Props) {
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
     );
-    return (
+    if (name === "cpu") return (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4" y="4" width="16" height="16" rx="2"/>
         <rect x="9" y="9" width="6" height="6"/>
@@ -113,6 +98,13 @@ export function SettingsPage({ onClose }: Props) {
         <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
         <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
         <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+      </svg>
+    );
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
       </svg>
     );
   }
@@ -123,17 +115,6 @@ export function SettingsPage({ onClose }: Props) {
     if (loading) return <div className="sk-loading">加载中…</div>;
     return (
       <div className="sk-general">
-        {/* 关于 */}
-        <div className="sk-group">
-          <h4 className="sk-group-title">关于</h4>
-          <div className="sk-card">
-            <div className="sk-row">
-              <span className="sk-row-label">版本</span>
-              <span className="sk-row-value">{appVersion}</span>
-            </div>
-          </div>
-        </div>
-
         {/* 项目默认位置 */}
         <div className="sk-group">
           <h4 className="sk-group-title">项目</h4>
@@ -205,6 +186,43 @@ export function SettingsPage({ onClose }: Props) {
     );
   }
 
+  // ── 关于 ──────────────────────────────────────
+
+  function renderAbout() {
+    return (
+      <div className="sk-about">
+        {/* 应用信息 */}
+        <div className="sk-about-hero">
+          <div className="sk-about-logo">Muse</div>
+          <div className="sk-about-desc">AI 视频创作桌面工具</div>
+          <div className="sk-about-version">版本 {appVersion}</div>
+        </div>
+
+        {/* 简介 */}
+        <div className="sk-group">
+          <h4 className="sk-group-title">简介</h4>
+          <div className="sk-card">
+            <p className="sk-about-text">
+              本地优先的 AI 视频创作工具，覆盖从剧本导入到完整视频产出的全链路。
+              支持多风格创作（国漫/动漫/日漫/韩漫/二次元/真人），内置角色生图、场景生成、
+              分镜编辑、TTS 语音合成与视频拼接导出等完整工作流。
+            </p>
+          </div>
+        </div>
+
+        {/* 版权 */}
+        <div className="sk-group">
+          <div className="sk-card">
+            <p className="sk-about-copyright">
+              Muse AI 视频创作工具<br/>
+              Built with Tauri · React · Rust · SQLite
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── 模型设置 ──────────────────────────────────────
 
   function renderModels() {
@@ -222,9 +240,7 @@ export function SettingsPage({ onClose }: Props) {
           {modelTab === "text" && (
             <ChannelManager
               list={settings.text} blank={DEFAULT_TEXT_CHANNEL}
-              fields={CHANNEL_FIELDS} hasModels
-              params={settings.textParams as unknown as Record<string, number>} paramsFields={TEXT_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, textParams: p as unknown as AppSettings["textParams"] })}
+              fields={CHANNEL_FIELDS} hasModels channelType="text"
               onChange={(next) => updateState({ ...settingsRef.current, text: next as unknown as AppSettings["text"] })}
               onPersist={(u) => persist({ ...settingsRef.current, text: u as unknown as AppSettings["text"] })}
             />
@@ -232,9 +248,7 @@ export function SettingsPage({ onClose }: Props) {
           {modelTab === "image" && (
             <ChannelManager
               list={settings.image} blank={DEFAULT_IMAGE_CHANNEL}
-              fields={CHANNEL_FIELDS} hasModels
-              params={settings.imageParams as unknown as Record<string, number>} paramsFields={IMAGE_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, imageParams: p as unknown as AppSettings["imageParams"] })}
+              fields={CHANNEL_FIELDS} hasModels channelType="image"
               onChange={(next) => updateState({ ...settingsRef.current, image: next as unknown as AppSettings["image"] })}
               onPersist={(u) => persist({ ...settingsRef.current, image: u as unknown as AppSettings["image"] })}
             />
@@ -242,10 +256,8 @@ export function SettingsPage({ onClose }: Props) {
           {modelTab === "video" && (
             <ChannelManager
               list={settings.video} blank={DEFAULT_VIDEO_CHANNEL}
-              fields={CHANNEL_FIELDS} hasModels
+              fields={CHANNEL_FIELDS} hasModels channelType="video"
               resolutionOptions={VIDEO_RESOLUTION_OPTIONS}
-              params={settings.videoParams as unknown as Record<string, number>} paramsFields={VIDEO_PARAMS_FIELDS}
-              onParamsChange={(p) => persist({ ...settingsRef.current, videoParams: p as unknown as AppSettings["videoParams"] })}
               onChange={(next) => updateState({ ...settingsRef.current, video: next as unknown as AppSettings["video"] })}
               onPersist={(u) => persist({ ...settingsRef.current, video: u as unknown as AppSettings["video"] })}
             />
@@ -293,7 +305,7 @@ export function SettingsPage({ onClose }: Props) {
 
         {/* 内容区 */}
         <div className="sk-body">
-          {tab === "general" ? renderGeneral() : renderModels()}
+          {tab === "general" ? renderGeneral() : tab === "models" ? renderModels() : renderAbout()}
         </div>
       </div>
     </div>

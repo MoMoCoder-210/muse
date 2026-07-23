@@ -206,6 +206,17 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   return invoke<void>("save_settings", { settings });
 }
 
+/**
+ * 检查指定渠道类型是否还有未完成任务
+ *
+ * @param channelType — "text" | "image" | "video"
+ * @returns true 表示队列为空（可安全删除），false 表示有 pending/running 任务
+ *
+ */
+export async function checkChannelPendingTasks(channelType: string): Promise<boolean> {
+  return invoke<boolean>("check_channel_pending_tasks", { channelType });
+}
+
 // ── 片段拆解 ──────────────────────────────────────────────
 import type { ClipScriptInfo, GenerateClipScriptInput } from "../types/project";
 

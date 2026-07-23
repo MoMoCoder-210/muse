@@ -531,3 +531,39 @@ pub(crate) fn delete_ark_file_sync(app: &tauri::AppHandle, file_id: &str) -> Res
 
     Ok(())
 }
+
+// ── 渠道删除前队列检查 ─────────────────────────────────
+
+/// 查询指定渠道类型对应的任务队列中是否存在 pending/running 状态的未完成任务。
+/// channel_type: "text" | "image" | "video"
+/// 返回 true 表示队列为空（可安全删除渠道），false 表示有未完成任务。
+#[tauri::command]
+pub fn check_channel_pending_tasks(
+    channel_type: String,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    let conn = open_app_conn(&app)?;
+
+    let task_types: &[&str] = match channel_type.as_str() {
+        "text" => &["split_script", "generate_clip_script"],
+        "image" => &["generate_asset_image"],
+        "video" => &["generate_video"],
+        other => return Err(format!("未知渠道类型：{}", other)),
+    };
+
+    let placeholders = task_types.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT COUNT(*) FROM tasks WHERE type IN ({}) AND status IN ('pending', 'running')",
+        placeholders
+    );
+
+    let count: i64 = conn
+        .query_row(
+            &sql,
+            rusqlite::params_from_iter(task_types.iter()),
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(count == 0)
+}

@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from "react";
 import { generateId, type ChannelList } from "../../types/settings";
-import { testConnection } from "../../services/tauri";
+import { testConnection, checkChannelPendingTasks } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
 
 // ── 类型 ────────────────────────────────────────────────
@@ -39,9 +39,8 @@ interface ChannelManagerProps<T extends ChannelLike> {
   hasModels: boolean;
   /** 视频类渠道传入可选分辨率选项，渲染「按模型配置支持分辨率」；不传则仅管理模型 ID */
   resolutionOptions?: readonly string[];
-  params: Record<string, number>;
-  paramsFields: Array<{ key: string; label: string; type: "number"; min?: number; max?: number; step?: number }>;
-  onParamsChange: (params: Record<string, number>) => void;
+  /** 渠道类型，删除时据此检查对应任务队列 */ 
+  channelType: "text" | "image" | "video";
   onChange: (next: ChannelList<T>) => void;
   /** 新增/编辑/删除后立即持久化 */
   onPersist: (updated: ChannelList<T>) => void;
@@ -68,8 +67,7 @@ function emptyForm<T extends ChannelLike>(_blank: T): ChannelEditor {
 
 export function ChannelManager<T extends ChannelLike>({
   list, blank, fields, hasModels, resolutionOptions,
-  params, paramsFields, onParamsChange,
-  onChange, onPersist, enableTest = true, note, fixedSingle = false,
+  channelType, onChange, onPersist, enableTest = true, note, fixedSingle = false,
 }: ChannelManagerProps<T>) {
   const { toast } = useToast();
   const [form, setForm] = useState<ChannelEditor>(() => emptyForm(blank));
@@ -83,13 +81,6 @@ export function ChannelManager<T extends ChannelLike>({
   const [testState, setTestState] = useState<{ ok: boolean; message: string } | null>(null);
 
   const channels = list.channels;
-
-  // ── 参数 ──────────────────────────────────────────
-
-  const updateParam = useCallback(
-    (key: string, raw: string) => onParamsChange({ ...params, [key]: Number(raw) }),
-    [params, onParamsChange],
-  );
 
   // ── 表单 ──────────────────────────────────────────
 
@@ -426,60 +417,62 @@ export function ChannelManager<T extends ChannelLike>({
       {note && <div className="cm-note">{note}</div>}
 
       {/* ══ 渠道列表（点击行展开/收起编辑） ══════ */}
-      <div className="cm-section">
-        <div className="cm-section-header">
-          {!fixedSingle && <span className="cm-section-title">渠道列表 ({channels.length})</span>}
-          {!fixedSingle && channels.length > 0 && expandedId !== "__new__" && (
-            <button type="button" className="cm-add-top-btn" onClick={openAdd}>+ 新增渠道</button>
-          )}
-        </div>
+      <div className="cm-channels-card">
 
         {channels.length === 0 ? (
           <div className="cm-form-placeholder">暂无渠道，点击下方「新增渠道」开始添加</div>
         ) : (
-          <div className="cm-channel-list">
-            {channels.map((ch: T) => {
-              const isActive = ch.id === list.activeId;
-              const expanded = expandedId === ch.id;
-              const host = extractHost(ch.baseUrl ?? "");
-              const modelCount = hasModels ? (ch.models?.length ?? 0) : 0;
-              const hasKey = !!((ch.apiKey ?? "")?.trim());
-              return (
-                <div key={ch.id} className={`cm-channel-item ${isActive ? "cm-channel-item--active" : ""}`}>
-                  <div className={`cm-channel-row ${expanded ? "cm-channel-row--expanded" : ""}`}>
-                    <button type="button" className="cm-channel-row-main"
-                      onClick={() => toggleExpand(ch)} aria-expanded={expanded} title="点击展开 / 收起编辑">
-                      <span className={`cm-channel-dot ${isActive ? "cm-channel-dot--on" : ""} ${hasKey ? "cm-channel-dot--keyed" : ""}`} />
-                      <span className="cm-channel-name">{ch.name}</span>
-                      {host && <span className="cm-channel-url">{host}</span>}
-                      {hasModels && <span className="cm-channel-meta">{modelCount} 个模型</span>}
-                      {isActive && <span className="cm-channel-badge">当前使用</span>}
-                      <span className="cm-channel-caret">{expanded ? "▾" : "▸"}</span>
-                    </button>
-                    <div className="cm-channel-row-actions">
-                      {!fixedSingle && !isActive && (
-                        <button type="button" className="cm-channel-action-btn"
-                          onClick={() => switchActive(ch.id)} title="设为默认渠道">设为默认</button>
-                      )}
-                      {!fixedSingle && (
-                        <button type="button" className="cm-channel-action-btn cm-channel-action-btn--danger"
-                          disabled={channels.length <= 1}
-                          title={channels.length <= 1 ? "至少保留一个渠道" : "删除该渠道"}
-                          onClick={() => setDeleteTarget(ch.id)}>删除</button>
-                      )}
-                    </div>
+          channels.map((ch: T) => {
+            const isActive = ch.id === list.activeId;
+            const expanded = expandedId === ch.id;
+            const host = extractHost(ch.baseUrl ?? "");
+            const modelCount = hasModels ? (ch.models?.length ?? 0) : 0;
+            const hasKey = !!((ch.apiKey ?? "")?.trim());
+            return (
+              <div key={ch.id} className={`cm-channel-item ${isActive ? "cm-channel-item--active" : ""}`}>
+                <div className={`cm-channel-row ${expanded ? "cm-channel-row--expanded" : ""}`}>
+                  <button type="button" className="cm-channel-row-main"
+                    onClick={() => toggleExpand(ch)} aria-expanded={expanded} title="点击展开 / 收起编辑">
+                    <span className={`cm-channel-dot ${isActive ? "cm-channel-dot--on" : ""} ${hasKey ? "cm-channel-dot--keyed" : ""}`} />
+                    <span className="cm-channel-name">{ch.name}</span>
+                    {host && <span className="cm-channel-url">{host}</span>}
+                    {hasModels && <span className="cm-channel-meta">{modelCount} 个模型</span>}
+                    {isActive && <span className="cm-channel-badge">当前使用</span>}
+                    <span className="cm-channel-caret">{expanded ? "▾" : "▸"}</span>
+                  </button>
+                  <div className="cm-channel-row-actions">
+                    {!fixedSingle && !isActive && (
+                      <button type="button" className="cm-channel-action-btn"
+                        onClick={() => switchActive(ch.id)} title="设为默认渠道">设为默认</button>
+                    )}
+                    {!fixedSingle && (
+                      <button type="button" className="cm-channel-action-btn cm-channel-action-btn--danger"
+                        title="删除该渠道"
+                        onClick={async () => {
+                          try {
+                            const empty = await checkChannelPendingTasks(channelType);
+                            if (empty) {
+                              setDeleteTarget(ch.id);
+                            } else {
+                              toast("该渠道类型存在未完成的任务，暂时无法删除", "error");
+                            }
+                          } catch {
+                            toast("队列状态查询失败，请稍后重试", "error");
+                          }
+                        }}>删除</button>
+                    )}
                   </div>
-
-                  {expanded && (
-                    <div className="cm-row-panel">
-                      {renderEditorBody()}
-                      {renderEditorFooter("edit")}
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
+
+                {expanded && (
+                  <div className="cm-row-panel">
+                    {renderEditorBody()}
+                    {renderEditorFooter("edit")}
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
 
         {/* 新增渠道面板（行内展开） */}
@@ -490,31 +483,12 @@ export function ChannelManager<T extends ChannelLike>({
             {renderEditorFooter("add")}
           </div>
         ) : (
-          !fixedSingle && channels.length === 0 && (
-            <button type="button" className="cm-add-trigger" onClick={openAdd}>+ 新增渠道</button>
+          !fixedSingle && expandedId !== "__new__" && (
+            <button type="button" className="cm-add-footer" onClick={openAdd}>
+              + 新增渠道
+            </button>
           )
         )}
-      </div>
-
-      {/* ══ 全局参数 ════════════════════════════ */}
-      <div className="cm-section">
-        <div className="cm-section-header">
-          <span className="cm-section-title">全局参数</span>
-        </div>
-        <div className="cm-params-card">
-          {paramsFields.map((f) => (
-            <label key={f.key} className="cm-field">
-              <span className="cm-field-label">{f.label}</span>
-              <input
-                type="number"
-                className="cm-field-input"
-                value={String(params[f.key] ?? "")}
-                onChange={(e) => updateParam(f.key, e.target.value)}
-                min={f.min} max={f.max} step={f.step}
-              />
-            </label>
-          ))}
-        </div>
       </div>
 
       {/* 删除确认 */}
