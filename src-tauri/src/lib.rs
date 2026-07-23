@@ -340,19 +340,6 @@ pub fn run() {
                 });
             }
 
-            // ── 自动打开开发者工具（仅 debug 构建，打包后通过 F12 触发）──
-            #[cfg(debug_assertions)]
-            {
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    if let Some(win) = handle.get_webview_window("main") {
-                        win.open_devtools();
-                        log::info!("开发者工具已自动打开");
-                    }
-                });
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
