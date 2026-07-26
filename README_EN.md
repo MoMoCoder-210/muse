@@ -10,7 +10,7 @@
 
   <br/>
 
-  [中文](README.md)
+  [中文](README.md) · [Apache 2.0 License](LICENSE) · [Releases](https://github.com/MoMoCoder-210/muse/releases)
 
 </div>
 
@@ -90,7 +90,7 @@ Script Import ──→ Episodes ──→ Assets ──→ Shots ──→ Vide
 └──────┬───────┘
        │ HTTP
 ┌──────┴──────┐
-│  Volcano Ark │
+│   LLM API   │
 │  (Text/Image/│
 │   Voice/Video)│
 └─────────────┘

@@ -10,7 +10,7 @@
 
   <br/>
 
-  [English](README_EN.md)
+  [English](README_EN.md) · [Apache 2.0 开源协议](LICENSE) · [Releases 下载](https://github.com/MoMoCoder-210/muse/releases)
 
 </div>
 
