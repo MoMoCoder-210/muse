@@ -402,7 +402,7 @@ async function callModelOnce(
   const startedAt = Date.now();
   let result: Awaited<ReturnType<typeof textClient.chat>>;
   try {
-    result = await textClient.chat(messages, () => {}, { signal: ctx.signal });
+    result = await textClient.chat(messages, () => {}, { signal: ctx.signal, reasoning_effort: "high" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const elapsed = Date.now() - startedAt;
@@ -428,7 +428,7 @@ async function callModelOnce(
     ];
 
     l("剧本拆分", `发送修复请求`);
-    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal });
+    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal, reasoning_effort: "high" });
     l("剧本拆分", `修复返回完成 输出=${repairResult.content.length}字符`);
 
     return parseModelClips(repairResult.content);

@@ -237,34 +237,123 @@ fn collect_clip_file_paths(
     tx: &rusqlite::Transaction<'_>,
     clip_id: &str,
 ) -> Result<Vec<String>, String> {
-    let mut statement = tx
-        .prepare(
-            "SELECT image_path FROM asset_images
-             WHERE asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)
+    // 1. 查出哪些素材被其他分集引用（需保护）
+    let protected: Vec<String>;
+    let protect_sql = "
+        SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id != ?1
+        UNION
+        SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id != ?1
+        UNION
+        SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id != ?1
+    ";
+    {
+        let mut stmt = tx
+            .prepare(protect_sql)
+            .map_err(|e| format!("查询共享素材失败: {}", e))?;
+        protected = stmt
+            .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("遍历共享素材失败: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+    }
+
+    // 2. 本分集下的全部 asset id
+    let owned: Vec<String>;
+    {
+        let mut stmt = tx
+            .prepare("SELECT id FROM assets WHERE clip_id = ?1")
+            .map_err(|e| format!("查询本分集素材失败: {}", e))?;
+        owned = stmt
+            .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("遍历本分集素材失败: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+    }
+
+    // 3. 可删除的 = 本分集的 - 被保护的
+    let protected_set: std::collections::HashSet<&str> = protected.iter().map(|s| s.as_str()).collect();
+    let deletable: Vec<&str> = owned.iter().map(|s| s.as_str()).filter(|id| !protected_set.contains(id)).collect();
+
+    // 4. 收集文件路径：仅可删除素材的图片
+    let mut paths: Vec<String> = Vec::new();
+    if !deletable.is_empty() {
+        let placeholders: Vec<String> = deletable.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let img_sql = format!(
+            "SELECT image_path FROM asset_images WHERE asset_id IN ({})",
+            placeholders.join(",")
+        );
+        {
+            let mut stmt = tx
+                .prepare(&img_sql)
+                .map_err(|e| format!("查询可删素材图片失败: {}", e))?;
+            let params: Vec<&dyn rusqlite::types::ToSql> = deletable.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt
+                .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+                .map_err(|e| format!("遍历可删素材图片失败: {}", e))?;
+            for r in rows {
+                if let Ok(p) = r {
+                    paths.push(p);
+                }
+            }
+        }
+        // reference_image_path / generated_image_path
+        let ref_sql = format!(
+            "SELECT reference_image_path FROM assets WHERE id IN ({}) AND reference_image_path IS NOT NULL
              UNION
-             SELECT reference_image_path FROM assets
-             WHERE clip_id = ?1 AND reference_image_path IS NOT NULL
-             UNION
-             SELECT generated_image_path FROM assets
-             WHERE clip_id = ?1 AND generated_image_path IS NOT NULL
-             UNION
-             SELECT fused_image_path FROM storyboards
-             WHERE clip_id = ?1 AND fused_image_path IS NOT NULL
-             UNION
-             SELECT voice_path FROM storyboards
-             WHERE clip_id = ?1 AND voice_path IS NOT NULL
-             UNION
-             SELECT file_path FROM storyboard_videos
-             WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
-             UNION
-             SELECT output_path FROM concat_outputs WHERE clip_id = ?1",
-        )
-        .map_err(|error| format!("读取分集关联文件失败 clipId={}: {}", clip_id, error))?;
-    let rows = statement
-        .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
-        .map_err(|error| format!("查询分集关联文件失败 clipId={}: {}", clip_id, error))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("读取分集关联文件失败 clipId={}: {}", clip_id, error))
+             SELECT generated_image_path FROM assets WHERE id IN ({}) AND generated_image_path IS NOT NULL",
+            placeholders.join(","), placeholders.join(",")
+        );
+        {
+            let mut stmt = tx
+                .prepare(&ref_sql)
+                .map_err(|e| format!("查询可删素材引用图失败: {}", e))?;
+            let params: Vec<&dyn rusqlite::types::ToSql> = deletable.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt
+                .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+                .map_err(|e| format!("遍历可删素材引用图失败: {}", e))?;
+            for r in rows {
+                if let Ok(p) = r {
+                    paths.push(p);
+                }
+            }
+        }
+    }
+
+    // 5. 镜头/拼接输出不受素材复用影响，始终收集
+    {
+        let mut stmt = tx
+            .prepare(
+                "SELECT fused_image_path FROM storyboards WHERE clip_id = ?1 AND fused_image_path IS NOT NULL
+                 UNION
+                 SELECT voice_path FROM storyboards WHERE clip_id = ?1 AND voice_path IS NOT NULL
+                 UNION
+                 SELECT file_path FROM storyboard_videos
+                 WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
+                 UNION
+                 SELECT output_path FROM concat_outputs WHERE clip_id = ?1",
+            )
+            .map_err(|e| format!("查询镜头/视频文件失败: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("遍历镜头/视频文件失败: {}", e))?;
+        for r in rows {
+            if let Ok(p) = r {
+                paths.push(p);
+            }
+        }
+    }
+
+    Ok(paths)
+}
+
+/// 共享素材保护查询：返回被其他分集 storyboard 引用的 asset ID 列表
+/// 使用 ?2 与大查询中的 ?1 区分，避免跨子查询绑定歧义
+fn shared_sql_snippet() -> &'static str {
+    "SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id != ?2 \
+     UNION \
+     SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id != ?2 \
+     UNION \
+     SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id != ?2"
 }
 
 /// 删除数据库记录中列出的、且位于所属作品工作区中的文件。
@@ -416,9 +505,13 @@ pub fn delete_clips(
         .map_err(|e| format!("无法删除镜头视频 clipId={}: {}", id, e))?;
 
         // 4. 删除其余叶子记录。
+        // 注意：共享素材（被其他分集镜头引用的素材）不可删除，仅删除本分集专属且未被引用的素材
         tx.execute(
-            "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
-            rusqlite::params![id],
+            &format!("DELETE FROM asset_images WHERE asset_id IN (
+                SELECT id FROM assets WHERE clip_id = ?1
+                AND id NOT IN ({})
+            )", shared_sql_snippet()),
+            rusqlite::params![id, id],
         )
         .map_err(|e| format!("无法删除素材图片 clipId={}: {}", id, e))?;
         tx.execute(
@@ -451,8 +544,10 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除镜头 clipId={}: {}", id, e))?;
         tx.execute(
-            "DELETE FROM assets WHERE clip_id = ?1",
-            rusqlite::params![id],
+            &format!("DELETE FROM assets WHERE clip_id = ?1
+                AND id NOT IN ({})
+            ", shared_sql_snippet()),
+            rusqlite::params![id, id],
         )
         .map_err(|e| format!("无法删除素材 clipId={}: {}", id, e))?;
         tx.execute(
@@ -484,6 +579,17 @@ pub fn delete_clips(
         e.to_string()
     })?;
 
+    crate::project_log::append_log(
+        &log_path,
+        "删除文件",
+        "INFO",
+        &format!(
+            "即将删除 {} 个候选文件: {:?}",
+            file_candidates.len(),
+            file_candidates.iter().map(|c| c.file_path.to_string_lossy().to_string()).collect::<Vec<_>>(),
+        ),
+    );
+
     let result = if input.delete_files {
         delete_managed_clip_files(file_candidates)
     } else {
@@ -493,6 +599,17 @@ pub fn delete_clips(
             failed_file_count: 0,
         }
     };
+
+    crate::project_log::append_log(
+        &log_path,
+        "删除文件",
+        "INFO",
+        &format!(
+            "删除结果: deleted={}, skipped={}, failed={}",
+            result.deleted_file_count, result.skipped_file_count, result.failed_file_count,
+        ),
+    );
+
     for id in &clip_ids {
         crate::project_log::append_log(
             &log_path,

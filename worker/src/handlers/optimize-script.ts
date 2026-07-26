@@ -135,7 +135,7 @@ export async function optimizeScriptHandler(
           index: streamIndex++,
         });
       },
-      { temperature: 0.7, maxTokens: Math.max(1024, Math.ceil(input.text.length * 2)) },
+      { maxTokens: Math.max(1024, Math.ceil(input.text.length * 2)), reasoning_effort: "high" },
     );
 
     const cleaned = result.trim();
@@ -164,6 +164,16 @@ export async function optimizeScriptHandler(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     lw("剧本优化", `优化失败，分集=${input.clipId}，错误=${msg}`);
+
+    // 将运行中的记录标记为 failed，避免前端永久显示"生成中"
+    if (input?.optimizationId) {
+      try {
+        ctx.db
+          .prepare("UPDATE script_optimizations SET status = 'failed' WHERE id = ?")
+          .run(input.optimizationId);
+      } catch { /* 静默：DB 操作不应遮盖原始错误 */ }
+    }
+
     throw err;
   }
 }

@@ -1093,10 +1093,14 @@ pub fn list_asset_image_tasks(
 ) -> Result<Vec<AssetImageTaskItem>, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 查 asset_id
+    // 查 asset_id（先查本分集，再查同项目共享素材）
     let asset_row = conn
         .query_row(
-            "SELECT id FROM assets WHERE clip_id = ?1 AND type = ?2 AND name = ?3 LIMIT 1",
+            "SELECT id FROM assets
+             WHERE (clip_id = ?1 OR project_id = (SELECT project_id FROM clips WHERE id = ?1))
+               AND type = ?2 AND name = ?3
+             ORDER BY CASE WHEN clip_id = ?1 THEN 0 ELSE 1 END
+             LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
@@ -1131,6 +1135,53 @@ pub fn list_asset_image_tasks(
             .map_err(|e| e.to_string())?;
 
         results.extend(img_items);
+
+        // 回退：复用素材无本地图片记录时，通过 selected_image_id 追溯源素材的图片列表
+        if results.is_empty() {
+            let sel_id: Option<String> = conn
+                .query_row(
+                    "SELECT selected_image_id FROM assets WHERE id = ?1",
+                    rusqlite::params![asset_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            if let Some(ref sel_img_id) = sel_id {
+                // 找到源素材（拥有该图片记录的素材）
+                let src_asset_id: Option<String> = conn
+                    .query_row(
+                        "SELECT asset_id FROM asset_images WHERE id = ?1",
+                        rusqlite::params![sel_img_id],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                if let Some(ref src_id) = src_asset_id {
+                    let mut fallback_stmt = conn
+                        .prepare(
+                            "SELECT id, image_path, size, style, is_selected, created_at
+                             FROM asset_images WHERE asset_id = ?1",
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let fallback_items = fallback_stmt
+                        .query_map(rusqlite::params![src_id], |row| {
+                            Ok(AssetImageTaskItem {
+                                id: row.get(0)?,
+                                image_path: Some(row.get(1)?),
+                                size: row.get(2)?,
+                                style: row.get(3)?,
+                                is_selected: row.get::<_, i64>(4)? != 0,
+                                status: "ready".to_string(),
+                                error_message: None,
+                                created_at: row.get(5)?,
+                            })
+                        })
+                        .map_err(|e| e.to_string())?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| e.to_string())?;
+                    results.extend(fallback_items);
+                }
+            }
+        }
     }
 
     // 2. 进行中/失败的任务（tasks 表，按 lock_key 匹配）
@@ -1234,7 +1285,23 @@ pub fn batch_get_asset_selected_images(
                 LIMIT 1
             ) as sel_path
             FROM assets a
-            WHERE a.clip_id = ?1",
+            WHERE a.clip_id = ?1
+
+            UNION
+
+            SELECT a.type, a.name, (
+                SELECT ai.image_path FROM asset_images ai
+                WHERE ai.id = a.selected_image_id
+                LIMIT 1
+            ) as sel_path
+            FROM assets a
+            WHERE a.id IN (
+                SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id = ?1
+                UNION
+                SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id = ?1
+                UNION
+                SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id = ?1
+            )",
         )
         .map_err(|e| e.to_string())?;
 
@@ -1344,10 +1411,14 @@ pub fn select_asset_image(
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 查 asset_id
+    // 查 asset_id（先查本分集，再查同项目共享素材）
     let asset_id = tx
         .query_row(
-            "SELECT id FROM assets WHERE clip_id = ?1 AND type = ?2 AND name = ?3 LIMIT 1",
+            "SELECT id FROM assets
+             WHERE (clip_id = ?1 OR project_id = (SELECT project_id FROM clips WHERE id = ?1))
+               AND type = ?2 AND name = ?3
+             ORDER BY CASE WHEN clip_id = ?1 THEN 0 ELSE 1 END
+             LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
@@ -1666,7 +1737,11 @@ pub fn import_local_asset_image(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let asset_id: String = match tx.query_row(
-        "SELECT id FROM assets WHERE project_id = ?1 AND clip_id = ?2 AND type = ?3 AND name = ?4 LIMIT 1",
+        "SELECT id FROM assets
+         WHERE (clip_id = ?2 OR project_id = ?1)
+           AND type = ?3 AND name = ?4
+         ORDER BY CASE WHEN clip_id = ?2 THEN 0 ELSE 1 END
+         LIMIT 1",
         rusqlite::params![&project_id, &input.clip_id, &input.asset_type, &input.name],
         |row| row.get(0),
     ) {
@@ -1892,7 +1967,11 @@ pub fn copy_asset_image_from(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let target_asset_id: String = match tx.query_row(
-        "SELECT id FROM assets WHERE project_id = ?1 AND clip_id = ?2 AND type = ?3 AND name = ?4 LIMIT 1",
+        "SELECT id FROM assets
+         WHERE (clip_id = ?2 OR project_id = ?1)
+           AND type = ?3 AND name = ?4
+         ORDER BY CASE WHEN clip_id = ?2 THEN 0 ELSE 1 END
+         LIMIT 1",
         rusqlite::params![&project_id, &input.target_clip_id, &input.target_asset_type, &input.target_name],
         |row| row.get(0),
     ) {

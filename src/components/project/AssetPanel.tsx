@@ -115,15 +115,6 @@ export function AssetPanel({ project }: AssetPanelProps) {
     load();
   }, [load]);
 
-  // 监听拆解完成事件，实时刷新分集列表
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
-      if (e.payload.project_id === project?.id) load();
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, [project?.id, load]);
-
   // 已拆解的分集（与镜头管理 / 视频编辑统一口径：按分集状态判定）
   const disassembledClips = clips.filter((c) => isClipDecomposed(c.status));
 
@@ -181,6 +172,18 @@ export function AssetPanel({ project }: AssetPanelProps) {
       setSelectedImageMap({});
     }
   }, []);
+
+  // 监听拆解完成事件，实时刷新分集列表和素材图片映射
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    listen("clip-script-ready", (e: { payload: { project_id: string } }) => {
+      if (e.payload.project_id === project?.id) {
+        load();
+        loadSelectedImages(selectedClipId ?? "");
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [project?.id, load, selectedClipId, loadSelectedImages]);
 
   // 监听 Worker 实时推送的素材生图进度，替代纯轮询，实现即时状态更新
   useEffect(() => {
