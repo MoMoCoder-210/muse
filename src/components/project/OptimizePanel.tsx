@@ -57,7 +57,7 @@ export function OptimizePanel({
   const [instruction, setInstruction] = useState("");
   const [versions, setVersions] = useState<OptimizationRecord[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"source" | string>("source");
+  const [activeTab, setActiveTab] = useState<string>("source");
   const [editingText, setEditingText] = useState(sourceText);
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
@@ -70,16 +70,63 @@ export function OptimizePanel({
   const tabbarRef = useRef<HTMLDivElement>(null);
   const [showScrollLeft, setShowScrollLeft] = useState(false);
   const [showScrollRight, setShowScrollRight] = useState(false);
+  const smoothScrollRef = useRef<((delta: number) => void) | null>(null);
 
   // ── Tab 栏溢出检测 ────────────────────────
+
+  const scrollIndicatorsRef = useRef({ left: false, right: false });
 
   const updateScrollIndicators = useCallback(() => {
     const el = tabbarRef.current;
     if (!el) return;
-    setShowScrollLeft(el.scrollLeft > 4);
-    setShowScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    const prev = scrollIndicatorsRef.current;
+    if (prev.left !== left) { prev.left = left; setShowScrollLeft(left); }
+    if (prev.right !== right) { prev.right = right; setShowScrollRight(right); }
   }, []);
 
+  // 滚动引擎（与 versions 解耦，不重建）
+  useEffect(() => {
+    const el = tabbarRef.current;
+    if (!el) return;
+
+    let scrollTarget = el.scrollLeft;
+    let rafId = 0;
+    const step = () => {
+      const diff = scrollTarget - el.scrollLeft;
+      if (Math.abs(diff) < 0.5) {
+        el.scrollLeft = scrollTarget;
+        rafId = 0;
+        return;
+      }
+      el.scrollLeft += diff * 0.3;
+      rafId = requestAnimationFrame(step);
+    };
+    const smoothScroll = (delta: number) => {
+      const max = el.scrollWidth - el.clientWidth;
+      scrollTarget = Math.max(0, Math.min(max, scrollTarget + delta));
+      if (!rafId) rafId = requestAnimationFrame(step);
+    };
+    smoothScrollRef.current = smoothScroll;
+
+    // 鼠标滚轮：纵向滚轮转为横向平滑滚动
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        smoothScroll(e.deltaY > 0 ? Math.max(e.deltaY, 40) : Math.min(e.deltaY, -40));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      smoothScrollRef.current = null;
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, []); // 不依赖 versions，滚动引擎只初始化一次
+
+  // 溢出检测（独立 effect，versions 变化时只更新指示器）
   useEffect(() => {
     updateScrollIndicators();
     const el = tabbarRef.current;
@@ -87,12 +134,11 @@ export function OptimizePanel({
     el.addEventListener("scroll", updateScrollIndicators, { passive: true });
     const ro = new ResizeObserver(updateScrollIndicators);
     ro.observe(el);
-    return () => { el.removeEventListener("scroll", updateScrollIndicators); ro.disconnect(); };
+    return () => {
+      el.removeEventListener("scroll", updateScrollIndicators);
+      ro.disconnect();
+    };
   }, [updateScrollIndicators, versions]);
-
-  const scrollTabbar = useCallback((dir: 1 | -1) => {
-    tabbarRef.current?.scrollBy({ left: dir * 160, behavior: "smooth" });
-  }, []);
 
   // ── 流式区自动滚底 ──────────────────────────
 
@@ -290,9 +336,9 @@ export function OptimizePanel({
         {/* ── Tab 栏 ── */}
         <div className="op-tabbar-wrap">
           {showScrollLeft && (
-            <button type="button" className="op-tabbar-arrow op-tabbar-arrow--left" onClick={() => scrollTabbar(-1)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
+            <div className="op-tabbar-fade op-tabbar-fade--left" onClick={() => smoothScrollRef.current?.(-150)}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </div>
           )}
           <div className="op-tabbar" ref={tabbarRef}>
             <button
@@ -328,9 +374,9 @@ export function OptimizePanel({
             })}
           </div>
           {showScrollRight && (
-            <button type="button" className="op-tabbar-arrow op-tabbar-arrow--right" onClick={() => scrollTabbar(1)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
+            <div className="op-tabbar-fade op-tabbar-fade--right" onClick={() => smoothScrollRef.current?.(150)}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
           )}
         </div>
 
