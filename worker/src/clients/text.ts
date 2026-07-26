@@ -1,10 +1,9 @@
-/**
- * 文本模型客户端
- *
- * 兼容 OpenAI Chat Completions API（含兼容端点），流式输出。
+﻿/**
+ * Text model client
+ * Native fetch + SSE streaming, compatible with OpenAI Chat Completions API.
+ * No third-party SDK dependency (replaces openai npm package, saves ~10MB).
  */
 
-import OpenAI from "openai";
 import type { TextModelConfig } from "../config/defaults.js";
 import { FALLBACK_API_KEY } from "./constants.js";
 import { logRequest, logStreamDone, logFailure } from "../utils/client-logger.js";
@@ -28,26 +27,14 @@ export interface TextCallResult {
 }
 
 export class TextClient {
-  private client: OpenAI;
   config: TextModelConfig;
 
   constructor(config: TextModelConfig) {
     this.config = config;
-    this.client = this.buildClient(config);
-  }
-
-  private buildClient(config: TextModelConfig): OpenAI {
-    return new OpenAI({
-      apiKey: config.apiKey || FALLBACK_API_KEY,
-      baseURL: config.baseUrl,
-      timeout: config.timeoutMs,
-      maxRetries: 0,
-    });
   }
 
   updateConfig(config: TextModelConfig): void {
     this.config = config;
-    this.client = this.buildClient(config);
   }
 
   async chat(
@@ -69,21 +56,59 @@ export class TextClient {
     let fullContent = "", inputTokens = 0, outputTokens = 0, respModel = model;
 
     try {
-      const stream = await this.client.chat.completions.create(
-        { model, messages, max_tokens: maxTokens, temperature, stream: true },
-        { signal: options.signal },
-      );
+      const resp = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.config.apiKey || FALLBACK_API_KEY}`,
+        },
+        body: JSON.stringify(reqBody),
+        signal: options.signal,
+      });
 
-      let cc = 0;
-      for await (const c of stream) {
-        cc++;
-        const d = c.choices[0]?.delta?.content ?? "";
-        if (d) { fullContent += d; onChunk(d); }
-        if (c.usage) { inputTokens = c.usage.prompt_tokens ?? 0; outputTokens = c.usage.completion_tokens ?? 0; }
-        if (c.model) respModel = c.model;
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 200)}`);
       }
 
-      if (!fullContent) throw new Error("模型流式返回空内容");
+      if (!resp.body) throw new Error("Empty response body");
+
+      let cc = 0;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const payload = trimmed.slice(6);
+          if (payload === "[DONE]") continue;
+
+          try {
+            const json = JSON.parse(payload);
+            cc++;
+            const delta = json.choices?.[0]?.delta?.content ?? "";
+            if (delta) { fullContent += delta; onChunk(delta); }
+            if (json.usage) {
+              inputTokens = json.usage.prompt_tokens ?? 0;
+              outputTokens = json.usage.completion_tokens ?? 0;
+            }
+            if (json.model) respModel = json.model;
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+
+      if (!fullContent) throw new Error("Model returned empty content");
 
       const elapsed = Date.now() - startedAt;
       logStreamDone("TextClient", apiUrl, elapsed, fullContent, {
