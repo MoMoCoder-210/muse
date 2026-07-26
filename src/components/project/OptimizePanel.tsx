@@ -65,6 +65,7 @@ export function OptimizePanel({
   const taskIdRef = useRef<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const submittingRef = useRef(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const skipSyncRef = useRef(false);
   const tabbarRef = useRef<HTMLDivElement>(null);
@@ -236,6 +237,8 @@ export function OptimizePanel({
   // ── 发起一次优化 ──────────────────────────────
 
   const handleStart = useCallback(async () => {
+    if (submittingRef.current || streaming) return;
+    submittingRef.current = true;
     setStreaming(true);
     setStreamText("");
     try {
@@ -258,11 +261,13 @@ export function OptimizePanel({
           if (r.status === "success") {
             if (pollRef.current) clearInterval(pollRef.current);
             taskIdRef.current = null;
+            submittingRef.current = false;
             setStreaming(false);
             await loadVersions();
           } else if (r.status === "failed") {
             if (pollRef.current) clearInterval(pollRef.current);
             taskIdRef.current = null;
+            submittingRef.current = false;
             setStreaming(false);
             await loadVersions(); // 刷新状态（running → failed）
             toast(FRIENDLY_ERROR, "error");
@@ -273,9 +278,10 @@ export function OptimizePanel({
       }, 800);
     } catch {
       setStreaming(false);
+      submittingRef.current = false;
       toast(FRIENDLY_ERROR, "error");
     }
-  }, [projectId, clipId, sourceText, mode, instruction, toast, loadVersions]);
+  }, [projectId, clipId, sourceText, mode, instruction, toast, loadVersions, streaming]);
 
   // ── 应用版本：替换原文 ────────────────────────
 

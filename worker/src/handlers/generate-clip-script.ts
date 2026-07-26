@@ -2,11 +2,11 @@
  * 分集拆解 — 模型分析分集生成镜头、人物、场景、道具及生图/生视频提示词
  */
 
-import type { Database as DatabaseType } from "better-sqlite3";
 import { randomUUID } from "crypto";
+import type { Database as DatabaseType } from "better-sqlite3";
 import type { TaskContext } from "../types.js";
 import type { ChatMessage } from "../clients/text.js";
-import { l, lw, le, stripCodeFences, createPromptLoader } from "../utils/utils.js";
+import { l, lw, le, createPromptLoader, stripCodeFences } from "../utils/utils.js";
 
 // ─── 提示词加载 ────────────────────────────────────────────────────
 
@@ -268,7 +268,7 @@ async function callModelAndParse(
   let result: Awaited<ReturnType<typeof textClient.chat>>;
   const startedAt = Date.now();
   try {
-    result = await textClient.chat(messages, () => {}, { signal: ctx.signal });
+    result = await textClient.chat(messages, () => {}, { signal: ctx.signal, reasoning_effort: "high" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const elapsed = Date.now() - startedAt;
@@ -299,7 +299,7 @@ async function callModelAndParse(
       { role: "user", content: "请将以上内容转为标准的 JSON 数组，不要包含任何 Markdown 符号或解释性文字，直接输出 JSON 数组本身。" },
     ];
 
-    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal });
+    const repairResult = await textClient.chat(repairMessages, () => {}, { signal: ctx.signal, reasoning_effort: "high" });
 
     l("拆解", `修复返回完成 输出=${repairResult.content.length}字符`);
 
@@ -307,25 +307,6 @@ async function callModelAndParse(
     const resources = buildResources(storyboards);
     return { storyboards, resources, rawOutput: repairResult.content };
   }
-}
-
-// ─── 台词时长校验 ───────────────────────────────────────────────────
-
-/** 中文正常语速约 3 字/秒 */
-const CHARS_PER_SECOND = 3;
-
-/**
- * 从 animationPrompt 中提取所有对话框台词的总字符数，推算最低所需时长（秒）。
- * 台词格式：人物名说：<台词原文>
- */
-function calcDialogueDuration(animationPrompt: string): number {
-  const dialogueRegex = /说：<([^>]*)>/g;
-  let totalChars = 0;
-  let match: RegExpExecArray | null;
-  while ((match = dialogueRegex.exec(animationPrompt)) !== null) {
-    totalChars += match[1].length;
-  }
-  return Math.ceil(totalChars / CHARS_PER_SECOND);
 }
 
 // ─── 结果保存 ───────────────────────────────────────────────────────
@@ -383,10 +364,9 @@ function saveResults(
     SELECT id FROM assets
     WHERE clip_id = ? AND type = ? AND name = ?
   `);
-  // 作品级同名素材复用：查找其他分集中已有的同名素材，继承其图片绑定
+  // 作品级同名素材复用：查找其他分集中已有的同名素材，直接复用其 ID
   const findProjectAsset = db.prepare(`
-    SELECT id, selected_image_id, generated_image_path, reference_image_path, status, voice_binding_json
-    FROM assets
+    SELECT id FROM assets
     WHERE project_id = ? AND type = ? AND name = ? AND clip_id != ?
     ORDER BY CASE WHEN selected_image_id IS NOT NULL THEN 0 ELSE 1 END, updated_at DESC
     LIMIT 1
@@ -394,12 +374,6 @@ function saveResults(
   const insertAsset = db.prepare(`
     INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'model', 'draft')
-  `);
-  // 复用作品素材时继承图片绑定数据
-  const insertAssetWithImage = db.prepare(`
-    INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status,
-      selected_image_id, generated_image_path, reference_image_path, voice_binding_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'model', ?, ?, ?, ?, ?)
   `);
 
   // type → name → assetId
@@ -419,26 +393,11 @@ function saveResults(
         map.set(r.name, existing.id);
         continue;
       }
-      // 2. 作品内其他分集已有同名素材 → 新建当前分集记录并继承图片绑定
-      const projectAsset = findProjectAsset.get(projectId, type, r.name, clipId) as {
-        id: string;
-        selected_image_id: string | null;
-        generated_image_path: string | null;
-        reference_image_path: string | null;
-        status: string;
-        voice_binding_json: string | null;
-      } | undefined;
+      // 2. 作品内其他分集已有同名素材 → 直接复用其 ID（不创建新记录）
+      const projectAsset = findProjectAsset.get(projectId, type, r.name, clipId) as { id: string } | undefined;
       if (projectAsset) {
-        const id = randomUUID();
-        const inheritStatus = projectAsset.selected_image_id ? "image_ready" : "draft";
-        insertAssetWithImage.run(
-          id, projectId, clipId, type, r.name, r.description, r.prompt,
-          inheritStatus,
-          projectAsset.selected_image_id, projectAsset.generated_image_path,
-          projectAsset.reference_image_path, projectAsset.voice_binding_json
-        );
-        map.set(r.name, id);
-        l("拆解", `  复用素材: ${type} "${r.name}" id=${id.slice(0, 8)} (源自 ${projectAsset.id.slice(0, 8)})`);
+        map.set(r.name, projectAsset.id);
+        l("拆解", `  复用素材: ${type} "${r.name}" id=${projectAsset.id.slice(0, 8)}`);
         continue;
       }
       // 3. 全新素材
@@ -525,22 +484,11 @@ function saveResults(
       mention_map: mentionMap,
     });
 
-    // ── 台词时长校验：防止台词过长但视频秒数过短导致语速异常 ──
-    const dialogueMinDur = calcDialogueDuration(sb.animationPrompt);
-    const llmDuration = sb.duration ?? 15;
-    const finalDuration = Math.min(Math.max(llmDuration, dialogueMinDur), 15);
-    if (finalDuration > llmDuration) {
-      l("拆解", `镜头 ${sb.sbid} 台词需至少 ${dialogueMinDur}s，LLM 预估 ${llmDuration}s → 修正为 ${finalDuration}s`);
-    }
-    if (dialogueMinDur > 15) {
-      lw("拆解", `⚠ 镜头 ${sb.sbid} 台词 ${dialogueMinDur * CHARS_PER_SECOND} 字 / 需 ${dialogueMinDur}s 已超过 15s 上限，建议重新拆分`);
-    }
-
     insertSb.run(
       randomUUID(), projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
       sb.description, videoPrompt,
-      finalDuration,
+      sb.duration ?? 15,
       JSON.stringify(charIds),
       JSON.stringify(sceneIds),
       JSON.stringify(itemIds),

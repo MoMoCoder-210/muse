@@ -175,6 +175,13 @@ pub fn list_clip_assets(
                     (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id LIMIT 1)
              FROM assets a
              WHERE a.clip_id = ?1
+                OR a.id IN (
+                    SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id = ?1
+                    UNION
+                    SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id = ?1
+                    UNION
+                    SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id = ?1
+                )
              ORDER BY a.type, a.name",
         )
         .map_err(|e| e.to_string())?;

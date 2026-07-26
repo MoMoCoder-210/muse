@@ -17,6 +17,8 @@ export interface TextCallOptions {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  thinking?: { type: "enabled"; budget_tokens?: number };
+  reasoning_effort?: "low" | "medium" | "high";
 }
 
 export interface TextCallResult {
@@ -50,7 +52,9 @@ export class TextClient {
     const startedAt = Date.now();
 
     const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/chat/completions`;
-    const reqBody = { model, messages, max_tokens: maxTokens, temperature, stream: true };
+    const reqBody: Record<string, unknown> = { model, messages, max_tokens: maxTokens, temperature, stream: true };
+    if (options.thinking) reqBody.thinking = options.thinking;
+    if (options.reasoning_effort) reqBody.reasoning_effort = options.reasoning_effort;
     logRequest("TextClient", "POST", apiUrl, this.config.apiKey, reqBody);
 
     let fullContent = "", inputTokens = 0, outputTokens = 0, respModel = model;
