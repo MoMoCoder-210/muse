@@ -1,6 +1,6 @@
 [package]
 name = "muse"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI视频创作工具"
 authors = ["you"]
 edition = "2021"
