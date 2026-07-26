@@ -15,6 +15,7 @@ export type TaskType =
   | "generate_voice"        // 语音生成
   | "generate_video"        // 视频生成
   | "import_storyboard_voice" // 导入镜头语音
+  | "optimize_script"       // 剧本优化
   | "export_video"          // 导出成片
   | "concat_video";        // 视频拼接
 
@@ -50,6 +51,8 @@ export type TaskEvent =
   | { type: "asset_image_task_update"; clipId: string; assetType: string; name: string; imageId: string; status: "ready" | "failed" }
   /** 分集拆解任务完成/失败（供分集列表即时刷新） */
   | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string }
+  /** 剧本优化流式输出（逐字推送到前端实时渲染） */
+  | { type: "task_stream"; taskId: string; chunk: string; index: number }
   /** 镜头视频任务完成/失败（供镜头视频批次即时刷新） */
   | { type: "storyboard_video_ready"; taskId: string; projectId: string; clipId: string; storyboardId: string; status: "success" | "failed"; errorMessage?: string };
 
@@ -112,6 +115,7 @@ export const TASK_TYPE_TO_API: Record<TaskType, ApiType> = {
   generate_voice: "voice",
   generate_video: "video",
   import_storyboard_voice: "local",
+  optimize_script: "text",
   export_video: "local",
   concat_video: "local",
 };

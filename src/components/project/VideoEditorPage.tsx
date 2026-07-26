@@ -196,27 +196,43 @@ export function VideoEditorPage({ project }: Props) {
   );
 
   const toggleFullscreen = useCallback((id: string) => {
-    setFullscreenId((prev) => {
-      if (prev === id) return null;
-      // 进入全屏：暂停其他所有视频，避免双播放
-      videoRefs.current.forEach((el, vid) => {
-        if (vid !== id) el.pause();
-      });
-      return id;
-    });
+    const videoEl = videoRefs.current.get(id);
+    const cardEl = videoEl?.closest(".ve-card") as HTMLElement | null;
+    if (!cardEl) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void cardEl.requestFullscreen();
+    }
   }, []);
 
-  // 应用内全屏不是浏览器 Fullscreen API，显式支持 Escape 退出。
+  // 监听浏览器全屏状态变化，同步 fullscreenId
   useEffect(() => {
-    if (!fullscreenId) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setFullscreenId(null);
+    const onChange = () => {
+      if (!document.fullscreenElement) {
+        setFullscreenId(null);
+      } else {
+        // 找到全屏元素对应的 storyboard_id
+        const el = document.fullscreenElement as HTMLElement;
+        const video = el.querySelector("video");
+        if (video) {
+          for (const [sid, vel] of videoRefs.current) {
+            if (vel === video) {
+              setFullscreenId(sid);
+              // 暂停其他视频
+              videoRefs.current.forEach((other, otherId) => {
+                if (otherId !== sid) other.pause();
+              });
+              return;
+            }
+          }
+        }
+        setFullscreenId(null);
+      }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [fullscreenId]);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   // 自定义控件条：播放或全屏时覆盖在视频底部
   const renderControls = (id: string) => {

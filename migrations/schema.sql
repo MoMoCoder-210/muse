@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS clips (
     status             TEXT NOT NULL DEFAULT 'pending',
     -- project | split | script | asset | storyboard | voice | video | export
     current_step       TEXT NOT NULL DEFAULT 'project',
+    -- 当前生效的 AI 优化版本（NULL = 使用原始 source_text）
+    active_optimization_id TEXT REFERENCES script_optimizations(id),
     -- 软删除标记（NULL = 未删除）
     deleted_at         TEXT,
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
@@ -383,3 +385,34 @@ CREATE TABLE IF NOT EXISTS worker_leases (
     worker_id    TEXT NOT NULL,
     heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ============================================================================
+-- 11.2 script_optimizations — 分集剧本 AI 优化版本
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS script_optimizations (
+    id                 TEXT PRIMARY KEY,
+    project_id         TEXT NOT NULL REFERENCES projects(id),
+    clip_id            TEXT NOT NULL REFERENCES clips(id),
+    -- 提交优化时的原文快照
+    source_text        TEXT NOT NULL,
+    -- AI 返回的结果
+    optimized_text     TEXT NOT NULL,
+    -- polish | expand | condense
+    mode               TEXT NOT NULL,
+    -- 自定义指令（可选）
+    instruction        TEXT NOT NULL DEFAULT '',
+    char_count_before  INTEGER NOT NULL DEFAULT 0,
+    char_count_after   INTEGER NOT NULL DEFAULT 0,
+    -- 关联异步任务
+    task_id            TEXT,
+    -- completed | failed
+    status             TEXT NOT NULL DEFAULT 'completed',
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_script_optimizations_clip
+    ON script_optimizations(clip_id);
+
+CREATE INDEX IF NOT EXISTS idx_script_optimizations_project
+    ON script_optimizations(project_id);
