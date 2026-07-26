@@ -1,10 +1,9 @@
 ﻿/**
- * 生图模型客户端
- *
- * 兼容 OpenAI Images API
+ * Image generation client
+ * Native fetch implementation, compatible with OpenAI Images API.
+ * No third-party SDK dependency (replaces openai npm package, saves ~10MB).
  */
 
-import OpenAI from "openai";
 import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
@@ -13,50 +12,29 @@ import { FALLBACK_API_KEY } from "./constants.js";
 import { logRequest, logResponse, logFailure } from "../utils/client-logger.js";
 
 export interface ImageGenerateOptions {
-  /** 生图尺寸 */
   size?: string;
-  /** 是否添加水印 */
   watermark?: boolean;
-  /** 画质：standard / hd */
   quality?: "standard" | "hd";
-  /** 风格：vivid / natural */
   style?: "vivid" | "natural";
-  /** AbortSignal */
   signal?: AbortSignal;
 }
 
 export interface ImageGenerateResult {
-  /** 图片临时 URL*/
   url: string;
   model: string;
 }
 
 export class ImageClient {
-  private client: OpenAI;
   private config: ImageModelConfig;
 
   constructor(config: ImageModelConfig) {
     this.config = config;
-    this.client = this.buildClient(config);
-  }
-
-  private buildClient(config: ImageModelConfig): OpenAI {
-    return new OpenAI({
-      apiKey: config.apiKey || FALLBACK_API_KEY,
-      baseURL: config.baseUrl,
-      timeout: config.timeoutMs,
-      maxRetries: 0,
-    });
   }
 
   updateConfig(config: ImageModelConfig): void {
     this.config = config;
-    this.client = this.buildClient(config);
   }
 
-  /**
-   * 生成图片，返回临时 URL
-   */
   async generate(
     prompt: string,
     options: ImageGenerateOptions = {}
@@ -65,49 +43,53 @@ export class ImageClient {
       throw new Error("ImageClient: apiKey is not configured");
     }
 
-    const size = (options.size ?? "1024x1024") as
-      | "256x256" | "512x512" | "1024x1024" | "1792x1024" | "1024x1792"
-      | (string & {});
-
+    const size = options.size ?? "1024x1024";
     const quality = options.quality ?? "hd";
     const style = options.style ?? "natural";
     const watermark = options.watermark ?? false;
 
     const apiUrl = `${(this.config.baseUrl || "").replace(/\/+$/, "")}/images/generations`;
-    const reqBody = { model: this.config.model, prompt, n: 1, size, quality, style, watermark, response_format: "url" };
+    const reqBody = {
+      model: this.config.model,
+      prompt,
+      n: 1,
+      size,
+      quality,
+      style,
+      response_format: "url",
+      watermark,
+    };
     logRequest("ImageClient", "POST", apiUrl, this.config.apiKey, reqBody);
     const startedAt = Date.now();
 
     try {
-      const response = await (this.client.images.generate as any)(
-        {
-          model: this.config.model,
-          prompt,
-          n: 1,
-          size,
-          quality,
-          style,
-          response_format: "url",
-          watermark,
+      const resp = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.config.apiKey || FALLBACK_API_KEY}`,
         },
-        { signal: options.signal }
-      );
+        body: JSON.stringify(reqBody),
+        signal: options.signal,
+      });
 
-      if (!("data" in response) || !response.data) {
-        throw new Error("ImageClient: unexpected streaming response");
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 200)}`);
       }
 
-      const resultData = response.data[0];
-
+      const json = await resp.json() as { data?: Array<{ url?: string; revised_prompt?: string }> };
+      const resultData = json.data?.[0];
       const url = resultData?.url;
+
       if (!url) {
         throw new Error("ImageClient: no URL in response");
       }
 
       const elapsed = Date.now() - startedAt;
       logResponse("ImageClient", apiUrl, elapsed, {
-        url: url,
-        revised_prompt: (resultData as any)?.revised_prompt,
+        url,
+        revised_prompt: resultData?.revised_prompt,
       });
 
       return { url, model: this.config.model };
@@ -117,10 +99,6 @@ export class ImageClient {
     }
   }
 
-  /**
-   * 生成图片并直接下载到本地路径
-   * 返回本地文件路径
-   */
   async generateAndSave(
     prompt: string,
     savePath: string,
@@ -132,7 +110,6 @@ export class ImageClient {
   }
 }
 
-// ── 文件下载工具 ───────────────────────────────────────────
 async function downloadFile(
   url: string,
   destPath: string,

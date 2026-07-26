@@ -103,6 +103,14 @@ struct ClipScriptReadyPayload {
     error_message: Option<String>,
 }
 
+/// 剧本优化流式输出负载（逐字推送到前端）
+#[derive(Clone, serde::Serialize)]
+struct OptimizeScriptStreamPayload {
+    task_id: String,
+    chunk: String,
+    index: i64,
+}
+
 /// 镜头视频任务完成/失败负载
 #[derive(Clone, serde::Serialize)]
 struct StoryboardVideoReadyPayload {
@@ -190,6 +198,25 @@ fn parse_stdout_line<'a>(
                                 "任务调度",
                                 "INFO",
                                 &format!("任务成功 taskId={}", task_id),
+                            );
+                        }
+                        "task_stream" => {
+                            let chunk = event
+                                .get("chunk")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let index = event
+                                .get("index")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let _ = app.emit(
+                                "optimize-script-stream",
+                                OptimizeScriptStreamPayload {
+                                    task_id: task_id.to_string(),
+                                    chunk,
+                                    index,
+                                },
                             );
                         }
                         "task_failed" => {

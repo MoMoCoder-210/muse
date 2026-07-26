@@ -5,6 +5,7 @@
  *
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ProjectInfo,
   CreateProjectInput,
@@ -226,6 +227,98 @@ import type { ClipScriptInfo, GenerateClipScriptInput } from "../types/project";
  */
 export async function generateClipScript(input: GenerateClipScriptInput): Promise<{ task_id: string }> {
   return invoke<{ task_id: string }>("generate_clip_script", { input });
+}
+
+// ── 剧本优化 ──────────────────────────────────────────────
+
+export interface OptimizeScriptInput {
+  projectId: string;
+  clipId: string;
+  text: string;
+  mode: "polish" | "expand" | "condense";
+  instruction?: string;
+}
+
+export interface OptimizeScriptResult {
+  taskId: string;
+  optimizationId: string;
+}
+
+/** 发起剧本优化任务，返回 taskId + optimizationId（前端可立即切换 Tab） */
+export async function optimizeScript(input: OptimizeScriptInput): Promise<OptimizeScriptResult> {
+  return invoke<OptimizeScriptResult>("optimize_script", { input });
+}
+
+/** 轮询任务结果 */
+export async function pollTaskResult(taskId: string): Promise<{
+  status: string;
+  errorMessage?: string;
+  output?: string;
+}> {
+  return invoke("poll_task_result", { taskId });
+}
+
+// ── 剧本优化：版本管理 ──────────────────────────────────────
+
+export interface OptimizationRecord {
+  id: string;
+  project_id: string;
+  clip_id: string;
+  source_text: string;
+  optimized_text: string;
+  mode: "polish" | "expand" | "condense";
+  instruction: string;
+  char_count_before: number;
+  char_count_after: number;
+  task_id: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface OptimizationsResult {
+  active_id: string | null;
+  items: OptimizationRecord[];
+}
+
+/** 列出分集的全部优化版本及当前生效版本 */
+export async function listOptimizations(clipId: string): Promise<OptimizationsResult> {
+  return invoke<OptimizationsResult>("list_optimizations", { clipId });
+}
+
+/** 选定某优化版本为生效版本 */
+export async function selectOptimization(clipId: string, optimizationId: string): Promise<void> {
+  return invoke("select_optimization", { clipId, optimizationId });
+}
+
+/** 删除某优化版本（若为生效版本则一并清除） */
+export async function deleteOptimization(optimizationId: string): Promise<void> {
+  return invoke("delete_optimization", { optimizationId });
+}
+
+/** 更新优化记录的结果文本（编辑后实时落库） */
+export async function updateOptimizationText(optimizationId: string, optimizedText: string): Promise<void> {
+  return invoke("update_optimization_text", { optimizationId, optimizedText });
+}
+
+/** 监听剧本优化流式输出，返回取消监听函数（防 Strict Mode 双注册） */
+export function onOptimizeStream(
+  cb: (taskId: string, chunk: string, index: number) => void,
+): UnlistenFn {
+  let cancelled = false;
+  let unlistenFn: UnlistenFn | null = null;
+  listen<{ task_id: string; chunk: string; index: number }>(
+    "optimize-script-stream",
+    (e) => {
+      if (!cancelled) cb(e.payload.task_id, e.payload.chunk, e.payload.index);
+    },
+  ).then((fn) => {
+    unlistenFn = fn;
+    if (cancelled) fn(); // 已取消则立即注销
+  });
+  return () => {
+    cancelled = true;
+    if (unlistenFn) unlistenFn();
+  };
 }
 
 /**

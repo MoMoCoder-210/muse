@@ -11,6 +11,7 @@ import { useClipPolling } from "../../hooks/useClipPolling";
 import { avatarColor } from "../../utils/avatar-colors";
 import { formatDeleteResult } from "../../utils/delete-result";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
+import { OptimizePanel } from "./OptimizePanel";
 
 type ClipListPanelProps = {
   project: ProjectInfo;
@@ -49,6 +50,7 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
   const [deleteConfirmClipId, setDeleteConfirmClipId] = useState<string | null>(null);
   const [batchDeletePending, setBatchDeletePending] = useState(false);
   const [deleteFiles, setDeleteFiles] = useState(false);
+  const [optimizeClip, setOptimizeClip] = useState<Clip | null>(null);
   const editingTitleRef = useRef("");
 
   // 数据变化时清理已失效的选中项
@@ -419,6 +421,22 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
                     </span>
                   )}
 
+                  {/* 优化按钮 — 仅未拆解分集可用 */}
+                  {getCanDisassemble(clip) && (
+                    <button
+                      type="button"
+                      className="clip-action-btn clip-action-btn--ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOptimizeClip(clip);
+                      }}
+                      disabled={operating}
+                      title="AI 优化剧本"
+                    >
+                      ✨ 优化
+                    </button>
+                  )}
+
                   {/* 删除按钮 */}
                   <button
                     type="button"
@@ -491,6 +509,18 @@ export function ClipListPanel({ project, onCreateClip, refreshKey }: ClipListPan
           onConfirm={confirmBatchDelete}
           onCancel={() => { setDeleteFiles(false); setBatchDeletePending(false); }}
           disabled={operating}
+        />
+      )}
+
+      {/* 剧本优化面板 */}
+      {optimizeClip && (
+        <OptimizePanel
+          projectId={project.id}
+          clipId={optimizeClip.id}
+          sourceText={optimizeClip.source_text}
+          clipTitle={optimizeClip.title}
+          onClose={() => setOptimizeClip(null)}
+          onChange={refresh}
         />
       )}
     </>

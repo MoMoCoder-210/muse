@@ -10,7 +10,7 @@
 
   <br/>
 
-  [English](README_EN.md)
+  [English](README_EN.md) · [Apache 2.0 开源协议](LICENSE) · [Releases 下载](https://github.com/MoMoCoder-210/muse/releases)
 
 </div>
 
@@ -84,13 +84,13 @@ Muse 是一款本地优先的桌面 AI 视频创作工具。基于剧本导入 �
 └──────┬──────────────────┬───────────────┘
        │ spawn & stdio    │ rusqlite
 ┌──────┴──────┐    ┌──────┴──────┐
-│  Node Worker │    │   SQLite    │
+│  Node Worker│    │   SQLite    │
 │  (任务调度 ·  │    │  (本地数据库) │
 │   AI API 调用)│    └─────────────┘
 └──────┬───────┘
        │ HTTP
 ┌──────┴──────┐
-│  火山引擎 API │
+│  大模型  API │
 │  (文本/生图/  │
 │   语音/视频)  │
 └─────────────┘

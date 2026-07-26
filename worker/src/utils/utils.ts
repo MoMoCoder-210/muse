@@ -7,24 +7,20 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { logLine } from "../logger.js";
 import { PROTOCOL_VERSION } from "../types.js";
 
-// ─── 日志：双写 — 磁盘文件（logLine）+ stdout 转发到 Rust ────
+// ─── 日志：仅 stdout 转发到 Rust（由 Rust 端统一落盘，避免双写） ────
 
-/** 信息级日志：双写（写盘 + 经 stdout 转发到 Rust 实时日志）。handler 内请优先用 l/lw/le，避免裸 logLine 导致 UI 收不到实时日志。 */
+/** 信息级日志：经 stdout 转发到 Rust 统一落盘 */
 export function l(source: string, message: string): void {
-  logLine(source, "INFO", message);
   process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: "info", message: `[${source}] ${message}` }) + "\n");
 }
 
 export function lw(source: string, message: string): void {
-  logLine(source, "WARN", message);
   process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: "warn", message: `[${source}] ${message}` }) + "\n");
 }
 
 export function le(source: string, message: string): void {
-  logLine(source, "ERROR", message);
   process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: "error", message: `[${source}] ${message}` }) + "\n");
 }
 

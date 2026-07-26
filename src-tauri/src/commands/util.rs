@@ -567,3 +567,25 @@ pub fn check_channel_pending_tasks(
 
     Ok(count == 0)
 }
+
+// ── 任务状态轮询 ──────────────────────────────────────
+
+/// 查询任务状态，供前端轮询用
+#[tauri::command]
+pub fn poll_task_result(task_id: String, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let conn = open_app_conn(&app)?;
+
+    let (status, error_message, output_json): (String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT status, error_message, output_json FROM tasks WHERE id = ?1",
+            rusqlite::params![&task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| format!("任务不存在：{}", task_id))?;
+
+    Ok(serde_json::json!({
+        "status": status,
+        "errorMessage": error_message,
+        "output": output_json,
+    }))
+}

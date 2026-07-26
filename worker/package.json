@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
-    "openai": "6.45.0",
-    "zod": "^3.24.1"
+    "muse": "file:.."
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

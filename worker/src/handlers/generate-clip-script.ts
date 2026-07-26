@@ -596,14 +596,22 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
     return JSON.stringify({ skipped: true, reason: "clip_deleted" });
   }
 
-  l("拆解", `开始拆解 clipId=${input.clipId} 原文=${input.sourceText.length}字符`);
+  // 若分集已选定生效的优化版本，则拆解使用优化后的剧本
+  const activeOpt = db
+    .prepare(
+      "SELECT so.optimized_text AS optimized_text FROM script_optimizations so JOIN clips c ON c.active_optimization_id = so.id WHERE c.id = ? AND so.status = 'completed'",
+    )
+    .get(input.clipId) as { optimized_text: string } | undefined;
+  const sourceText = activeOpt ? activeOpt.optimized_text : input.sourceText;
+
+  l("拆解", `开始拆解 clipId=${input.clipId} 原文=${sourceText.length}字符${activeOpt ? "（使用优化版本）" : ""}`);
 
   // 标记 running
   db.prepare("UPDATE clip_scripts SET status = 'running', updated_at = datetime('now') WHERE clip_id = ? AND status = 'pending'")
     .run(input.clipId);
 
   // 调用模型并解析（含修复重试）
-  const { storyboards, resources, rawOutput } = await callModelAndParse(ctx, input);
+  const { storyboards, resources, rawOutput } = await callModelAndParse(ctx, { ...input, sourceText });
 
   // 写入数据库
   saveResults(db, input.clipId, storyboards, resources, rawOutput, input.styleMode);

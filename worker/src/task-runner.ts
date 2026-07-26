@@ -19,12 +19,10 @@ import {
   transitionEntityStatus,
   type PendingTask,
 } from "./db.js";
-import { logLine } from "./logger.js";
 import { PROTOCOL_VERSION } from "./types.js";
 
-// 调度日志双写：磁盘文件 + stdout 转发到 Rust
+// 调度日志：经 stdout 转发到 Rust 统一落盘（避免双写）
 function log(source: string, level: "INFO" | "WARN" | "ERROR", message: string): void {
-  logLine(source, level, message);
   const lv = level.toLowerCase();
   process.stdout.write(JSON.stringify({ version: PROTOCOL_VERSION, msg: "log", level: lv, message: `[${source}] ${message}` }) + "\n");
 }

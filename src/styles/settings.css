@@ -85,9 +85,8 @@
 .sk-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  position: relative;
-  padding: 24px 24px 18px;
+  justify-content: space-between;
+  padding: 24px 24px 0px;
 }
 
 .sk-title {
@@ -99,10 +98,7 @@
 }
 
 .sk-close {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;

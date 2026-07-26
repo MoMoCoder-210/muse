@@ -568,6 +568,7 @@ pub fn update_clip(
             source_text = CASE WHEN ?3 != '' THEN ?3 ELSE source_text END,
             status = CASE WHEN ?4 THEN 'pending' ELSE status END,
             current_step = CASE WHEN ?4 THEN 'project' ELSE current_step END,
+            active_optimization_id = CASE WHEN ?4 THEN NULL ELSE active_optimization_id END,
             updated_at = datetime('now')
          WHERE id = ?5 AND deleted_at IS NULL",
         rusqlite::params![
@@ -1026,4 +1027,247 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
         first_clip_id: input.clip_id,
         second_clip_id: second_id,
     })
+}
+
+// ── 剧本优化 ──────────────────────────────────────────────────────
+
+/// 剧本优化输入
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptimizeScriptInput {
+    pub project_id: String,
+    pub clip_id: String,
+    pub text: String,
+    pub mode: String,
+    #[serde(default)]
+    pub instruction: Option<String>,
+}
+
+/// 剧本优化返回
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptimizeScriptResult {
+    pub task_id: String,
+    pub optimization_id: String,
+}
+
+/// 对分集原文进行 AI 优化（润色 / 扩写 / 精简）
+#[tauri::command]
+pub fn optimize_script(
+    input: OptimizeScriptInput,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::sidecar::SharedSidecarManager>,
+) -> Result<OptimizeScriptResult, String> {
+    let conn = util::open_app_conn(&app)?;
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let optimization_id = uuid::Uuid::new_v4().to_string();
+
+    // 1. 先创建优化记录（status=running，optimized_text 为空，前端立即看到新 Tab）
+    let char_count_before = input.text.chars().count() as i64;
+    conn.execute(
+        "INSERT INTO script_optimizations
+           (id, project_id, clip_id, source_text, optimized_text, mode, instruction,
+            char_count_before, char_count_after, task_id, status)
+         VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, ?7, 0, ?8, 'running')",
+        rusqlite::params![
+            &optimization_id,
+            &input.project_id,
+            &input.clip_id,
+            &input.text,
+            &input.mode,
+            input.instruction.as_deref().unwrap_or(""),
+            char_count_before,
+            &task_id,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 2. 创建异步任务，传入 optimization_id 供 Worker 后续 UPDATE
+    let input_json = serde_json::json!({
+        "projectId": input.project_id,
+        "clipId": input.clip_id,
+        "text": input.text,
+        "mode": input.mode,
+        "instruction": input.instruction,
+        "optimizationId": optimization_id,
+    })
+    .to_string();
+
+    let lock_key = format!("optimize_script:{}:{}", input.project_id, input.clip_id);
+
+    conn.execute(
+        "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
+         VALUES (?1, ?2, ?3, 'optimize_script', 'pending', ?4, ?5, 2)",
+        rusqlite::params![&task_id, &input.project_id, &input.clip_id, &lock_key, &input_json],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let log_path = crate::project_log::log_path_for_app_data(
+        &crate::app_paths::resolve_app_data_dir(&app)?,
+    );
+    crate::project_log::append_log(
+        &log_path,
+        "剧本优化",
+        "INFO",
+        &format!(
+            "优化任务已入队 projectId={} clipId={} mode={} taskId={} optimizationId={}",
+            input.project_id, input.clip_id, input.mode, task_id, optimization_id
+        ),
+    );
+
+    if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "optimize_script") {
+        crate::project_log::append_log(
+            &log_path,
+            "剧本优化",
+            "WARN",
+            &format!("发送 enqueue 通知失败（Worker 仍会轮询任务）：{}", e),
+        );
+    }
+
+    Ok(OptimizeScriptResult {
+        task_id,
+        optimization_id,
+    })
+}
+
+// ── 剧本优化：版本管理 ──────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct OptimizationRecord {
+    id: String,
+    project_id: String,
+    clip_id: String,
+    source_text: String,
+    optimized_text: String,
+    mode: String,
+    instruction: String,
+    char_count_before: i64,
+    char_count_after: i64,
+    task_id: Option<String>,
+    status: String,
+    created_at: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct OptimizationsResult {
+    active_id: Option<String>,
+    items: Vec<OptimizationRecord>,
+}
+
+/// 列出某分集的全部 AI 优化版本，并返回当前生效版本 id。
+#[tauri::command]
+pub fn list_optimizations(
+    clip_id: String,
+    app: tauri::AppHandle,
+) -> Result<OptimizationsResult, String> {
+    let conn = util::open_app_conn(&app)?;
+
+    let active_id: Option<String> = conn
+        .query_row(
+            "SELECT active_optimization_id FROM clips WHERE id = ?1",
+            rusqlite::params![&clip_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap_or(None);
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, clip_id, source_text, optimized_text, mode, instruction,
+                    char_count_before, char_count_after, task_id, status, created_at
+             FROM script_optimizations WHERE clip_id = ?1 ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let items = stmt
+        .query_map(rusqlite::params![&clip_id], |row| {
+            Ok(OptimizationRecord {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                clip_id: row.get(2)?,
+                source_text: row.get(3)?,
+                optimized_text: row.get(4)?,
+                mode: row.get(5)?,
+                instruction: row.get(6)?,
+                char_count_before: row.get(7)?,
+                char_count_after: row.get(8)?,
+                task_id: row.get(9)?,
+                status: row.get(10)?,
+                created_at: row.get(11)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(OptimizationsResult { active_id, items })
+}
+
+/// 选定某优化版本为当前生效版本（拆解镜头 / 素材将使用此版本）。
+#[tauri::command]
+pub fn select_optimization(
+    clip_id: String,
+    optimization_id: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM script_optimizations WHERE id = ?1 AND clip_id = ?2",
+            rusqlite::params![&optimization_id, &clip_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !exists {
+        return Err("优化版本不存在或不属于该分集".to_string());
+    }
+
+    conn.execute(
+        "UPDATE clips SET active_optimization_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![&optimization_id, &clip_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// 删除某条优化记录；若其为当前生效版本则一并清除。
+#[tauri::command]
+pub fn delete_optimization(
+    optimization_id: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+
+    conn.execute(
+        "UPDATE clips SET active_optimization_id = NULL WHERE active_optimization_id = ?1",
+        rusqlite::params![&optimization_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "DELETE FROM script_optimizations WHERE id = ?1",
+        rusqlite::params![&optimization_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// 修改某优化记录的结果文本（前端编辑后实时落库）
+#[tauri::command]
+pub fn update_optimization_text(
+    optimization_id: String,
+    optimized_text: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conn = util::open_app_conn(&app)?;
+    let char_count = optimized_text.chars().count() as i64;
+    conn.execute(
+        "UPDATE script_optimizations SET optimized_text = ?1, char_count_after = ?2 WHERE id = ?3",
+        rusqlite::params![&optimized_text, char_count, &optimization_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

@@ -68,6 +68,14 @@ pub fn run() {
     env_logger::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 第二个实例启动时，恢复并聚焦已有窗口
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -392,6 +400,11 @@ pub fn run() {
             commands::copy_asset_image_from,
             commands::cancel_clip_script,
             commands::get_clip_scripts,
+            commands::optimize_script,
+            commands::list_optimizations,
+            commands::select_optimization,
+            commands::delete_optimization,
+            commands::update_optimization_text,
             commands::list_storyboards,
             commands::list_clip_assets,
             commands::update_storyboard_assets,
@@ -409,6 +422,7 @@ pub fn run() {
             commands::delete_storyboard_video_task,
             commands::delete_storyboard_video,
             commands::util::check_channel_pending_tasks,
+            commands::util::poll_task_result,
             commands::list_clip_concat_videos,
             commands::concat_clip_videos,
             commands::detect_ffmpeg,

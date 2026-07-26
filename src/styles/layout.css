@@ -187,6 +187,8 @@
     0 0 0 0.5px rgba(255, 255, 255, 0.05),
     0 24px 80px rgba(0, 0, 0, 0.5);
   transition: transform 200ms ease, box-shadow 200ms ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .home-card h1 {
