@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { getSettings, saveSettings, getAppVersion, openAppDataDir, openLogDir } from "../../services/tauri";
 import { ChannelManager } from "./ChannelManager";
 import {
@@ -217,6 +218,36 @@ export function SettingsPage({ onClose }: Props) {
               Muse AI 视频创作工具<br/>
               Built with Tauri · React · Rust · SQLite
             </p>
+          </div>
+        </div>
+
+        {/* 链接 */}
+        <div className="sk-group">
+          <div className="sk-card sk-card--actions">
+            <button type="button" className="sk-action" onClick={() => openUrl("https://github.com/MoMoCoder-210/muse/issues")}>
+              <div className="sk-action-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              </div>
+              <div className="sk-action-body">
+                <span className="sk-action-title">报告错误</span>
+                <span className="sk-action-desc">在 GitHub Issues 中反馈问题</span>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="sk-action-arrow"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <button type="button" className="sk-action" onClick={() => openUrl("https://github.com/MoMoCoder-210/muse")}>
+              <div className="sk-action-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+              </div>
+              <div className="sk-action-body">
+                <span className="sk-action-title">给项目加星</span>
+                <span className="sk-action-desc">在 GitHub 上支持我们</span>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="sk-action-arrow"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
           </div>
         </div>
       </div>

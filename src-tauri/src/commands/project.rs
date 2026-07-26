@@ -432,6 +432,18 @@ pub fn delete_project(
         )
         .map_err(|e| e.to_string())?;
 
+        // 10.5 script_optimizations（依赖 clips.id，且 clips.active_optimization_id 反向引用）
+        tx.execute(
+            "UPDATE clips SET active_optimization_id = NULL WHERE project_id = ?1",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "DELETE FROM script_optimizations WHERE project_id = ?1",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
         // 11. clips
         tx.execute(
             "DELETE FROM clips WHERE project_id = ?1",

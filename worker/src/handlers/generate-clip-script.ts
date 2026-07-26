@@ -599,7 +599,7 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
   // 若分集已选定生效的优化版本，则拆解使用优化后的剧本
   const activeOpt = db
     .prepare(
-      "SELECT so.optimized_text AS optimized_text FROM script_optimizations so JOIN clips c ON c.active_optimization_id = so.id WHERE c.id = ?1 AND so.status = 'completed'",
+      "SELECT so.optimized_text AS optimized_text FROM script_optimizations so JOIN clips c ON c.active_optimization_id = so.id WHERE c.id = ? AND so.status = 'completed'",
     )
     .get(input.clipId) as { optimized_text: string } | undefined;
   const sourceText = activeOpt ? activeOpt.optimized_text : input.sourceText;
