@@ -3,8 +3,10 @@
 mod app_paths;
 mod commands;
 mod db;
+mod job_guard;
 mod project_log;
 mod sidecar;
+mod upscale_manager;
 
 use std::sync::Mutex as StdMutex;
 use tauri::Emitter;
@@ -79,17 +81,45 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // 第二个实例启动时，聚焦已有窗口
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
-                let _ = window.unminimize();
-            }
-        }))
         .setup(|app| {
+            // ── Job Object：超分子进程随本进程退出自动终止（含强杀），杜绝孤儿进程 ──
+            job_guard::init_job();
+
             let app_data_dir =
                 app_paths::resolve_app_data_dir(app.handle()).map_err(std::io::Error::other)?;
             log::info!("应用数据目录已就绪");
+
+            // ── 超分任务管理器：注册全局 state + 启动 worker（含断点续跑） ──
+            // manager 启动时从 DB 加载未完成任务入队续跑，并串行执行所有超分任务。
+            // 孤儿进程清理放到后台任务（wmic/tasklist 逐个查询较慢，同步执行会推迟
+            // worker 启动；放到后台既保证续跑尽快开始，又能清掉占用资源文件的旧进程）。
+            upscale_manager::setup_manager(app.handle());
+
+            // ── 清理上次超分异常退出残留的临时目录（`_upscale_*`） ──
+            // 仅删除不属于活跃任务（queued/running）的孤儿目录；断点续跑任务
+            // 的 frames/out 目录会被跳过保留。放后台执行，不阻塞启动。
+            {
+                let app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let active = upscale_manager::active_job_ids(&app);
+                    let root = app_paths::default_projects_root();
+                    commands::video::cleanup_orphan_upscale_dirs(&root, &active, 0);
+                    // 清理系统临时目录中的续跑中转目录（muse_upscale_{job}）
+                    // 仅清理不属于活跃任务的残留；正在续跑的任务其中转目录可能
+                    // 已被 worker 复用，跳过活跃 job 避免误删。
+                    if let Ok(temp_root) = std::env::temp_dir().canonicalize() {
+                        commands::video::cleanup_orphan_upscale_dirs(&temp_root, &active, 0);
+                    }
+                });
+            }
+
+            // ── 清理上次超分异常退出残留的孤儿进程（realesrgan/ffmpeg） ──
+            // 超分过程中被强制关闭时，ncnn/ffmpeg 子进程可能残留并占用 upscaler/ffmpeg
+            // 资源文件（如 vcomp140.dll），导致重启时 build script 或超分初始化失败。
+            // 放后台执行：先启动续跑 worker，再清理旧进程，互不冲突。
+            tauri::async_runtime::spawn(async {
+                commands::video::cleanup_orphan_upscale_processes();
+            });
 
             // ── 扩展 asset 协议作用域，确保前端能加载作品目录中的图片/视频 ──
             let asset_scope = app.handle().asset_protocol_scope();
@@ -226,7 +256,12 @@ pub fn run() {
                 let default_json = commands::util::default_settings_json();
                 if let Ok(content) = serde_json::to_string_pretty(&default_json) {
                     let _ = std::fs::write(&config_path_buf, content);
-                    project_log::append_log(&log_path, "应用", "INFO", "已自动生成默认 settings.json");
+                    project_log::append_log(
+                        &log_path,
+                        "应用",
+                        "INFO",
+                        "已自动生成默认 settings.json",
+                    );
                 }
             }
             let config_path = config_path_buf.to_string_lossy().to_string();
@@ -426,6 +461,10 @@ pub fn run() {
             commands::list_clip_concat_videos,
             commands::concat_clip_videos,
             commands::detect_ffmpeg,
+            commands::detect_gpu_support,
+            upscale_manager::enqueue_upscale,
+            upscale_manager::list_upscale_jobs,
+            upscale_manager::cancel_upscale_job,
             commands::test_connection,
             commands::open_in_folder,
             commands::save_concat_output,
@@ -434,6 +473,13 @@ pub fn run() {
             commands::preview_public_voice,
             commands::check_voices_cached,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // 应用退出时清理超分子进程（realesrgan/ffmpeg），避免孤儿进程占用
+            // upscaler/ffmpeg 资源文件导致下次编译或启动失败。
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                commands::video::cleanup_orphan_upscale_processes();
+            }
+        });
 }

@@ -64,6 +64,13 @@
   --accent-purple:      #bf5af2;
   --accent-orange:      #ff9f0a;
 
+  /* 超分（画质优化）品牌色 — 紫色系，区别于主 accent 蓝 */
+  --upscale-accent:         #8b6cff;
+  --upscale-accent-end:     #5ab0ff;
+  --upscale-accent-soft:    #d6c9ff;
+  --upscale-accent-rgb:     139, 108, 255;
+  --upscale-gradient:       linear-gradient(90deg, #8b6cff, #5ab0ff);
+
   /* 边框 */
   --border-base:        rgba(148, 163, 184, 0.14);
   --border-subtle:      rgba(148, 163, 184, 0.12);

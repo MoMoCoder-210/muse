@@ -206,10 +206,7 @@ fn parse_stdout_line<'a>(
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string();
-                            let index = event
-                                .get("index")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0);
+                            let index = event.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
                             let _ = app.emit(
                                 "optimize-script-stream",
                                 OptimizeScriptStreamPayload {
@@ -513,7 +510,10 @@ impl SidecarManager {
         // 解析 worker 脚本路径
         // 生产包：resource_dir；开发：cwd（常用 src-tauri/，需回退到作品根）。
         let worker_path = {
-            let resource_candidate = self.app.path().resource_dir()
+            let resource_candidate = self
+                .app
+                .path()
+                .resource_dir()
                 .ok()
                 .map(|d| d.join("worker").join("dist").join("index.js"))
                 .filter(|p| p.exists());
@@ -521,7 +521,8 @@ impl SidecarManager {
             if let Some(p) = resource_candidate {
                 p
             } else {
-                let cwd = std::env::current_dir().map_err(|e| SidecarError::StartFailed(e.to_string()))?;
+                let cwd = std::env::current_dir()
+                    .map_err(|e| SidecarError::StartFailed(e.to_string()))?;
                 let primary = cwd.join("worker").join("dist").join("index.js");
                 if primary.exists() {
                     primary
@@ -575,9 +576,30 @@ impl SidecarManager {
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| SidecarError::StartFailed(format!("Failed to spawn node ({}): {}", node_binary.display(), e)))?;
+        // ── 清理 Worker 单例租约 ──
+        // 本应用是单实例（single_instance 插件），Worker 随应用生灭且至多一个。
+        // 应用被强杀/崩溃时 Worker 无法释放租约，残留的 worker_leases 记录会让下次
+        // 启动时新 Worker 误判"已有其他 Worker 持有租约"而拒绝启动（前端 Worker 异常）。
+        // 应用能走到这里说明旧实例已退出（Job Object 已终止旧 Worker），故启动前直接
+        // 清理租约表，确保新 Worker 一定能取得租约。
+        self.log(
+            "子进程",
+            "INFO",
+            "启动前清理 Worker 单例租约",
+        );
+        if let Ok(conn) = crate::commands::util::open_app_conn(&self.app) {
+            let _ = conn.execute("DELETE FROM worker_leases WHERE lease_key = 'muse:worker'", []);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            SidecarError::StartFailed(format!(
+                "Failed to spawn node ({}): {}",
+                node_binary.display(),
+                e
+            ))
+        })?;
+        // 加入全局 Job：父进程退出（含强杀）时自动终止 worker
+        crate::job_guard::assign_child(&child);
 
         // 启动 stderr 读取线程 → 写入作品日志文件
         if let Some(stderr) = child.stderr.take() {

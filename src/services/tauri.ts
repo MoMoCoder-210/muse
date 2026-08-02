@@ -789,6 +789,8 @@ export interface ConcatResult {
   duration: number;
   segment_count: number;
   audio_included: boolean;
+  /** 记录来源：concat（拼接成片）| upscale（超分产物） */
+  source?: string;
 }
 
 /** 拼接进度事件载荷（后端通过 Tauri event 推送） */
@@ -810,6 +812,8 @@ export interface SaveConcatOutputInput {
   duration: number;
   segment_count: number;
   audio_included: boolean;
+  /** 记录来源：concat（拼接成片）| upscale（超分产物） */
+  source?: string;
 }
 export async function saveConcatOutput(input: SaveConcatOutputInput): Promise<string> {
   return invoke<string>("save_concat_output", { input });
@@ -828,6 +832,7 @@ export interface ConcatOutputRow {
   duration: number;
   segment_count: number;
   audio_included: boolean;
+  source: string;
   created_at: string;
 }
 
@@ -843,6 +848,81 @@ export async function concatStoryboardVideos(input: {
   output_name?: string;
 }): Promise<ConcatResult> {
   return invoke<ConcatResult>("concat_clip_videos", { input });
+}
+
+/**
+ * 检测当前机器是否支持 Vulkan（ncnn）GPU 超分。
+ * 返回 true 表示有可用 GPU；false 表示无 GPU，超分不可用。
+ */
+export async function detectGpuSupport(): Promise<boolean> {
+  return invoke<boolean>("detect_gpu_support");
+}
+
+/** 超分任务状态 */
+export type UpscaleJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+/** 超分任务（后端 UpscaleManager 唯一事实来源，前端订阅事件渲染） */
+export interface UpscaleJob {
+  id: string;
+  storyboard_id: string;
+  video_id: string;
+  input_path: string;
+  output_path: string;
+  model: string;
+  scale: number;
+  status: UpscaleJobStatus;
+  /** 进度 0-100 */
+  percent: number;
+  stage: string;
+  error: string | null;
+  created_at: string;
+}
+
+/** 超分任务入队输入 */
+export interface UpscaleEnqueueInput {
+  storyboard_id: string;
+  video_id: string;
+  model?: string;
+  scale?: number;
+}
+
+/**
+ * 入队超分任务（同一时刻只执行一个，其余排队等待）。
+ * 返回创建的任务；进度/状态经 `upscale-changed` 事件推送。
+ */
+export async function enqueueUpscale(input: UpscaleEnqueueInput): Promise<UpscaleJob> {
+  return invoke<UpscaleJob>("enqueue_upscale", { input });
+}
+
+/** 查询全量超分任务（应用启动时用于恢复状态） */
+export async function listUpscaleJobs(): Promise<UpscaleJob[]> {
+  return invoke<UpscaleJob[]>("list_upscale_jobs");
+}
+
+/** 取消超分任务（排队中移除 / 运行中置取消标志） */
+export async function cancelUpscaleJob(jobId: string): Promise<boolean> {
+  return invoke<boolean>("cancel_upscale_job", { jobId });
+}
+
+/** 超分任务状态变化事件载荷 */
+export interface UpscaleChangedEvent {
+  id: string;
+  storyboard_id: string;
+  video_id: string;
+  status: UpscaleJobStatus;
+  percent: number;
+  stage: string;
+  error: string | null;
+}
+
+/** 超分完成/失败/取消事件载荷（前端据此刷新视频列表） */
+export interface UpscaleDoneEvent {
+  storyboard_id: string;
+  video_id: string;
+  result_id: string;
+  status: UpscaleJobStatus;
+  output_path: string;
+  file_name: string;
 }
 
 /**

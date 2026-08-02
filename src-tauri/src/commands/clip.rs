@@ -271,13 +271,22 @@ fn collect_clip_file_paths(
     }
 
     // 3. 可删除的 = 本分集的 - 被保护的
-    let protected_set: std::collections::HashSet<&str> = protected.iter().map(|s| s.as_str()).collect();
-    let deletable: Vec<&str> = owned.iter().map(|s| s.as_str()).filter(|id| !protected_set.contains(id)).collect();
+    let protected_set: std::collections::HashSet<&str> =
+        protected.iter().map(|s| s.as_str()).collect();
+    let deletable: Vec<&str> = owned
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|id| !protected_set.contains(id))
+        .collect();
 
     // 4. 收集文件路径：仅可删除素材的图片
     let mut paths: Vec<String> = Vec::new();
     if !deletable.is_empty() {
-        let placeholders: Vec<String> = deletable.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> = deletable
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
         let img_sql = format!(
             "SELECT image_path FROM asset_images WHERE asset_id IN ({})",
             placeholders.join(",")
@@ -286,7 +295,10 @@ fn collect_clip_file_paths(
             let mut stmt = tx
                 .prepare(&img_sql)
                 .map_err(|e| format!("查询可删素材图片失败: {}", e))?;
-            let params: Vec<&dyn rusqlite::types::ToSql> = deletable.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let params: Vec<&dyn rusqlite::types::ToSql> = deletable
+                .iter()
+                .map(|id| id as &dyn rusqlite::types::ToSql)
+                .collect();
             let rows = stmt
                 .query_map(params.as_slice(), |row| row.get::<_, String>(0))
                 .map_err(|e| format!("遍历可删素材图片失败: {}", e))?;
@@ -307,7 +319,10 @@ fn collect_clip_file_paths(
             let mut stmt = tx
                 .prepare(&ref_sql)
                 .map_err(|e| format!("查询可删素材引用图失败: {}", e))?;
-            let params: Vec<&dyn rusqlite::types::ToSql> = deletable.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let params: Vec<&dyn rusqlite::types::ToSql> = deletable
+                .iter()
+                .map(|id| id as &dyn rusqlite::types::ToSql)
+                .collect();
             let rows = stmt
                 .query_map(params.as_slice(), |row| row.get::<_, String>(0))
                 .map_err(|e| format!("遍历可删素材引用图失败: {}", e))?;
@@ -507,10 +522,13 @@ pub fn delete_clips(
         // 4. 删除其余叶子记录。
         // 注意：共享素材（被其他分集镜头引用的素材）不可删除，仅删除本分集专属且未被引用的素材
         tx.execute(
-            &format!("DELETE FROM asset_images WHERE asset_id IN (
+            &format!(
+                "DELETE FROM asset_images WHERE asset_id IN (
                 SELECT id FROM assets WHERE clip_id = ?1
                 AND id NOT IN ({})
-            )", shared_sql_snippet()),
+            )",
+                shared_sql_snippet()
+            ),
             rusqlite::params![id, id],
         )
         .map_err(|e| format!("无法删除素材图片 clipId={}: {}", id, e))?;
@@ -544,9 +562,12 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除镜头 clipId={}: {}", id, e))?;
         tx.execute(
-            &format!("DELETE FROM assets WHERE clip_id = ?1
+            &format!(
+                "DELETE FROM assets WHERE clip_id = ?1
                 AND id NOT IN ({})
-            ", shared_sql_snippet()),
+            ",
+                shared_sql_snippet()
+            ),
             rusqlite::params![id, id],
         )
         .map_err(|e| format!("无法删除素材 clipId={}: {}", id, e))?;
@@ -586,7 +607,10 @@ pub fn delete_clips(
         &format!(
             "即将删除 {} 个候选文件: {:?}",
             file_candidates.len(),
-            file_candidates.iter().map(|c| c.file_path.to_string_lossy().to_string()).collect::<Vec<_>>(),
+            file_candidates
+                .iter()
+                .map(|c| c.file_path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
         ),
     );
 
@@ -1215,13 +1239,18 @@ pub fn optimize_script(
     conn.execute(
         "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
          VALUES (?1, ?2, ?3, 'optimize_script', 'pending', ?4, ?5, 2)",
-        rusqlite::params![&task_id, &input.project_id, &input.clip_id, &lock_key, &input_json],
+        rusqlite::params![
+            &task_id,
+            &input.project_id,
+            &input.clip_id,
+            &lock_key,
+            &input_json
+        ],
     )
     .map_err(|e| e.to_string())?;
 
-    let log_path = crate::project_log::log_path_for_app_data(
-        &crate::app_paths::resolve_app_data_dir(&app)?,
-    );
+    let log_path =
+        crate::project_log::log_path_for_app_data(&crate::app_paths::resolve_app_data_dir(&app)?);
     crate::project_log::append_log(
         &log_path,
         "剧本优化",
@@ -1351,10 +1380,7 @@ pub fn select_optimization(
 
 /// 删除某条优化记录；若其为当前生效版本则一并清除。
 #[tauri::command]
-pub fn delete_optimization(
-    optimization_id: String,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn delete_optimization(optimization_id: String, app: tauri::AppHandle) -> Result<(), String> {
     let conn = util::open_app_conn(&app)?;
 
     conn.execute(

@@ -1,0 +1,263 @@
+/* ── 镜头视频超分抽屉（MAC 风格，复用 asset-drawer 结构） ── */
+
+.sbu-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 92vw);
+  /* 与素材详情抽屉一致：为 Tauri 原生标题栏留出安全距离（不遮挡窗口菜单） */
+  padding-top: 30px;
+}
+
+/* 底部操作栏内的超分进度条（整体为可点击的取消按钮） */
+.sbu-progress-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+  font: inherit;
+  color: inherit;
+}
+.sbu-progress-btn:hover,
+.sbu-progress-btn:focus-visible {
+  background: rgba(255, 82, 82, 0.08);
+  border-color: var(--color-danger-rgb, rgba(255, 82, 82, 0.5));
+  outline: none;
+}
+.sbu-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sbu-progress-stage {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.sbu-progress-pct {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-primary);
+  font-variant-numeric: tabular-nums;
+}
+.sbu-progress-cancel-hint {
+  display: none;
+  font-size: var(--font-size-xxs);
+  color: var(--color-danger);
+  text-align: center;
+}
+.sbu-progress-btn:hover .sbu-progress-cancel-hint {
+  display: block;
+}
+.sbu-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.sbu-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--upscale-gradient);
+  transition: width 220ms ease;
+}
+
+/* 视频预览 */
+.sbu-preview {
+  width: 100%;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background: #000;
+  border: 0.5px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+}
+.sbu-preview video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+/* 超分参数 */
+.sbu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: calc(-1 * var(--spacing-md) / 2);
+}
+
+/* 显卡提醒 */
+.sbu-gpu-tip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border-radius: var(--radius-lg);
+  background: rgba(var(--accent-primary-rgb), 0.08);
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.22);
+  font-size: var(--font-size-xxs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.sbu-gpu-tip--warn {
+  background: rgba(var(--color-danger-rgb), 0.08);
+  border-color: rgba(var(--color-danger-rgb), 0.3);
+  color: var(--color-danger);
+}
+.sbu-gpu-tip--warn > svg {
+  flex-shrink: 0;
+  color: var(--color-danger);
+  opacity: 0.9;
+}
+.sbu-gpu-tip-more {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.12);
+  cursor: help;
+  transition: background 160ms ease;
+}
+.sbu-gpu-tip-more:hover,
+.sbu-gpu-tip-more:focus-visible {
+  background: rgba(var(--accent-primary-rgb), 0.22);
+  outline: none;
+}
+.sbu-gpu-tip-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -6px;
+  z-index: 60;
+  width: 240px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: rgba(22, 24, 36, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 160ms ease, transform 160ms ease, visibility 160ms;
+  pointer-events: none;
+}
+.sbu-gpu-tip-more:hover .sbu-gpu-tip-popover,
+.sbu-gpu-tip-more:focus-visible .sbu-gpu-tip-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.sbu-gpu-tip-popover-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.sbu-gpu-tip-popover-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sbu-gpu-tip-popover-list li {
+  font-size: var(--font-size-xxs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding-left: 10px;
+  position: relative;
+}
+.sbu-gpu-tip-popover-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  opacity: 0.8;
+}
+
+/* 参数分组 */
+.sbu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sbu-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sbu-section-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+.sbu-section-current {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--accent-primary);
+  font-variant-numeric: tabular-nums;
+}
+.sbu-section .segmented {
+  width: 100%;
+}
+.sbu-section .segmented button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-lg);
+}
+/* 模型按钮：名称 + 特性徽标两行 */
+.sbu-model-name {
+  display: block;
+  line-height: 1.3;
+}
+.sbu-model-tag {
+  display: block;
+  margin-top: 2px;
+  /* tokens 最小字号为 xxs(11px)；10px 为模型特性徽标专用极小字，无对应 token */
+  font-size: 10px;
+  font-weight: var(--font-weight-normal);
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+.sbu-section .segmented button.active .sbu-model-tag {
+  color: color-mix(in srgb, var(--accent-primary) 70%, var(--text-muted));
+}
+.sbu-section-desc {
+  margin: 0;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.sbu-section-warn {
+  margin: 0;
+  font-size: var(--font-size-xxs);
+  color: var(--color-danger);
+  line-height: 1.5;
+}

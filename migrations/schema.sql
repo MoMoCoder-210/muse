@@ -259,6 +259,31 @@ CREATE INDEX IF NOT EXISTS idx_sv_storyboard
 
 
 -- ============================================================================
+-- 6.2 upscale_jobs — 镜头视频超分任务（支持断点续跑）
+-- ============================================================================
+-- 超分任务启动前先落一条记录（status=running），每阶段结束同步进度；
+-- 应用异常退出后，启动时发现 status=running 的任务即自动续跑（跳过已完成阶段）。
+-- 正常完成 → done；失败 → failed；用户取消 → cancelled。
+CREATE TABLE IF NOT EXISTS upscale_jobs (
+    id              TEXT PRIMARY KEY,
+    storyboard_id   TEXT NOT NULL REFERENCES storyboards(id),
+    video_id        TEXT NOT NULL REFERENCES storyboard_videos(id),
+    input_path      TEXT NOT NULL,
+    output_path     TEXT NOT NULL,
+    model           TEXT NOT NULL DEFAULT 'anime',
+    scale           INTEGER NOT NULL DEFAULT 4,
+    -- running | done | failed | cancelled
+    status          TEXT NOT NULL DEFAULT 'running',
+    error_message   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_upscale_jobs_status
+    ON upscale_jobs(status);
+
+
+-- ============================================================================
 -- 7. storyboard_assets — 镜头-素材关联
 -- ============================================================================
 
@@ -371,6 +396,8 @@ CREATE TABLE IF NOT EXISTS concat_outputs (
     duration        REAL NOT NULL DEFAULT 0,
     segment_count   INTEGER NOT NULL DEFAULT 0,
     audio_included  INTEGER NOT NULL DEFAULT 0,
+    -- concat | upscale（成片 vs 超分产物）
+    source          TEXT NOT NULL DEFAULT 'concat',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

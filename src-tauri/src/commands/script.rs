@@ -1972,7 +1972,12 @@ pub fn copy_asset_image_from(
            AND type = ?3 AND name = ?4
          ORDER BY CASE WHEN clip_id = ?2 THEN 0 ELSE 1 END
          LIMIT 1",
-        rusqlite::params![&project_id, &input.target_clip_id, &input.target_asset_type, &input.target_name],
+        rusqlite::params![
+            &project_id,
+            &input.target_clip_id,
+            &input.target_asset_type,
+            &input.target_name
+        ],
         |row| row.get(0),
     ) {
         Ok(id) => id,

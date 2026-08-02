@@ -363,6 +363,7 @@ export function VideoEditorPage({ project }: Props) {
             duration: r.duration,
             segment_count: r.segment_count,
             audio_included: r.audio_included,
+            source: r.source,
           })),
         );
       })
@@ -921,7 +922,11 @@ export function VideoEditorPage({ project }: Props) {
                                 </svg>
                               </button>
                             )}
-                            <span className="ve-card-seq ve-card-seq--output">成片</span>
+                            {out.source === "upscale" ? (
+                              <span className="ve-card-seq ve-card-seq--upscale">超分</span>
+                            ) : (
+                              <span className="ve-card-seq ve-card-seq--output">成片</span>
+                            )}
                             <button
                               className="ve-card-del"
                               title="删除成片"

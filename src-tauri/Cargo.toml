@@ -18,6 +18,15 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
+# Windows Job Object：把超分子进程放进 Job，父进程退出（含强杀）时内核自动终止所有子进程，
+# 避免 realesrgan/ffmpeg 变成孤儿进程占用资源文件导致下次编译失败。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2"

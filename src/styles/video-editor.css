@@ -455,6 +455,8 @@
   overflow: hidden;
 }
 
+
+
 /* 窗口内全屏模式 — 相对于 .ve-main（有 backdrop-filter 包含块） */
 .ve-card.is-fullscreen {
   position: fixed;
@@ -713,6 +715,30 @@
   border-radius: 50%;
   background: var(--color-success);
   box-shadow: 0 0 8px rgba(var(--color-success-rgb), 0.8);
+}
+
+/* 超分产物角标 — 紫色系，与超分功能一致 */
+.ve-card-seq--upscale {
+  top: 6px;
+  left: 6px;
+  gap: 5px;
+  background: rgba(var(--accent-primary-rgb), 0.14);
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.4);
+  color: var(--accent-primary);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.3px;
+}
+.ve-card-seq--upscale::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px rgba(var(--accent-primary-rgb), 0.8);
 }
 
 /* 成片卡片右上角删除按钮 — 胶囊风格，与左上角成片标志对称 */
@@ -1048,3 +1074,5 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+

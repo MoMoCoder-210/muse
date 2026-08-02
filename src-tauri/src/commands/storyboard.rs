@@ -1135,6 +1135,12 @@ pub fn delete_storyboard_video(
     }
 
     // SQL 条件再次保护最终视频，防止检查和删除之间状态被并发更新。
+    // 注意：超分批次（source='upscale'）被 upscale_jobs.video_id 外键引用，
+    // 必须先删除关联的超分任务记录，否则外键约束会阻止删除批次。
+    let _ = tx.execute(
+        "DELETE FROM upscale_jobs WHERE video_id = ?1",
+        rusqlite::params![&input.video_id],
+    );
     let affected = tx
         .execute(
             "DELETE FROM storyboard_videos

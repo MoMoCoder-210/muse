@@ -131,34 +131,33 @@
   background: var(--bg-input);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-/* 绑定批次（镜头最终视频）— Mac 风格实心填充 */
+/* 绑定批次（镜头最终视频）— 不显示外发光边框，仅保留右上角绑定徽标 */
 .sd-video-thumb-wrap.on {
-  border-color: var(--accent-primary);
-  background: rgba(var(--accent-primary-rgb), 0.12);
-  box-shadow: inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.25);
+  /* 绑定状态仅由 sd-video-thumb-bound-badge 徽标表示，无边框/填充 */
 }
-/* 选中预览批次 — 蓝色光环 + 微放大 */
+/* 选中预览批次 — 蓝色发光边框（无外圈实心光环） */
 .sd-video-thumb-wrap.playing {
   border-color: var(--accent-primary);
   border-style: solid;
   box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.25),
+    0 0 6px 1px rgba(var(--accent-primary-rgb), 0.55),
     0 4px 16px rgba(0, 0, 0, 0.3);
   transform: scale(1.1);
   z-index: 2;
   overflow: visible;
 }
-/* 绑定 + 同时预览 */
-.sd-video-thumb-wrap.on.playing {
+/* 选中超分中批次 — 蓝色发光边框 + 外部紫色光环 */
+.sd-video-thumb-wrap.playing.is-upscaling {
   border-color: var(--accent-primary);
   border-style: solid;
   box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.25),
-    inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.2),
+    0 0 0 3px rgba(139, 108, 255, 0.42),
+    0 0 8px 2px rgba(var(--accent-primary-rgb), 0.55),
     0 4px 16px rgba(0, 0, 0, 0.3);
   transform: scale(1.1);
   z-index: 2;
   overflow: visible;
+  animation: none;
 }
 /* 绑定徽章（始终可见） */
 .sd-video-thumb-bound-badge {
@@ -176,6 +175,7 @@
   border: solid #fff; border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg) translate(-1px, -1px);
 }
+
 .sd-video-thumb-vid {
   width: 100%; height: 100%; object-fit: cover; pointer-events: none;
 }
@@ -253,6 +253,50 @@
   background:
     radial-gradient(circle at 50% 22%, rgba(var(--color-danger-rgb), 0.22), transparent 54%),
     rgba(44, 19, 23, 0.78);
+}
+/* 超分中批次 — 紫色脉冲 */
+.sd-video-thumb-wrap.is-upscaling {
+  border-color: rgba(139, 108, 255, 0.6);
+  background:
+    radial-gradient(circle at 50% 22%, rgba(139, 108, 255, 0.26), transparent 54%),
+    rgba(20, 18, 34, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 0 0 2px rgba(139, 108, 255, 0.28),
+    0 7px 16px rgba(0, 0, 0, 0.16);
+  animation: sd-upscale-pulse 1.6s ease-in-out infinite;
+}
+.sd-video-thumb-wrap.is-upscaling .sd-video-task-thumb {
+  background: transparent;
+}
+/* 超分中临时批次缩略图底部的进度条 */
+.sd-video-upscaling-thumb {
+  position: relative;
+  justify-content: center;
+}
+.sd-video-upscaling-bar {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 5px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.sd-video-upscaling-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--upscale-gradient);
+  transition: width 220ms ease;
+}
+/* 排队中的超分批次：无进度条，仅旋转动画 */
+.sd-video-upscaling-thumb.is-queued {
+  background: rgba(255, 255, 255, 0.04);
+}
+@keyframes sd-upscale-pulse {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.13), 0 0 0 2px rgba(139,108,255,0.22), 0 7px 16px rgba(0,0,0,0.16); }
+  50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.13), 0 0 0 4px rgba(139,108,255,0.4), 0 7px 16px rgba(0,0,0,0.16); }
 }
 .sd-video-task-thumb {
   width: 100%;
@@ -391,6 +435,126 @@
   color: rgba(255, 255, 255, 0.68);
   font-size: var(--font-size-sm);
   line-height: 1.55;
+}
+
+/* ── 镜头视频超分：按钮 + 进度动画 ── */
+
+/* 视频预览左上角“超分产物”标识 */
+.sd-player-upscale-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  background: rgba(139, 108, 255, 0.78);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
+.sd-player-upscale-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* 视频预览右上角超分按钮 */
+.sd-upscale-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 0.5px solid rgba(139, 108, 255, 0.45);
+  border-radius: var(--radius-full);
+  background: rgba(var(--upscale-accent-rgb), 0.2);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--upscale-accent-soft);
+  font-size: var(--font-size-xxs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.sd-upscale-btn svg {
+  width: 11px;
+  height: 11px;
+}
+.sd-upscale-btn:hover:not(:disabled) {
+  border-color: rgba(139, 108, 255, 0.7);
+  background: rgba(139, 108, 255, 0.22);
+  color: #fff;
+}
+.sd-upscale-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 排队中的播放器占位：静态提示（无进度条） */
+.sd-player-task-state--queued .sd-video-task-orb {
+  width: 42px;
+  height: 42px;
+}
+.sd-player-task-state--queued .sd-video-task-orb::before {
+  inset: 5px;
+}
+
+/* 超分中的播放器占位：进度动画 */
+.sd-player-task-state--upscaling .sd-video-task-orb {
+  width: 42px;
+  height: 42px;
+}
+.sd-player-task-state--upscaling .sd-video-task-orb::before {
+  inset: 5px;
+}
+.sd-player-task-state--upscaling .sd-upscale-progress {
+  width: min(240px, 72%);
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin-top: 2px;
+}
+.sd-player-task-state--upscaling .sd-upscale-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--upscale-gradient);
+  transition: width 220ms ease;
+}
+.sd-player-task-state--upscaling .sd-upscale-percent {
+  color: var(--upscale-accent-soft);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.sd-player-task-state--upscaling .sd-upscale-cancel {
+  margin-top: 6px;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  border: 0.5px solid rgba(var(--color-danger-rgb), 0.35);
+  background: rgba(var(--color-danger-rgb), 0.14);
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.sd-player-task-state--upscaling .sd-upscale-cancel:hover {
+  background: rgba(var(--color-danger-rgb), 0.24);
+  border-color: rgba(var(--color-danger-rgb), 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {

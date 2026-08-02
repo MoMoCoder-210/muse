@@ -330,7 +330,9 @@ fn resolve_schema_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Str
     let cwd = std::env::current_dir().unwrap_or_default();
 
     // 生产包优先：resource_dir/migrations/schema.sql
-    let resource_candidate = app.path().resource_dir()
+    let resource_candidate = app
+        .path()
+        .resource_dir()
         .ok()
         .map(|d| d.join("migrations").join("schema.sql"));
 
@@ -339,7 +341,10 @@ fn resolve_schema_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Str
         Some(app_data_dir.join("migrations").join("schema.sql")),
         Some(cwd.join("migrations").join("schema.sql")),
         Some(cwd.join("..").join("migrations").join("schema.sql")),
-    ].into_iter().flatten().collect();
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
     candidates
         .into_iter()
@@ -551,18 +556,20 @@ pub fn check_channel_pending_tasks(
         other => return Err(format!("未知渠道类型：{}", other)),
     };
 
-    let placeholders = task_types.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let placeholders = task_types
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
         "SELECT COUNT(*) FROM tasks WHERE type IN ({}) AND status IN ('pending', 'running')",
         placeholders
     );
 
     let count: i64 = conn
-        .query_row(
-            &sql,
-            rusqlite::params_from_iter(task_types.iter()),
-            |row| row.get(0),
-        )
+        .query_row(&sql, rusqlite::params_from_iter(task_types.iter()), |row| {
+            row.get(0)
+        })
         .map_err(|e| e.to_string())?;
 
     Ok(count == 0)
@@ -572,7 +579,10 @@ pub fn check_channel_pending_tasks(
 
 /// 查询任务状态，供前端轮询用
 #[tauri::command]
-pub fn poll_task_result(task_id: String, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub fn poll_task_result(
+    task_id: String,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     let conn = open_app_conn(&app)?;
 
     let (status, error_message, output_json): (String, Option<String>, Option<String>) = conn

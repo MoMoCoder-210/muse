@@ -219,10 +219,20 @@ pub fn get_project(project_id: String, app: tauri::AppHandle) -> Result<ProjectI
     .map_err(|e| e.to_string())?;
 
     // 动态扩展 asset 协议作用域，确保前端能访问该作品的工作区文件
-    log::info!("asset scope: get_project 扩展作用域 -> {:?}", project.workspace_path);
-    match app.asset_protocol_scope().allow_directory(&project.workspace_path, true) {
+    log::info!(
+        "asset scope: get_project 扩展作用域 -> {:?}",
+        project.workspace_path
+    );
+    match app
+        .asset_protocol_scope()
+        .allow_directory(&project.workspace_path, true)
+    {
         Ok(_) => log::info!("asset scope: 已添加作品工作区 {:?}", project.workspace_path),
-        Err(e) => log::warn!("asset scope: 无法添加作品工作区 {:?}: {}", project.workspace_path, e),
+        Err(e) => log::warn!(
+            "asset scope: 无法添加作品工作区 {:?}: {}",
+            project.workspace_path,
+            e
+        ),
     }
 
     Ok(project)

@@ -124,7 +124,10 @@ pub fn save_settings(
                 &log_path,
                 "设置",
                 "WARN",
-                &format!("配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}", e),
+                &format!(
+                    "配置热重载发送失败（配置已保存，Worker 下次启动生效）：{}",
+                    e
+                ),
             );
         }
     } else {

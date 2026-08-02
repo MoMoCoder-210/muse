@@ -25,7 +25,7 @@ import { PromptEditor } from "./PromptEditor";
 import type { PromptEditorHandle, PromptEditorChange } from "./PromptEditor";
 import {
   annotatePrompt, createAssetTag, plainTextToPromptDoc,
-  promptDocToPlainText, type PromptMention,
+  type PromptMention,
 } from "../../utils/promptDocument";
 import {
   VIDEO_DURATION_MIN, VIDEO_DURATION_MAX, VIDEO_ASPECT_OPTIONS,
@@ -46,6 +46,8 @@ import {
   parseIds, formatStoryboardVideoFailure, normalizePromptReferences,
   parseVideoParams, getResolutions, clampDuration,
 } from "./storyboard-helpers";
+import { useStoryboardUpscale } from "./storyboard-upscale";
+import { StoryboardUpscaleDrawer } from "./StoryboardUpscaleDrawer";
 
 /* ========================================================================
    StoryboardPanel — 镜头管理（含视频生成）
@@ -60,12 +62,31 @@ export function StoryboardPanel({ project }: Props) {
   const { toast } = useToast();
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 镜头视频超分：后端 UpscaleManager 为唯一事实来源，前端订阅事件渲染任务列表
+  const {
+    jobs: upscaleJobs,
+    gpuOk: upscaleGpuOk,
+    startUpscale,
+    cancelCurrentUpscale,
+  } = useStoryboardUpscale();
+
+  // 派生运行中/排队中任务（供 DetailView 渲染批次进度）
+  const upscaleRun = upscaleJobs.find((j) => j.status === "running") ?? null;
+  const upscaleQueue = upscaleJobs.filter((j) => j.status === "queued");
+
+  // 取消当前超分：通知后端停止（任务状态由后端更新并广播）
+  const handleCancelUpscale = useCallback(() => {
+    void cancelCurrentUpscale();
+  }, [cancelCurrentUpscale]);
   // 用户在设置里为「视频」激活渠道配置的模型 → 其支持的分辨率；未配置则为空对象
   const [videoModels, setVideoModels] = useState<Record<string, string[]>>({});
 
   const [videosMap, setVideosMap] = useState<Record<string, StoryboardVideoInfo[]>>({});
   const [dataMap, setDataMap] = useState<Record<string, ClipData>>({});
   const dataMapRef = useRef(dataMap); dataMapRef.current = dataMap;
+  // 超分完成/任务终态时递增，DetailView 据此重载视频批次列表
+  const [videoRefreshTick, setVideoRefreshTick] = useState(0);
 
   // 同时恢复已完成视频和未成功落库的任务批次。任务表是 pending/running/failed
   // 卡片的唯一来源，因此页面重新挂载时不会把默认 video_state 误认为“生成中”。
@@ -177,7 +198,9 @@ export function StoryboardPanel({ project }: Props) {
   const safeIdx = Math.min(activeIdx, Math.max(sbList.length - 1, 0));
   const activeSb = sbList[safeIdx] ?? null;
 
-  // 分集中已有绑定视频时，锁定分辨率+宽高比，避免拼接时比例不一致
+  // 分集中已有绑定视频时，仅锁定宽高比（分辨率放开，由各分集自由选择）。
+  // 拼接时后端会按统一画布等比缩放 + 黑边补齐，不同分辨率可正常拼接；
+  // 但宽高比不一致会产生黑边，故仍需锁定。
   const lockedRatio = useMemo(() => {
     const bound = sbList
       .filter((s) => s.selected_video_id != null)
@@ -186,8 +209,8 @@ export function StoryboardPanel({ project }: Props) {
       if (!s.video_param_json) continue;
       try {
         const obj = JSON.parse(s.video_param_json);
-        if (obj.resolution && obj.aspect_ratio) {
-          return { resolution: obj.resolution as string, aspect_ratio: obj.aspect_ratio as string };
+        if (obj.aspect_ratio) {
+          return { aspect_ratio: obj.aspect_ratio as string };
         }
       } catch { /* skip */ }
     }
@@ -268,6 +291,34 @@ export function StoryboardPanel({ project }: Props) {
       };
     });
     void refreshVideoState(storyboardId);
+  }, [refreshVideoState]);
+
+  // 镜头视频超分：仅发起请求并返回结果（弹窗关闭/成功提示/刷新批次由 DetailView 统一处理）
+  const handleStartUpscale = useCallback(async (
+    storyboardId: string,
+    videoId: string,
+    opts?: { model?: string; scale?: number },
+  ) => {
+    return startUpscale(storyboardId, videoId, opts);
+  }, [startUpscale]);
+
+  // 订阅超分完成/失败/取消事件：刷新视频列表（覆盖前端发起与后端续跑两种来源）
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ storyboard_id: string }>("upscale-done", ({ payload }) => {
+      if (disposed) return;
+      void refreshVideoState(payload.storyboard_id);
+      // 递增 tick，DetailView 的 loadVideos 依赖它 → 批次列表立即刷新出新视频
+      setVideoRefreshTick((x) => x + 1);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [refreshVideoState]);
 
   // 终态事件只在此处监听一次：避免 DetailView 重挂载或 Strict Mode 产生重复失败提示。
@@ -427,6 +478,12 @@ export function StoryboardPanel({ project }: Props) {
                   videoTaskStates={videoTaskStates[activeSb.id] ?? EMPTY_VIDEO_TASKS}
                   onVideoTaskQueued={handleVideoTaskQueued}
                   lockedRatio={lockedRatio}
+                  upscaleRun={upscaleRun}
+                  upscaleQueue={upscaleQueue}
+                  upscaleGpuOk={upscaleGpuOk}
+                  onStartUpscale={handleStartUpscale}
+                  onCancelUpscale={handleCancelUpscale}
+                  videoRefreshTick={videoRefreshTick}
                 />
               )}
 
@@ -598,6 +655,12 @@ function DetailView({
   videoTaskStates,
   onVideoTaskQueued,
   lockedRatio,
+  upscaleRun,
+  upscaleQueue,
+  upscaleGpuOk,
+  onStartUpscale,
+  onCancelUpscale,
+  videoRefreshTick,
 }: DetailProps) {
   const { toast } = useToast();
   const cIds = parseIds(sb.character_ids_json), sIds = parseIds(sb.scene_ids_json), iIds = parseIds(sb.item_ids_json);
@@ -611,13 +674,37 @@ function DetailView({
   const [deleteFiles, setDeleteFiles] = useState(false);
   const [previewImg, setPreviewImg] = useState<string | null>(null);
   const [viewingVideoId, setViewingVideoId] = useState<string | null>(null);
+  // 超分抽屉：待超分视频 + 关闭动画
+  const [upscaleTargetVideo, setUpscaleTargetVideo] = useState<DisplayStoryboardVideo | null>(null);
+  const [upscaleDrawerClosing, setUpscaleDrawerClosing] = useState(false);
 
   const displayVideos = useMemo<DisplayStoryboardVideo[]>(() => {
     // 终态刷新与事件可能交错；task_id 已落库的视频优先作为完成批次展示，
     // 以免同一个 taskId 同时显示“生成中”和最终视频。
     const completedTaskIds = new Set(videos.flatMap((video) => video.task_id ? [video.task_id] : []));
+    // 超分任务状态索引：任务在 enqueue 时已真实落库为批次（video_id 指向批次 id）。
+    // 这里按 video_id 匹配批次，附加 upscaling/taskStatus 供列表与预览渲染。
+    const upscaleTaskByBatch = new Map<string, { percent: number; status: "pending" | "running" }>();
+    for (const q of upscaleQueue) {
+      if (q.storyboard_id === sb.id) upscaleTaskByBatch.set(q.video_id, { percent: 0, status: "pending" });
+    }
+    if (upscaleRun && upscaleRun.storyboard_id === sb.id) {
+      upscaleTaskByBatch.set(upscaleRun.video_id, { percent: upscaleRun.percent, status: "running" });
+    }
     return [
-      ...videos,
+      // 真实视频批次：超分任务对应的批次（source='upscale'）按任务状态附加标记；
+      // 其余批次原样展示。批次 id 始终稳定（不再有 upscale:/upscale-queued: 假批次）。
+      ...videos.map((video) => {
+        const task = upscaleTaskByBatch.get(video.id);
+        if (!task) return video;
+        return {
+          ...video,
+          upscaling: true,
+          taskStatus: task.status,
+          upscalePercent: task.percent,
+          file_name: task.status === "pending" ? "视频超分排队中" : "视频超分中",
+        };
+      }),
       ...videoTaskStates
         .filter((task) => !completedTaskIds.has(task.taskId))
         .map((task) => ({
@@ -631,13 +718,13 @@ function DetailView({
           taskStatus: task.status,
         })),
     ];
-  }, [sb.id, videoTaskStates, videos]);
+  }, [sb.id, upscaleRun, upscaleQueue, videoTaskStates, videos]);
 
   const loadVideos = useCallback(async () => {
     try { setVideos(await listStoryboardVideos(sb.id)); }
     catch { /* ignore */ }
   }, [sb.id]);
-  useEffect(() => { loadVideos(); }, [loadVideos, sb.video_state, videoTaskStates, videoVer]);
+  useEffect(() => { loadVideos(); }, [loadVideos, sb.video_state, videoTaskStates, videoVer, videoRefreshTick]);
 
   // 选择本地视频导入为批次
   const [importingVideo, setImportingVideo] = useState(false);
@@ -667,6 +754,74 @@ function DetailView({
   const activeVideo = displayVideos.find((video) => video.id === playerVidId) ?? null;
   const currentVideoSrc = activeVideo?.file_path ? convertFileSrc(activeVideo.file_path) : null;
   const currentVideoTaskStatus = activeVideo?.taskStatus;
+
+  // ── 镜头视频超分 ──
+  // 当前正在超分的视频（匹配 storyboard + video）
+  const currentUpscaling = upscaleRun && upscaleRun.storyboard_id === sb.id
+    ? upscaleRun
+    : null;
+  // 当前查看的是否为超分中的临时批次（跳转到该批次时显示进度动画；原视频不受影响）
+  const isViewingUpscalingBatch = !!activeVideo?.upscaling;
+  // 当前播放视频可超分：必须是已落库的真实视频（非任务/超分批次），
+  // 且该视频没有正在跑/排队的超分任务（避免对同一视频重复发起）。
+  // 正在超分中的原视频批次、超分产物批次均隐藏增强按钮。
+  // 任务 enqueue 后 video_id 指向新批次，故用 input_path（源视频路径）匹配。
+  const isUpscaleTarget = !!activeVideo
+    && ((upscaleRun && upscaleRun.storyboard_id === sb.id
+      && upscaleRun.input_path === activeVideo.file_path)
+      || upscaleQueue.some((q) => q.storyboard_id === sb.id && q.input_path === activeVideo.file_path));
+  const canUpscaleCurrent = !!activeVideo
+    && !activeVideo.taskStatus
+    && !activeVideo.upscaling
+    && activeVideo.source !== "upscale"
+    && activeVideo.file_path.length > 0
+    && upscaleGpuOk !== false
+    && !isUpscaleTarget;
+
+  /** 打开超分抽屉 */
+  const handleOpenUpscaleDrawer = useCallback((video: DisplayStoryboardVideo) => {
+    if (!video.file_path || video.taskStatus) return;
+    setUpscaleDrawerClosing(false);
+    setUpscaleTargetVideo(video);
+  }, []);
+
+  /** 关闭超分抽屉（带动画） */
+  const handleCloseUpscaleDrawer = useCallback(() => {
+    setUpscaleDrawerClosing(true);
+    setTimeout(() => {
+      setUpscaleTargetVideo(null);
+      setUpscaleDrawerClosing(false);
+    }, 260);
+  }, []);
+
+  /** 抽屉确认后发起超分：关闭弹窗，跳转到新落库的真实超分批次显示进度 */
+  const handleUpscaleVideo = useCallback(async (video: DisplayStoryboardVideo, opts: { model: string; scale: number }) => {
+    if (!video.file_path || video.taskStatus || !upscaleGpuOk) return null;
+    // 立即关闭弹窗
+    setUpscaleTargetVideo(null);
+    setUpscaleDrawerClosing(false);
+    try {
+      const job = await onStartUpscale(sb.id, video.id, opts);
+      if (!job) return null;
+      // 任务创建时已真实落库一个批次（video_id 指向它）。
+      // 跳转到该真实批次：id 全程稳定，排队中/超分中/完成都是它，不会丢失。
+      setViewingVideoId(job.video_id);
+      // 立即刷新批次列表（videoVer 触发本组件 loadVideos 重新拉取新落库的超分批次）
+      void onVideoRefresh(sb.id);
+      setVideoVer((x) => x + 1);
+      return job;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("已取消")) {
+        toast("已取消超分", "info");
+      } else {
+        toast(`超分失败：${msg}`, "error");
+      }
+      // 失败后回到源视频
+      setViewingVideoId(video.id);
+      return null;
+    }
+  }, [sb.id, upscaleGpuOk, onStartUpscale, onVideoRefresh, toast]);
   // 任务成功后，若正在查看已完成的临时批次则切换至最终视频，避免预览停在空状态。
   useEffect(() => {
     const isViewingTask = viewingVideoId?.startsWith("task:");
@@ -760,11 +915,9 @@ function DetailView({
 
   // ── 视频参数状态（从 sb.video_param_json 初始化，时长回退到数据库存储时长） ──
   const [params, setParams] = useState<VideoParams>(() => parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels));
-  const [prompt, setPrompt] = useState(sb.video_prompt || "");
-  // promptDoc 是编辑器的唯一主数据；prompt 是从它派生并提交给 Worker/API 的纯文本。
+  // promptDoc 是编辑器的唯一主数据；纯文本 prompt 由编辑器/迁移逻辑直接提交给 Worker/API。
   const [promptDoc, setPromptDoc] = useState<PromptDoc>(() => plainTextToPromptDoc(sb.video_prompt || "", []));
   const paramsRef = useRef(params); paramsRef.current = params;
-  const promptRef = useRef(prompt); promptRef.current = prompt;
   const promptDocRef = useRef(promptDoc); promptDocRef.current = promptDoc;
   const sbIdRef = useRef(sb.id); sbIdRef.current = sb.id;
   // 同一镜头的迁移、失焦保存与点击生成保存必须串行，避免旧迁移请求晚到覆盖新编辑。
@@ -856,13 +1009,11 @@ function DetailView({
     // 动态标注 (@图片N) → 全量重建 Tiptap doc
     const annotatedPrompt = annotatePrompt(sourcePrompt, normalizedMentions);
     const nextDoc = plainTextToPromptDoc(annotatedPrompt, normalizedMentions);
-    const nextPrompt = promptDocToPlainText(nextDoc);
 
     mentionMapRef.current = new Map(mentions.map((m) => [m.index, m]));
     setMentionItems(mentions);
     const parsedParams = parseVideoParams(sb.video_param_json, sb.video_duration ?? sb.voice_duration, videoModels);
-    setParams(lockedRatio ? { ...parsedParams, resolution: lockedRatio.resolution, aspect_ratio: lockedRatio.aspect_ratio } : parsedParams);
-    setPrompt(nextPrompt);
+    setParams(lockedRatio ? { ...parsedParams, aspect_ratio: lockedRatio.aspect_ratio } : parsedParams);
     setPromptDoc(nextDoc);
 
     // 持久化矫正后的 prompt_doc（仅旧数据缺失/损坏时迁移，不覆盖原始 video_prompt）
@@ -885,12 +1036,11 @@ function DetailView({
     }
   }, [assets, sb.id, sb.video_param_json, sb.video_prompt, sb.video_duration, sb.voice_duration, videoModels]);
 
-  // lockedRatio 变化时（如其他镜头新绑定了视频），同步锁定当前参数
+  // lockedRatio 变化时（如其他镜头新绑定了视频），同步锁定当前宽高比
   useEffect(() => {
     if (lockedRatio) {
       setParams((prev) => ({
         ...prev,
-        resolution: lockedRatio.resolution,
         aspect_ratio: lockedRatio.aspect_ratio,
       }));
     }
@@ -904,7 +1054,6 @@ function DetailView({
       mentionMapRef.current = new Map(normalized.mentions.map((mention) => [mention.index, mention]));
       setMentionItems(normalized.mentions);
       setPromptDoc(normalized.promptDoc);
-      setPrompt(normalized.prompt);
       const mapEntries = normalized.mentions.map((mention) => ({
         n: mention.index,
         assetId: mention.assetId,
@@ -1006,7 +1155,6 @@ function DetailView({
   // 任何键入、粘贴或 @ 插入都由 PromptEditor 实时返回 AST 与其纯文本序列化。
   const handlePromptChange = useCallback((change: PromptEditorChange) => {
     setPromptDoc(change.promptDoc);
-    setPrompt(change.plainText);
   }, []);
 
   // 选中素材：通过 editorRef 插入 mention 节点（Tiptap 内部处理）。
@@ -1058,7 +1206,6 @@ function DetailView({
       mentionMapRef.current = new Map(normalized.mentions.map((mention) => [mention.index, mention]));
       setMentionItems(normalized.mentions);
       setPromptDoc(normalized.promptDoc);
-      setPrompt(normalized.prompt);
 
       // 同步检查：所有绑定素材必须已选择参考图片
       const missingImageNames = normalized.mentions
@@ -1104,8 +1251,54 @@ function DetailView({
         <div className="sd-detail-top">
         {/* 左侧：视频播放器 */}
         <div className="sd-detail-left">
-          {currentVideoSrc ? (
+          {isViewingUpscalingBatch && activeVideo?.taskStatus === "pending" ? (
+            <div className="sd-player-task-state sd-player-task-state--upscaling sd-player-task-state--queued">
+              <span className="sd-video-task-orb" aria-hidden />
+              <strong>排队中</strong>
+            </div>
+          ) : isViewingUpscalingBatch && currentUpscaling ? (
+            <div className="sd-player-task-state sd-player-task-state--upscaling">
+              <span className="sd-video-task-orb" aria-hidden />
+              <div className="sd-upscale-progress">
+                <div
+                  className="sd-upscale-progress-fill"
+                  style={{ width: `${currentUpscaling.percent}%` }}
+                />
+              </div>
+              <span className="sd-upscale-percent">{Math.round(currentUpscaling.percent)}%</span>
+              <button
+                type="button"
+                className="sd-upscale-cancel"
+                onClick={onCancelUpscale}
+              >
+                取消
+              </button>
+            </div>
+          ) : currentVideoSrc ? (
             <div className="sd-player" ref={playerRef}>
+              {activeVideo?.source === "upscale" && (
+                <span className="sd-player-upscale-badge" title="超分产物">
+                  超分
+                </span>
+              )}
+              {canUpscaleCurrent && activeVideo && (
+                <button
+                  className="sd-upscale-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenUpscaleDrawer(activeVideo);
+                  }}
+                  disabled={upscaleGpuOk === null}
+                  title={upscaleGpuOk === null
+                    ? "正在检查你的电脑显卡…"
+                    : "使用本地 AI 将视频放大至高清"}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                  增强
+                </button>
+              )}
               <video
                 ref={videoRef}
                 className="sd-player-video"
@@ -1272,21 +1465,39 @@ function DetailView({
         <div className="sd-batch-thumbs">
           {displayVideos.map((v, i) => {
             const isTaskBatch = Boolean(v.taskStatus);
-            const isSelected = !isTaskBatch && v.id === sb.selected_video_id;
+            const isUpscalingBatch = Boolean(v.upscaling);
+            const isSelected = !isTaskBatch && !isUpscalingBatch && v.id === sb.selected_video_id;
             const isViewing = v.id === playerVidId;
             const batchLabel = `B${i + 1}`;
             const taskLabel = v.taskStatus === "failed" ? "生成失败" : "生成中";
             return (
               <div
                 key={v.id}
-                className={`sd-video-thumb-wrap${isSelected ? " on" : ""}${isViewing ? " playing" : ""}${v.taskStatus ? ` is-task is-task--${v.taskStatus}` : ""}`}
+                className={`sd-video-thumb-wrap${isSelected ? " on" : ""}${isViewing ? " playing" : ""}${v.taskStatus ? ` is-task is-task--${v.taskStatus}` : ""}${isUpscalingBatch ? " is-upscaling" : ""}`}
               >
                 <div
                   className="sd-video-thumb-click"
                   onClick={() => setViewingVideoId(v.id)}
-                  title={isTaskBatch ? taskLabel : v.file_name}
+                  title={isUpscalingBatch
+                    ? v.taskStatus === "pending" ? "视频超分排队中" : "视频超分中"
+                    : isTaskBatch ? taskLabel : v.file_name}
                 >
-                  {isTaskBatch ? (
+                  {isUpscalingBatch ? (
+                    <div
+                      className={`sd-video-task-thumb sd-video-upscaling-thumb${v.taskStatus === "pending" ? " is-queued" : ""}`}
+                      aria-label={v.taskStatus === "pending" ? "视频超分排队中" : "视频超分中"}
+                    >
+                      <span className="sd-video-task-orb" aria-hidden />
+                      {v.taskStatus !== "pending" ? (
+                        <div className="sd-video-upscaling-bar">
+                          <div
+                            className="sd-video-upscaling-fill"
+                            style={{ width: `${v.upscalePercent ?? 0}%` }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : isTaskBatch ? (
                     <div className="sd-video-task-thumb" aria-label={taskLabel}>
                       {v.taskStatus === "failed" ? (
                         <span className="sd-video-task-failure-icon" aria-hidden>
@@ -1303,7 +1514,7 @@ function DetailView({
                     <video src={convertFileSrc(v.file_path)} muted preload="metadata" className="sd-video-thumb-vid" />
                   )}
                 </div>
-                <span className="sd-video-thumb-label">{batchLabel}</span>
+                {!isUpscalingBatch && <span className="sd-video-thumb-label">{batchLabel}</span>}
                 {isSelected && <span className="sd-video-thumb-bound-badge" title="镜头绑定视频" />}
                 {v.taskStatus === "failed" && v.task_id && (
                   <button
@@ -1321,7 +1532,7 @@ function DetailView({
                     </svg>
                   </button>
                 )}
-                {!isTaskBatch && !isSelected && (
+                {!isTaskBatch && !isUpscalingBatch && !isSelected && (
                   <button
                     className="sd-video-thumb-select"
                     onClick={(e) => { e.stopPropagation(); setPendingSelect(v); }}
@@ -1332,7 +1543,7 @@ function DetailView({
                     </svg>
                   </button>
                 )}
-                {!isTaskBatch && !isSelected && (
+                {!isTaskBatch && !isUpscalingBatch && !isSelected && (
                   <button
                     className="sd-video-thumb-delete"
                     onClick={(e) => {
@@ -1457,10 +1668,10 @@ function DetailView({
                 />
               </label>
               <label className="sd-param-field">
-                <span className="sd-param-label">分辨率{lockedRatio ? <span title="为保证最终视频合成效果，分辨率已锁定"> 🔒</span> : ""}</span>
+                <span className="sd-param-label">分辨率</span>
                 <ParamSelect
                   value={params.resolution}
-                  disabled={!!lockedRatio}
+                  disabled={false}
                   options={getResolutions(params.model, videoModels).map((r) => ({ label: r, value: r }))}
                   onChange={(v) => updateParam("resolution", v)}
                   onBlur={saveParams}
@@ -1651,6 +1862,10 @@ function DetailView({
               });
               await onVideoRefresh(sb.id);
               setVideoVer((version) => version + 1);
+              // 若删除的正是当前预览的批次，自动跳转到镜头绑定的批次
+              if (viewingVideoId === video.id) {
+                setViewingVideoId(sb.selected_video_id ?? null);
+              }
               const feedback = formatDeleteResult(result);
               toast(feedback.text, feedback.kind);
             } catch (error) {
@@ -1691,6 +1906,19 @@ function DetailView({
 
       {/* 素材图片灯箱 */}
       {previewImg && <ImageLightbox src={previewImg} alt="" onClose={() => setPreviewImg(null)} />}
+
+      {/* 视频超分抽屉 */}
+      <StoryboardUpscaleDrawer
+        video={upscaleTargetVideo}
+        gpuOk={upscaleGpuOk}
+        closing={upscaleDrawerClosing}
+        onClose={handleCloseUpscaleDrawer}
+        runState={upscaleRun}
+        onStartUpscale={(opts) => {
+          if (!upscaleTargetVideo) return Promise.resolve(null);
+          return handleUpscaleVideo(upscaleTargetVideo, opts);
+        }}
+      />
 
     </div>
   );
