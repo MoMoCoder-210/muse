@@ -1,9 +1,9 @@
 /**
  * 镜头视频超分抽屉（右侧悬浮，MAC 风格）。
  *
- * 结构：视频预览 + 显卡提醒 + 模型/倍率分段选择 +
- * 底部操作栏（开始超分 → 超分中进度条 → 完成后“完成”按钮）。
- * 确认后弹窗不关闭，进度由父组件 upscaleRun 驱动实时显示。
+ * 结构：视频预览 + 显卡提醒 + 模型/倍率分段选择 + 底部“开始超分”按钮。
+ * 确认后弹窗立即关闭，任务入队并跳转到真实超分批次；
+ * 进度/排队状态由父组件（upscaleRun/upscaleQueue）在批次列表与预览区驱动显示。
  */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -240,7 +240,7 @@ export function StoryboardUpscaleDrawer({
             disabled={busy || overHeightLimit}
             onClick={handleStart}
           >
-            {busy ? "检查显卡中…" : "开始超分"}
+            {busy ? "检查显卡中…" : "开始"}
           </button>
         </div>
       </aside>

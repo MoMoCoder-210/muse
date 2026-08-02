@@ -135,7 +135,9 @@
 .sd-video-thumb-wrap.on {
   /* 绑定状态仅由 sd-video-thumb-bound-badge 徽标表示，无边框/填充 */
 }
-/* 选中预览批次 — 蓝色发光边框（无外圈实心光环） */
+/* 选中预览批次 — 蓝色发光边框（无外圈实心光环）。
+   注意：保留基类的 overflow:hidden 才能维持圆角裁剪；
+   box-shadow 绘制在边框盒外，不受 overflow 影响，无需 visible。 */
 .sd-video-thumb-wrap.playing {
   border-color: var(--accent-primary);
   border-style: solid;
@@ -144,7 +146,6 @@
     0 4px 16px rgba(0, 0, 0, 0.3);
   transform: scale(1.1);
   z-index: 2;
-  overflow: visible;
 }
 /* 选中超分中批次 — 蓝色发光边框 + 外部紫色光环 */
 .sd-video-thumb-wrap.playing.is-upscaling {
@@ -156,7 +157,6 @@
     0 4px 16px rgba(0, 0, 0, 0.3);
   transform: scale(1.1);
   z-index: 2;
-  overflow: visible;
   animation: none;
 }
 /* 绑定徽章（始终可见） */

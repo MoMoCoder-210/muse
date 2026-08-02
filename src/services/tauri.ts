@@ -904,16 +904,8 @@ export async function cancelUpscaleJob(jobId: string): Promise<boolean> {
   return invoke<boolean>("cancel_upscale_job", { jobId });
 }
 
-/** 超分任务状态变化事件载荷 */
-export interface UpscaleChangedEvent {
-  id: string;
-  storyboard_id: string;
-  video_id: string;
-  status: UpscaleJobStatus;
-  percent: number;
-  stage: string;
-  error: string | null;
-}
+/** 超分任务状态变化事件载荷（后端广播完整 UpscaleJob，可直接替换） */
+export type UpscaleChangedEvent = UpscaleJob;
 
 /** 超分完成/失败/取消事件载荷（前端据此刷新视频列表） */
 export interface UpscaleDoneEvent {

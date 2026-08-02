@@ -27,9 +27,9 @@ export const EMPTY_VIDEO_TASKS: VideoTaskState[] = [];
 
 export type DisplayStoryboardVideo = StoryboardVideoInfo & {
   taskStatus?: VideoTaskStatus;
-  /** 超分中的临时批次标记（尚未落库） */
+  /** 该批次是否正被超分（由 upscale 任务状态附加标记；批次本身已真实落库） */
   upscaling?: boolean;
-  /** 超分进度（0-100），供超分中临时批次显示进度条 */
+  /** 超分进度（0-100），供超分中批次显示进度条 */
   upscalePercent?: number;
 };
 

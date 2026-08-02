@@ -46,7 +46,7 @@ pub enum UpscaleJobStatus {
     Running,
     /// 成功完成
     Done,
-    /// 执行失败（可保留临时目录供下次续跑）
+    /// 执行失败（目录已清理；仅进程被强杀时目录天然保留，重启后由 DB running 恢复续跑）
     Failed,
     /// 用户主动取消（已清理）
     Cancelled,
@@ -75,7 +75,6 @@ impl UpscaleJobStatus {
 
 /// 超分任务（对前端公开的结构；storyboard_id/video_id 仅序列化给前端定位批次）
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct UpscaleJob {
     /// 任务 id（= job_id，也是临时目录后缀）
     pub id: String,
@@ -342,7 +341,7 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
             finalize_success(app, &job, &snapshot.unwrap_or(job.clone()));
         }
         Err(e) => {
-            let status = if e.contains("已取消") {
+            let status = if e.contains(crate::commands::video::UPSCALE_CANCELED) {
                 UpscaleJobStatus::Cancelled
             } else {
                 UpscaleJobStatus::Failed

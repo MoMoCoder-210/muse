@@ -15,9 +15,10 @@ import {
  *
  * 架构：后端 UpscaleManager 是超分任务的唯一事实来源（队列/状态/进度/持久化/续跑）。
  * 前端只做两件事：
- * 1. 订阅 `upscale-changed` / `upscale-done` 事件更新本地任务列表；
+ * 1. 订阅 `upscale-changed` 事件更新本地任务列表（载荷为完整 UpscaleJob）；
  * 2. 调用 `enqueue_upscale` / `cancel_upscale_job` / `list_upscale_jobs` 触发或查询。
  * 前端不再维护自己的队列/状态机，重启后通过 list_upscale_jobs 恢复全量状态。
+ * `upscale-done` 由 StoryboardPanel 订阅用于刷新视频列表，本 hook 不重复订阅。
  */
 export function useStoryboardUpscale() {
   const [jobs, setJobs] = useState<UpscaleJob[]>([]);
@@ -39,7 +40,7 @@ export function useStoryboardUpscale() {
     };
   }, []);
 
-  // 订阅任务状态变化（upscale-changed：单任务变更，按 id 合并）
+  // 订阅任务状态变化（upscale-changed：载荷为完整 UpscaleJob，按 id 替换/追加）
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -47,27 +48,18 @@ export function useStoryboardUpscale() {
       if (disposed) return;
       setJobs((prev) => {
         const idx = prev.findIndex((j) => j.id === payload.id);
-        if (idx < 0) {
-          return [
-            ...prev,
-            {
-              id: payload.id,
-              storyboard_id: payload.storyboard_id,
-              video_id: payload.video_id,
-              input_path: "",
-              output_path: "",
-              model: "",
-              scale: 4,
-              status: payload.status,
-              percent: payload.percent,
-              stage: payload.stage,
-              error: payload.error,
-              created_at: "",
-            },
-          ];
+        const next = idx < 0 ? [...prev, payload] : [...prev];
+        if (idx >= 0) next[idx] = payload;
+        // 裁剪：终态任务（done/failed/cancelled）保留最近 50 条，避免无限增长
+        const finished = next.filter((j) =>
+          j.status === "done" || j.status === "failed" || j.status === "cancelled");
+        if (finished.length > 50) {
+          const finishedIds = new Set(
+            finished.slice(finished.length - 50).map((j) => j.id),
+          );
+          return next.filter((j) =>
+            j.status === "queued" || j.status === "running" || finishedIds.has(j.id));
         }
-        const next = [...prev];
-        next[idx] = { ...next[idx], ...payload };
         return next;
       });
     }).then((dispose) => {

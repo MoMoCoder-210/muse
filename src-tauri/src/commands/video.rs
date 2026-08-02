@@ -5,6 +5,24 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
+/// 超分被取消的错误信息（唯一标记，供 UpscaleManager 判定取消状态，
+/// 避免散落的魔法字符串因文案改动导致状态误判）。
+pub(crate) const UPSCALE_CANCELED: &str = "超分已取消";
+
+/// 路径脱敏：日志只保留最后两级（父目录名/文件名），避免泄露完整绝对路径。
+fn short_path(p: &std::path::Path) -> String {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.to_string_lossy().to_string());
+    if let Some(parent) = p.parent() {
+        if let Some(pn) = parent.file_name() {
+            return format!("{}/{}", pn.to_string_lossy(), name);
+        }
+    }
+    name
+}
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -988,8 +1006,8 @@ fn extract_frames(
 ) -> Result<usize, String> {
     log::info!(
         "[超分] 开始抽帧: 输入={} 帧目录={}",
-        input_path,
-        frame_dir.display()
+        short_path(Path::new(input_path)),
+        short_path(frame_dir)
     );
     emit_progress(2.0, "抽帧中…");
     let extract_start = std::time::Instant::now();
@@ -1023,7 +1041,7 @@ fn extract_frames(
             let _ = extract_child.wait();
             let _ = std::fs::remove_dir_all(frame_dir);
             let _ = std::fs::remove_dir_all(out_dir);
-            return Err("超分已取消".to_string());
+            return Err(UPSCALE_CANCELED.to_string());
         }
         match extract_child
             .try_wait()
@@ -1092,11 +1110,11 @@ fn run_ncnn_batch(
 ) -> Result<usize, String> {
     log::info!(
         "[超分] 启动 ncnn 超分: exe={} 模型={} 缩放={}x 输入目录={} 输出目录={}",
-        ncnn_exe.display(),
+        short_path(ncnn_exe),
         model_name,
         scale,
-        input_dir.display(),
-        output_dir.display()
+        short_path(input_dir),
+        short_path(output_dir)
     );
     let upscale_start = std::time::Instant::now();
     let mut ncnn_cmd = Command::new(ncnn_exe);
@@ -1127,7 +1145,7 @@ fn run_ncnn_batch(
             let _ = ncnn_child.wait();
             let _ = std::fs::remove_dir_all(frame_dir);
             let _ = std::fs::remove_dir_all(out_dir);
-            return Err("超分已取消".to_string());
+            return Err(UPSCALE_CANCELED.to_string());
         }
         match ncnn_child.try_wait() {
             Ok(Some(st)) => break st,
@@ -1215,10 +1233,10 @@ pub(crate) fn run_upscale_blocking(
 
     log::info!(
         "[超分] 超分开始 input={} output={} ffmpeg={} engine=ncnn-vulkan exe={} model={} scale={}",
-        input.input_path,
-        input.output_path,
-        ffmpeg.to_string_lossy(),
-        ncnn_exe.display(),
+        short_path(Path::new(&input.input_path)),
+        short_path(Path::new(&input.output_path)),
+        short_path(&ffmpeg),
+        short_path(&ncnn_exe),
         input.model,
         scale
     );
@@ -1655,7 +1673,7 @@ pub(crate) fn run_upscale_blocking(
             cleanup(&frame_dir, &out_dir);
             // 重组可能已写出部分文件，取消时删除不完整产物
             let _ = std::fs::remove_file(&input.output_path);
-            return Err("超分已取消".to_string());
+            return Err(UPSCALE_CANCELED.to_string());
         }
         match child2
             .try_wait()

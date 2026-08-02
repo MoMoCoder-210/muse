@@ -58,6 +58,14 @@ import { StoryboardUpscaleDrawer } from "./StoryboardUpscaleDrawer";
 
 type Props = { project: ProjectInfo };
 
+// ── 常量 ──────────────────────────────────────────────
+/** 每个镜头最多可关联的素材数量 */
+const MAX_ASSETS_PER_STORYBOARD = 9;
+/** 素材描述展示的最大字符数 */
+const MAX_ASSET_DESC_LEN = 36;
+/** 超分抽屉关闭动画时长（ms） */
+const UPSCALE_DRAWER_CLOSE_MS = 260;
+
 export function StoryboardPanel({ project }: Props) {
   const { toast } = useToast();
   const [clips, setClips] = useState<Clip[]>([]);
@@ -293,14 +301,18 @@ export function StoryboardPanel({ project }: Props) {
     void refreshVideoState(storyboardId);
   }, [refreshVideoState]);
 
-  // 镜头视频超分：仅发起请求并返回结果（弹窗关闭/成功提示/刷新批次由 DetailView 统一处理）
+  // 镜头视频超分：GPU 可用性前置校验后发起请求并返回结果
+  // （弹窗关闭/成功提示/刷新批次由 DetailView 统一处理）
   const handleStartUpscale = useCallback(async (
     storyboardId: string,
     videoId: string,
     opts?: { model?: string; scale?: number },
   ) => {
+    if (upscaleGpuOk === false) {
+      throw new Error("当前设备不支持 GPU 超分");
+    }
     return startUpscale(storyboardId, videoId, opts);
-  }, [startUpscale]);
+  }, [startUpscale, upscaleGpuOk]);
 
   // 订阅超分完成/失败/取消事件：刷新视频列表（覆盖前端发起与后端续跑两种来源）
   useEffect(() => {
@@ -785,13 +797,27 @@ function DetailView({
     setUpscaleTargetVideo(video);
   }, []);
 
-  /** 关闭超分抽屉（带动画） */
+  /** 关闭超分抽屉（带动画）；timer 用 ref 记录，组件卸载时清理避免泄漏 */
+  const upscaleDrawerTimerRef = useRef<number | null>(null);
+  // 组件卸载时清理未触发的关闭动画 timer，避免卸载后 setState
+  useEffect(() => {
+    return () => {
+      if (upscaleDrawerTimerRef.current != null) {
+        window.clearTimeout(upscaleDrawerTimerRef.current);
+        upscaleDrawerTimerRef.current = null;
+      }
+    };
+  }, []);
   const handleCloseUpscaleDrawer = useCallback(() => {
     setUpscaleDrawerClosing(true);
-    setTimeout(() => {
+    if (upscaleDrawerTimerRef.current != null) {
+      window.clearTimeout(upscaleDrawerTimerRef.current);
+    }
+    upscaleDrawerTimerRef.current = window.setTimeout(() => {
+      upscaleDrawerTimerRef.current = null;
       setUpscaleTargetVideo(null);
       setUpscaleDrawerClosing(false);
-    }, 260);
+    }, UPSCALE_DRAWER_CLOSE_MS);
   }, []);
 
   /** 抽屉确认后发起超分：关闭弹窗，跳转到新落库的真实超分批次显示进度 */
@@ -1725,10 +1751,10 @@ function DetailView({
           const iIds = new Set(parseIds(sb.item_ids_json));
           const newIds = freeList.filter((a) => pickerSelected.has(a.asset_id));
 
-          // 超过每镜头最多 9 个素材的上限时阻止关联
+          // 超过每镜头素材上限时阻止关联
           const currentTotal = cIds.size + sIds.size + iIds.size;
-          if (currentTotal + newIds.length > 9) {
-            toast(`每个镜头最多关联 9 个素材（当前已关联 ${currentTotal} 个，本次选择了 ${newIds.length} 个）`, "error");
+          if (currentTotal + newIds.length > MAX_ASSETS_PER_STORYBOARD) {
+            toast(`每个镜头最多关联 ${MAX_ASSETS_PER_STORYBOARD} 个素材（当前已关联 ${currentTotal} 个，本次选择了 ${newIds.length} 个）`, "error");
             return;
           }
 
@@ -1777,7 +1803,7 @@ function DetailView({
                           </div>
                           <div className="sd-picker-item-info">
                             <span className="sd-picker-item-name">{a.name}</span>
-                            <span className="sd-picker-item-desc">{a.description?.slice(0, 36) || ""}</span>
+                            <span className="sd-picker-item-desc">{a.description?.slice(0, MAX_ASSET_DESC_LEN) || ""}</span>
                           </div>
                           {sel && (
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
