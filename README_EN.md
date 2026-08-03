@@ -46,6 +46,20 @@ All data is stored locally by default with no cloud dependency, ensuring creativ
 Resolution: `480p` `720p` `1080p` `2K` `4K`
 Aspect Ratio: `16:9` `9:16` `1:1` `4:3` `3:4` `21:9`
 
+### Video Super-Resolution
+
+Upscale generated shot videos with AI for higher-quality final output:
+
+- **Local inference**: Powered by the ncnn-vulkan engine from [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN). No network required — data never leaves your machine
+- **Multiple models**:
+  - `Anime Video` (realesr-animevideov3): light and fast, ideal for anime/Chinese anime; supports 2x/3x/4x at any resolution
+  - `Anime HD` (x4plus-anime): anime-dedicated HD model, fixed 4x
+  - `Photorealistic` (x4plus): general-purpose realistic model, fixed 4x, limited to 1080p and below
+- **Scale options**: choose 2x / 3x / 4x when starting a task
+- **Task queue**: enqueue multiple videos at once; tasks run sequentially with live progress
+- **Resume support**: after an interruption, restarting the app resumes automatically from the breakpoint, computing only the missing frames
+- **Easy management**: upscaled results appear as independent batches for preview, deletion, and binding to shots
+
 ---
 
 ## Creative Workflow
