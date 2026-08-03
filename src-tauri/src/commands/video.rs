@@ -3,11 +3,18 @@
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 
 /// 超分被取消的错误信息（唯一标记，供 UpscaleManager 判定取消状态，
 /// 避免散落的魔法字符串因文案改动导致状态误判）。
 pub(crate) const UPSCALE_CANCELED: &str = "超分已取消";
+/// 超时错误前缀：供 UpscaleManager 识别可自动重试的超时错误（保留已完成帧目录，不标记 Failed）
+pub(crate) const UPSCALE_TIMEOUT_PREFIX: &str = "UPSCALE_TIMEOUT:";
+/// 进度超时秒数：GPU TDR/设备丢失后 realesrgan 死等，帧数停止增长即卡死。
+/// stderr 关键词检测（device_lost / VK_ERROR）可秒级检出，60s 无进展仅作兜底。
+const NCNN_FRAME_TIMEOUT_SECS: u64 = 60; // 1 分钟
+const EXTRACT_TIMEOUT_SECS: u64 = 180; // 3 分钟
 
 /// 路径脱敏：日志只保留最后两级（父目录名/文件名），避免泄露完整绝对路径。
 fn short_path(p: &std::path::Path) -> String {
@@ -1035,6 +1042,7 @@ fn extract_frames(
         .spawn()
         .map_err(|e| format!("启动 ffmpeg 抽帧失败：{}", e))?;
     crate::job_guard::assign_child(&extract_child);
+    let extract_loop_start = std::time::Instant::now();
     let extract_status = loop {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             let _ = extract_child.kill();
@@ -1042,6 +1050,17 @@ fn extract_frames(
             let _ = std::fs::remove_dir_all(frame_dir);
             let _ = std::fs::remove_dir_all(out_dir);
             return Err(UPSCALE_CANCELED.to_string());
+        }
+        if extract_loop_start.elapsed().as_secs() > EXTRACT_TIMEOUT_SECS {
+            let _ = extract_child.kill();
+            let _ = extract_child.wait();
+            // 不清理目录：保留已完成帧供续跑/自动重试
+            log::error!("[超分] ffmpeg 抽帧超时（{}s），已终止", EXTRACT_TIMEOUT_SECS);
+            return Err(format!(
+                "{}ffmpeg 抽帧超时（{}s）",
+                UPSCALE_TIMEOUT_PREFIX,
+                EXTRACT_TIMEOUT_SECS
+            ));
         }
         match extract_child
             .try_wait()
@@ -1129,9 +1148,12 @@ fn run_ncnn_batch(
         .arg(scale.to_string())
         .arg("-m")
         .arg(win32_child_path(models_dir))
+        .arg("-t")
+        .arg("64")
         .arg("-f")
         .arg("jpg");
-    // 不指定 -g：ncnn 自动选择可用 GPU（auto）；-t 默认 0=auto tile 划分
+    // -t 64：限制 tile 单边 ≤64px，降低单帧 GPU 计算时长，减少 Windows TDR 触发概率
+    // -g 默认 auto：ncnn 自动选择可用 GPU
     ncnn_cmd.stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
     ncnn_cmd.creation_flags(0x08000000);
@@ -1139,6 +1161,56 @@ fn run_ncnn_batch(
         .spawn()
         .map_err(|e| format!("启动 realesrgan 失败：{}", e))?;
     crate::job_guard::assign_child(&ncnn_child);
+    // 异步读取 stderr：GPU 设备丢失时 realesrgan 会在 stderr 输出 VK_ERROR / device_lost，
+    // 命中即秒级 Kill 并触发自动重试，无需等进度超时兜底。
+    let stderr = ncnn_child.stderr.take();
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    if let Some(stderr) = stderr {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    if stderr_tx.send(line).is_err() {
+                        break; // receiver dropped
+                    }
+                }
+            }
+        });
+    }
+    // 将 stderr 行倾泄到日志（方便事后排查），同时检测 GPU 致命错误
+    let mut stderr_buf = String::new();
+    macro_rules! check_stderr_fatal {
+        ($child:expr) => {{
+            let mut fatal = false;
+            while let Ok(line) = stderr_rx.try_recv() {
+                let l = line.to_lowercase();
+                if l.contains("device lost")
+                    || l.contains("vk_error")
+                    || l.contains("vkqueuesubmit")
+                    || l.contains("out of memory")
+                    || l.contains("failed to submit")
+                {
+                    fatal = true;
+                }
+                stderr_buf.push_str(&line);
+                stderr_buf.push('\n');
+            }
+            if fatal {
+                log::error!("[超分] realesrgan stderr 错误（GPU 设备丢失）:\n{}", stderr_buf);
+                let _ = $child.kill();
+                let _ = $child.wait();
+                Err(format!(
+                    "{}realesrgan GPU 设备丢失（{}）",
+                    UPSCALE_TIMEOUT_PREFIX,
+                    stderr_buf.lines().last().unwrap_or("未知错误")
+                ))
+            } else {
+                Ok(())
+            }
+        }};
+    }
+    let mut ncnn_last_progress = std::time::Instant::now();
+    let mut ncnn_last_done: usize = 0;
     let ncnn_status = loop {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             let _ = ncnn_child.kill();
@@ -1146,6 +1218,22 @@ fn run_ncnn_batch(
             let _ = std::fs::remove_dir_all(frame_dir);
             let _ = std::fs::remove_dir_all(out_dir);
             return Err(UPSCALE_CANCELED.to_string());
+        }
+        // stderr 秒级检测：GPU 设备丢失关键词 → 立即 Kill + 自动重试（不清理目录供续跑）
+        check_stderr_fatal!(ncnn_child)?;
+        // 进度超时兜底（60s）：realesrgan 意外死等但 stderr 无输出时触发
+        if ncnn_last_progress.elapsed().as_secs() > NCNN_FRAME_TIMEOUT_SECS {
+            let _ = ncnn_child.kill();
+            let _ = ncnn_child.wait();
+            log::error!(
+                "[超分] realesrgan 超时（{}s无进度），已强制终止",
+                NCNN_FRAME_TIMEOUT_SECS
+            );
+            return Err(format!(
+                "{}realesrgan 超时（{}s无进展，可能显卡驱动重置）",
+                UPSCALE_TIMEOUT_PREFIX,
+                NCNN_FRAME_TIMEOUT_SECS
+            ));
         }
         match ncnn_child.try_wait() {
             Ok(Some(st)) => break st,
@@ -1165,6 +1253,10 @@ fn run_ncnn_batch(
                     .count()
             })
             .unwrap_or(0);
+        if done != ncnn_last_done {
+            ncnn_last_done = done;
+            ncnn_last_progress = std::time::Instant::now();
+        }
         let ratio = ((offset_done + done) as f64 / frame_count as f64).clamp(0.0, 1.0);
         // 15% → 90% 是 75 个百分点：ratio×75 随帧数线性推进
         let mapped = 15.0 + ratio * 75.0;

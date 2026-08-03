@@ -11,9 +11,9 @@ import {
   generateStoryboardVideo,
   selectStoryboardVideo, listStoryboardVideos,
   listStoryboardVideoTasks, deleteStoryboardVideoTask, deleteStoryboardVideo,
-  importVideoFile, addStoryboardVideo,
+  importVideoFile, addStoryboardVideo, retryUpscaleJob,
 } from "../../services/tauri";
-import type { StoryboardVideoInfo } from "../../services/tauri";
+import type { StoryboardVideoInfo, UpscaleDoneEvent } from "../../services/tauri";
 import type { MentionAnchor } from "../../types/mention";
 import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
@@ -79,9 +79,12 @@ export function StoryboardPanel({ project }: Props) {
     cancelCurrentUpscale,
   } = useStoryboardUpscale();
 
-  // 派生运行中/排队中任务（供 DetailView 渲染批次进度）
+  // 派生运行中/排队中/失败任务（供 DetailView 渲染批次进度与失败态）
   const upscaleRun = upscaleJobs.find((j) => j.status === "running") ?? null;
   const upscaleQueue = upscaleJobs.filter((j) => j.status === "queued");
+  const upscaleFailed = upscaleJobs.filter((j) => j.status === "failed");
+  // 已取消任务：批次即将被后端删除，取消广播与列表刷新之间的窗口期需匹配批次避免渲染不存在的产物文件
+  const upscaleCancelled = upscaleJobs.filter((j) => j.status === "cancelled");
 
   // 取消当前超分：通知后端停止（任务状态由后端更新并广播）
   const handleCancelUpscale = useCallback(() => {
@@ -318,11 +321,17 @@ export function StoryboardPanel({ project }: Props) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ storyboard_id: string }>("upscale-done", ({ payload }) => {
+    void listen<UpscaleDoneEvent>("upscale-done", ({ payload }) => {
       if (disposed) return;
       void refreshVideoState(payload.storyboard_id);
       // 递增 tick，DetailView 的 loadVideos 依赖它 → 批次列表立即刷新出新视频
       setVideoRefreshTick((x) => x + 1);
+      // 终态反馈：取消静默移除批次（已由后端删除），失败保留批次，均给出提示
+      if (payload.status === "cancelled") {
+        toast("已取消超分", "info");
+      } else if (payload.status === "failed") {
+        toast("超分失败", "error");
+      }
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;
@@ -331,7 +340,7 @@ export function StoryboardPanel({ project }: Props) {
       disposed = true;
       unlisten?.();
     };
-  }, [refreshVideoState]);
+  }, [refreshVideoState, toast]);
 
   // 终态事件只在此处监听一次：避免 DetailView 重挂载或 Strict Mode 产生重复失败提示。
   useEffect(() => {
@@ -492,6 +501,8 @@ export function StoryboardPanel({ project }: Props) {
                   lockedRatio={lockedRatio}
                   upscaleRun={upscaleRun}
                   upscaleQueue={upscaleQueue}
+                  upscaleFailed={upscaleFailed}
+                  upscaleCancelled={upscaleCancelled}
                   upscaleGpuOk={upscaleGpuOk}
                   onStartUpscale={handleStartUpscale}
                   onCancelUpscale={handleCancelUpscale}
@@ -669,6 +680,8 @@ function DetailView({
   lockedRatio,
   upscaleRun,
   upscaleQueue,
+  upscaleFailed,
+  upscaleCancelled,
   upscaleGpuOk,
   onStartUpscale,
   onCancelUpscale,
@@ -689,6 +702,8 @@ function DetailView({
   // 超分抽屉：待超分视频 + 关闭动画
   const [upscaleTargetVideo, setUpscaleTargetVideo] = useState<DisplayStoryboardVideo | null>(null);
   const [upscaleDrawerClosing, setUpscaleDrawerClosing] = useState(false);
+  // 取消超分确认弹窗
+  const [confirmCancelUpscale, setConfirmCancelUpscale] = useState(false);
 
   const displayVideos = useMemo<DisplayStoryboardVideo[]>(() => {
     // 终态刷新与事件可能交错；task_id 已落库的视频优先作为完成批次展示，
@@ -696,27 +711,50 @@ function DetailView({
     const completedTaskIds = new Set(videos.flatMap((video) => video.task_id ? [video.task_id] : []));
     // 超分任务状态索引：任务在 enqueue 时已真实落库为批次（video_id 指向批次 id）。
     // 这里按 video_id 匹配批次，附加 upscaling/taskStatus 供列表与预览渲染。
-    const upscaleTaskByBatch = new Map<string, { percent: number; status: "pending" | "running" }>();
+    const upscaleTaskByBatch = new Map<string, {
+      percent: number;
+      status: "pending" | "running" | "failed";
+      error?: string | null;
+      jobId?: string;
+    }>();
     for (const q of upscaleQueue) {
       if (q.storyboard_id === sb.id) upscaleTaskByBatch.set(q.video_id, { percent: 0, status: "pending" });
     }
     if (upscaleRun && upscaleRun.storyboard_id === sb.id) {
       upscaleTaskByBatch.set(upscaleRun.video_id, { percent: upscaleRun.percent, status: "running" });
     }
+    // 失败任务：批次保留（file_path 置空, file_name='超分失败'），附加错误信息与任务 id 供重试
+    for (const f of upscaleFailed) {
+      if (f.storyboard_id === sb.id) {
+        upscaleTaskByBatch.set(f.video_id, { percent: f.percent, status: "failed", error: f.error, jobId: f.id });
+      }
+    }
+    // 已取消任务：取消即删除，批次即将被后端删除。取消广播与列表刷新之间的窗口期
+    // 直接过滤掉这些批次（不渲染），避免 <video> 加载不存在的产物文件导致 asset 报错。
+    const cancelledVideoIds = new Set(
+      upscaleCancelled
+        .filter((c) => c.storyboard_id === sb.id)
+        .map((c) => c.video_id),
+    );
     return [
       // 真实视频批次：超分任务对应的批次（source='upscale'）按任务状态附加标记；
       // 其余批次原样展示。批次 id 始终稳定（不再有 upscale:/upscale-queued: 假批次）。
-      ...videos.map((video) => {
-        const task = upscaleTaskByBatch.get(video.id);
-        if (!task) return video;
-        return {
-          ...video,
-          upscaling: true,
-          taskStatus: task.status,
-          upscalePercent: task.percent,
-          file_name: task.status === "pending" ? "视频超分排队中" : "视频超分中",
-        };
-      }),
+      ...videos
+        .filter((video) => !cancelledVideoIds.has(video.id))
+        .map((video) => {
+          const task = upscaleTaskByBatch.get(video.id);
+          if (!task) return video;
+          return {
+            ...video,
+            // 失败态不标 upscaling：走通用任务态渲染（失败卡片/占位），而非超分进度动画
+            upscaling: task.status !== "failed",
+            taskStatus: task.status,
+            upscalePercent: task.percent,
+            upscaleError: task.error ?? null,
+            upscaleJobId: task.jobId,
+            file_name: task.status === "pending" ? "视频超分排队中" : task.status === "running" ? "视频超分中" : "超分失败",
+          };
+        }),
       ...videoTaskStates
         .filter((task) => !completedTaskIds.has(task.taskId))
         .map((task) => ({
@@ -730,7 +768,7 @@ function DetailView({
           taskStatus: task.status,
         })),
     ];
-  }, [sb.id, upscaleRun, upscaleQueue, videoTaskStates, videos]);
+  }, [sb.id, upscaleRun, upscaleQueue, upscaleFailed, upscaleCancelled, videoTaskStates, videos]);
 
   const loadVideos = useCallback(async () => {
     try { setVideos(await listStoryboardVideos(sb.id)); }
@@ -766,6 +804,8 @@ function DetailView({
   const activeVideo = displayVideos.find((video) => video.id === playerVidId) ?? null;
   const currentVideoSrc = activeVideo?.file_path ? convertFileSrc(activeVideo.file_path) : null;
   const currentVideoTaskStatus = activeVideo?.taskStatus;
+  // 超分失败批次（upscaleJobId 有值且状态 failed）：预览区显示错误信息 + 重试入口
+  const isUpscaleFailed = currentVideoTaskStatus === "failed" && !!activeVideo?.upscaleJobId;
 
   // ── 镜头视频超分 ──
   // 当前正在超分的视频（匹配 storyboard + video）
@@ -848,15 +888,27 @@ function DetailView({
       return null;
     }
   }, [sb.id, upscaleGpuOk, onStartUpscale, onVideoRefresh, toast]);
-  // 任务成功后，若正在查看已完成的临时批次则切换至最终视频，避免预览停在空状态。
+  // 当前查看的批次在展示列表中不存在时（超分取消过滤批次 / 删除批次 / 生成任务终态移除），
+  // 回退到镜头绑定的批次（selected_video_id）；无绑定则回退到最后一个批次。
   useEffect(() => {
-    const isViewingTask = viewingVideoId?.startsWith("task:");
-    const taskStillVisible = isViewingTask
-      && videoTaskStates.some((task) => `task:${task.taskId}` === viewingVideoId);
-    if (isViewingTask && !taskStillVisible) {
-      setViewingVideoId(sb.selected_video_id ?? videos[videos.length - 1]?.id ?? null);
+    if (!viewingVideoId) return;
+    const stillVisible = displayVideos.some((video) => video.id === viewingVideoId);
+    if (stillVisible) return;
+    const fallback = sb.selected_video_id
+      ? (displayVideos.find((video) => video.id === sb.selected_video_id) ?? null)
+      : null;
+    setViewingVideoId(fallback?.id ?? displayVideos[displayVideos.length - 1]?.id ?? null);
+  }, [displayVideos, sb.selected_video_id, viewingVideoId]);
+
+  /** 重试失败的超分任务：复用原批次与参数重新入队，批次 id 不变，预览保持 */
+  const handleRetryUpscale = useCallback(async (jobId: string) => {
+    try {
+      await retryUpscaleJob(jobId);
+      toast("已重新提交超分任务", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "重试失败", "error");
     }
-  }, [sb.selected_video_id, videoTaskStates, videos, viewingVideoId]);
+  }, [toast]);
 
   // ── 自绘播放控件（绕开 WebView2 原生 controls 命中错位） ──
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1295,7 +1347,7 @@ function DetailView({
               <button
                 type="button"
                 className="sd-upscale-cancel"
-                onClick={onCancelUpscale}
+                onClick={() => setConfirmCancelUpscale(true)}
               >
                 取消
               </button>
@@ -1403,7 +1455,7 @@ function DetailView({
               {waiting && <div className="sd-player-loading">加载中…</div>}
             </div>
           ) : currentVideoTaskStatus ? (
-            <div className={`sd-player-task-state sd-player-task-state--${currentVideoTaskStatus}`}>
+            <div className={`sd-player-task-state sd-player-task-state--${currentVideoTaskStatus}${isUpscaleFailed ? " sd-player-task-state--upscale-failed" : ""}`}>
               {currentVideoTaskStatus === "failed" ? (
                 <span className="sd-video-task-failure-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
@@ -1414,12 +1466,25 @@ function DetailView({
               ) : (
                 <span className="sd-video-task-orb" aria-hidden />
               )}
-              <strong>{currentVideoTaskStatus === "failed" ? "视频生成失败" : "视频生成中"}</strong>
-              <span>
-                {currentVideoTaskStatus === "failed"
-                  ? formatStoryboardVideoFailure()
-                  : "视频批次正在生成，请稍候…"}
-              </span>
+              <strong>{isUpscaleFailed ? "失败" : (currentVideoTaskStatus === "failed" ? "视频生成失败" : "视频生成中")}</strong>
+              {!isUpscaleFailed && (
+                <span>
+                  {currentVideoTaskStatus === "failed"
+                    ? formatStoryboardVideoFailure()
+                    : "视频批次正在生成，请稍候…"}
+                </span>
+              )}
+              {isUpscaleFailed && (
+                <button
+                  type="button"
+                  className="sd-upscale-retry"
+                  onClick={() => {
+                    if (activeVideo?.upscaleJobId) void handleRetryUpscale(activeVideo.upscaleJobId);
+                  }}
+                >
+                  重试
+                </button>
+              )}
             </div>
           ) : (
             <svg viewBox="0 0 320 180" fill="none" className="sd-detail-video-empty" preserveAspectRatio="xMidYMid meet">
@@ -1495,7 +1560,9 @@ function DetailView({
             const isSelected = !isTaskBatch && !isUpscalingBatch && v.id === sb.selected_video_id;
             const isViewing = v.id === playerVidId;
             const batchLabel = `B${i + 1}`;
-            const taskLabel = v.taskStatus === "failed" ? "生成失败" : "生成中";
+            const taskLabel = v.taskStatus === "failed"
+              ? (v.upscaleJobId ? "超分失败" : "生成失败")
+              : "生成中";
             return (
               <div
                 key={v.id}
@@ -1542,13 +1609,19 @@ function DetailView({
                 </div>
                 {!isUpscalingBatch && <span className="sd-video-thumb-label">{batchLabel}</span>}
                 {isSelected && <span className="sd-video-thumb-bound-badge" title="镜头绑定视频" />}
-                {v.taskStatus === "failed" && v.task_id && (
+                {v.taskStatus === "failed" && (v.task_id || v.upscaleJobId) && (
                   <button
                     className="sd-video-thumb-delete"
                     disabled={busy}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setPendingDeleteFailedTask({ taskId: v.task_id!, status: "failed" });
+                      if (v.upscaleJobId) {
+                        // 超分失败批次：走通用删除批次（后端 delete_storyboard_video 会先删关联任务再删批次）
+                        setDeleteFiles(false);
+                        setPendingDelete(v);
+                      } else {
+                        setPendingDeleteFailedTask({ taskId: v.task_id!, status: "failed" });
+                      }
                     }}
                     title="删除失败批次"
                   >
@@ -1836,6 +1909,22 @@ function DetailView({
           </div>
         );
       })()}
+
+      {/* 取消超分确认：取消后当前进度不保留，批次将被移除 */}
+      {confirmCancelUpscale && (
+        <DeleteConfirmModal
+          title="取消超分"
+          description="确定取消当前超分任务？已完成的进度不会保留，超分批次将被移除。"
+          confirmText="取消任务"
+          onConfirm={() => {
+            setConfirmCancelUpscale(false);
+            onCancelUpscale();
+          }}
+          onCancel={() => setConfirmCancelUpscale(false)}
+          disabled={busy}
+          excludeTitlebar
+        />
+      )}
 
       {/* 首次生成确认：分集尚无绑定视频时锁定比例 */}
       {confirmGenerate && (

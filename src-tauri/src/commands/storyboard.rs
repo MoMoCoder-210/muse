@@ -466,6 +466,12 @@ pub fn delete_storyboard(
         rusqlite::params![&input.storyboard_id],
     )
     .map_err(|e| format!("无法删除镜头任务锁：{}", e))?;
+    // 视频超分任务外键引用 storyboard_videos/storyboards，需在视频和镜头之前删除
+    tx.execute(
+        "DELETE FROM upscale_jobs WHERE storyboard_id = ?1",
+        rusqlite::params![&input.storyboard_id],
+    )
+    .map_err(|e| format!("无法删除镜头超分任务：{}", e))?;
     // 视频依赖镜头和任务，必须在两张父表之前删除。
     tx.execute(
         "DELETE FROM storyboard_videos WHERE storyboard_id = ?1",

@@ -904,6 +904,11 @@ export async function cancelUpscaleJob(jobId: string): Promise<boolean> {
   return invoke<boolean>("cancel_upscale_job", { jobId });
 }
 
+/** 重试失败的超分任务（仅 failed 可重试，复用原批次与参数重新入队） */
+export async function retryUpscaleJob(jobId: string): Promise<UpscaleJob> {
+  return invoke<UpscaleJob>("retry_upscale_job", { jobId });
+}
+
 /** 超分任务状态变化事件载荷（后端广播完整 UpscaleJob，可直接替换） */
 export type UpscaleChangedEvent = UpscaleJob;
 

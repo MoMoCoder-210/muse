@@ -17,6 +17,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::commands::util;
 use crate::commands::video::{run_upscale_blocking, UpscaleVideoInput};
 
+/// 超时自动重试上限：超过此次数则放弃自动重试，转为 Failed 等待用户手动重试。
+const MAX_AUTO_RETRIES: u32 = 3;
+
 /// 写入超分项目日志（muse.log，source=视频超分）。
 /// 日志为尽力型操作，失败不影响主流程。
 fn log_upscale(app: &AppHandle, level: &str, message: &str) {
@@ -113,6 +116,8 @@ struct Inner {
     active: Option<JobContext>,
     /// worker 是否已启动
     started: bool,
+    /// 超时自动重试计数（job id → 累计超时次数），超出上限后转 Failed
+    timeout_retries: std::collections::HashMap<String, u32>,
 }
 
 /// 任务创建入参
@@ -143,6 +148,7 @@ impl UpscaleManager {
                 queue: VecDeque::new(),
                 active: None,
                 started: false,
+                timeout_retries: std::collections::HashMap::new(),
             }),
             app,
         }
@@ -161,66 +167,78 @@ impl UpscaleManager {
         }
         inner.started = true;
 
-    // 从 DB 恢复未完成任务
-    let mut recovered = 0usize;
-    if let Ok(conn) = util::open_app_conn(&self.app) {
-        let sql = "SELECT id, storyboard_id, video_id, input_path, output_path, model, scale, status, created_at
-                   FROM upscale_jobs WHERE status IN ('queued','running') ORDER BY created_at";
-        if let Ok(mut stmt) = conn.prepare(sql) {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, u32>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
-            }) {
-                for row in rows.flatten() {
-                    let (id, sb_id, vid_id, input_path, output_path, model, scale, status, created_at) = row;
-                    // DB 里 running 视为中断，入队续跑（keep_on_error=true 保留目录）
-                    let status = if status == "running" {
-                        UpscaleJobStatus::Queued
-                    } else {
-                        UpscaleJobStatus::from_str(&status)
-                    };
-                    inner.jobs.push(UpscaleJob {
-                        id: id.clone(),
-                        storyboard_id: sb_id,
-                        video_id: vid_id,
-                        input_path: input_path.clone(),
-                        output_path,
-                        model,
-                        scale,
-                        status,
-                        percent: 0.0,
-                        stage: "排队中…".to_string(),
-                        error: None,
-                        created_at,
-                    });
-                    inner.queue.push_back(id.clone());
-                    recovered += 1;
-                    log_upscale(
-                        &self.app,
-                        "INFO",
-                        &format!(
-                            "启动恢复未完成任务：job={} 输入={}（断点续跑）",
-                            &id[..id.len().min(8)],
-                            input_path
-                        ),
-                    );
+        // 从 DB 恢复未完成任务（queued/running 入队续跑）+ 加载失败任务（供前端展示/重试，不入队）
+        let mut recovered = 0usize;
+        if let Ok(conn) = util::open_app_conn(&self.app) {
+            let sql = "SELECT id, storyboard_id, video_id, input_path, output_path, model, scale, status, error_message, created_at
+                       FROM upscale_jobs WHERE status IN ('queued','running','failed') ORDER BY created_at";
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, u32>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, String>(9)?,
+                    ))
+                }) {
+                    for row in rows.flatten() {
+                        let (id, sb_id, vid_id, input_path, output_path, model, scale, status, error_message, created_at) = row;
+                        // DB 里 running 视为中断，入队续跑（keep_on_error=true 保留目录）；
+                        // failed 保持终态，仅加载进内存供前端展示/重试，不自动入队。
+                        let (status, is_active) = if status == "running" {
+                            (UpscaleJobStatus::Queued, true)
+                        } else if status == "failed" {
+                            (UpscaleJobStatus::Failed, false)
+                        } else {
+                            (UpscaleJobStatus::from_str(&status), true)
+                        };
+                        inner.jobs.push(UpscaleJob {
+                            id: id.clone(),
+                            storyboard_id: sb_id,
+                            video_id: vid_id,
+                            input_path: input_path.clone(),
+                            output_path,
+                            model,
+                            scale,
+                            status,
+                            percent: 0.0,
+                            stage: if is_active {
+                                "排队中…".to_string()
+                            } else {
+                                "失败".to_string()
+                            },
+                            error: error_message,
+                            created_at,
+                        });
+                        if is_active {
+                            inner.queue.push_back(id.clone());
+                        }
+                        recovered += 1;
+                        log_upscale(
+                            &self.app,
+                            if is_active { "INFO" } else { "WARN" },
+                            &format!(
+                                "启动{}：job={} 输入={}{}",
+                                if is_active { "恢复未完成任务" } else { "加载失败任务" },
+                                &id[..id.len().min(8)],
+                                input_path,
+                                if is_active { "（断点续跑）" } else { "" }
+                            ),
+                        );
+                    }
                 }
             }
         }
-    }
-    drop(inner);
-    if recovered > 0 {
-        log_upscale(&self.app, "INFO", &format!("共恢复 {} 个未完成超分任务", recovered));
-    }
+        drop(inner);
+        if recovered > 0 {
+            log_upscale(&self.app, "INFO", &format!("共恢复/加载 {} 个超分任务记录", recovered));
+        }
 
         // 启动 worker：单线程串行消费队列（长循环，用系统线程而非 async）
         let manager = self.app.clone();
@@ -341,48 +359,136 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
             finalize_success(app, &job, &snapshot.unwrap_or(job.clone()));
         }
         Err(e) => {
-            let status = if e.contains(crate::commands::video::UPSCALE_CANCELED) {
-                UpscaleJobStatus::Cancelled
-            } else {
-                UpscaleJobStatus::Failed
-            };
-            if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
-                j.status = status;
-                j.error = Some(e.clone());
-                if j.status == UpscaleJobStatus::Cancelled {
+            if e.contains(crate::commands::video::UPSCALE_CANCELED) {
+                // ── 取消 = 用户主动放弃：删任务 + 删批次 ──
+                if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
+                    j.status = UpscaleJobStatus::Cancelled;
+                    j.error = Some(e.clone());
                     j.percent = 0.0;
                     j.stage = "已取消".to_string();
+                }
+                let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
+                drop(inner);
+                log_upscale(
+                    app,
+                    "WARN",
+                    &format!("超分已取消：{}", job_label(&job)),
+                );
+                if let Some(s) = snapshot {
+                    if let Ok(conn) = util::open_app_conn(app) {
+                        let _ = conn.execute(
+                            "DELETE FROM upscale_jobs WHERE id=?1",
+                            rusqlite::params![job_id],
+                        );
+                        let _ = conn.execute(
+                            "DELETE FROM storyboard_videos WHERE id=?1 AND source='upscale'",
+                            rusqlite::params![&job.video_id],
+                        );
+                    }
+                    broadcast_change(app, &s, true);
+                }
+            } else if e.starts_with(crate::commands::video::UPSCALE_TIMEOUT_PREFIX) {
+                // ── 超时自动重试：目录已保留（已完成帧可续跑复用），重试直至成功或超限 ──
+                let retries = {
+                    let e = inner.timeout_retries.entry(job_id.to_string()).or_insert(0);
+                    *e += 1;
+                    *e
+                };
+                let exhausted = retries > MAX_AUTO_RETRIES;
+                if exhausted {
+                    inner.timeout_retries.remove(job_id);
+                    if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
+                        j.status = UpscaleJobStatus::Failed;
+                        j.error = Some(e.clone());
+                        j.stage = format!("失败：{}", e);
+                    }
+                    let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
+                    drop(inner);
+                    log_upscale(
+                        app,
+                        "ERROR",
+                        &format!(
+                            "超分超时重试耗尽：{} 错误={}",
+                            job_label(&job),
+                            e
+                        ),
+                    );
+                    if let Some(s) = snapshot {
+                        if let Ok(conn) = util::open_app_conn(app) {
+                            let _ = conn.execute(
+                                "UPDATE upscale_jobs SET status='failed', error_message=?1, updated_at=datetime('now') WHERE id=?2",
+                                rusqlite::params![&e, job_id],
+                            );
+                            let _ = conn.execute(
+                                "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
+                                rusqlite::params![&job.video_id],
+                            );
+                        }
+                        broadcast_change(app, &s, true);
+                    }
                 } else {
+                    // 自动重试：重新入队
+                    if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
+                        j.status = UpscaleJobStatus::Queued;
+                        j.percent = 0.0;
+                        j.stage = format!("排队中…（超时自动重试 {}/{}）", retries, MAX_AUTO_RETRIES);
+                        j.error = None;
+                    }
+                    inner.queue.push_back(job_id.to_string());
+                    let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
+                    drop(inner);
+                    log_upscale(
+                        app,
+                        "WARN",
+                        &format!(
+                            "超分超时，自动重试（{}/{}）：{}",
+                            retries,
+                            MAX_AUTO_RETRIES,
+                            job_label(&job)
+                        ),
+                    );
+                    if let Ok(conn) = util::open_app_conn(app) {
+                        let _ = conn.execute(
+                            "UPDATE upscale_jobs SET status='queued', error_message=NULL, updated_at=datetime('now') WHERE id=?1",
+                            rusqlite::params![job_id],
+                        );
+                        let _ = conn.execute(
+                            "UPDATE storyboard_videos SET file_name='视频超分排队中' WHERE id=?1 AND source='upscale'",
+                            rusqlite::params![&job.video_id],
+                        );
+                    }
+                    if let Some(s) = snapshot {
+                        broadcast_change(app, &s, false);
+                    }
+                }
+            } else {
+                // ── 其他失败 = 保留现场：任务记录（含错误信息）+ 批次标记失败 ──
+                let status = UpscaleJobStatus::Failed;
+                if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
+                    j.status = status;
+                    j.error = Some(e.clone());
                     j.stage = format!("失败：{}", e);
                 }
-            }
-            let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
-            drop(inner);
-            // 日志：取消 / 失败（含错误信息，便于排查）
-            let level = if status == UpscaleJobStatus::Cancelled {
-                "WARN"
-            } else {
-                "ERROR"
-            };
-            let msg = if status == UpscaleJobStatus::Cancelled {
-                format!("超分已取消：{}", job_label(&job))
-            } else {
-                format!("超分失败：{} 错误={}", job_label(&job), e)
-            };
-            log_upscale(app, level, &msg);
-            if let Some(s) = snapshot {
-                // 更新 DB 状态 + 删除未产出的超分批次（该批次无真实文件，保留只会是空批次）
-                if let Ok(conn) = util::open_app_conn(app) {
-                    let _ = conn.execute(
-                        "UPDATE upscale_jobs SET status=?1, error_message=?2, updated_at=datetime('now') WHERE id=?3",
-                        rusqlite::params![status.as_str(), &e, job_id],
-                    );
-                    let _ = conn.execute(
-                        "DELETE FROM storyboard_videos WHERE id=?1 AND source='upscale'",
-                        rusqlite::params![&job.video_id],
-                    );
+                let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
+                drop(inner);
+                log_upscale(
+                    app,
+                    "ERROR",
+                    &format!("超分失败：{} 错误={}", job_label(&job), e),
+                );
+                if let Some(s) = snapshot {
+                    if let Ok(conn) = util::open_app_conn(app) {
+                        let _ = conn.execute(
+                            "UPDATE upscale_jobs SET status=?1, error_message=?2, updated_at=datetime('now') WHERE id=?3",
+                            rusqlite::params![status.as_str(), &e, job_id],
+                        );
+                        let _ = conn.execute(
+                            "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
+                            rusqlite::params![&job.video_id],
+                        );
+                    }
+                    broadcast_change(app, &s, true);
                 }
-                broadcast_change(app, &s, true);
             }
         }
     }
@@ -622,12 +728,12 @@ pub fn cancel_upscale_job(job_id: String, app: AppHandle) -> Result<bool, String
             let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
             drop(inner);
             if let Ok(conn) = util::open_app_conn(&app) {
-                let _ = conn.execute(
-                    "UPDATE upscale_jobs SET status='cancelled', updated_at=datetime('now') WHERE id=?1",
-                    rusqlite::params![&job_id],
-                );
-                // 取消未开始的超分批次：产物从未生成，删除空批次
+                // 取消未开始的超分批次：先删任务解除外键，再删空批次（产物从未生成）
                 if let Some(s) = &snapshot {
+                    let _ = conn.execute(
+                        "DELETE FROM upscale_jobs WHERE id=?1",
+                        rusqlite::params![&job_id],
+                    );
                     let _ = conn.execute(
                         "DELETE FROM storyboard_videos WHERE id=?1 AND source='upscale'",
                         rusqlite::params![&s.video_id],
@@ -668,6 +774,54 @@ pub fn cancel_upscale_job(job_id: String, app: AppHandle) -> Result<bool, String
             Ok(false)
         }
     }
+}
+
+/// 重试失败的超分任务。
+///
+/// - 仅 `failed` 状态可重试（取消/排队中/运行中/已完成均拒绝）；
+/// - 复用原任务的 `input_path/model/scale/video_id`（批次 id 全程不变，预览/选中不丢）；
+/// - 重置为 `queued` 重新入队，由 worker 串行消费；
+/// - 失败批次（file_path=NULL, file_name='超分失败'）随后由前端按任务状态渲染为排队中。
+#[tauri::command]
+pub fn retry_upscale_job(job_id: String, app: AppHandle) -> Result<UpscaleJob, String> {
+    let mgr = app.state::<UpscaleManager>();
+    let mut inner = mgr.inner.lock().unwrap();
+    let Some(job) = inner.jobs.iter().find(|j| j.id == job_id).cloned() else {
+        drop(inner);
+        return Err("任务不存在".to_string());
+    };
+    if job.status != UpscaleJobStatus::Failed {
+        drop(inner);
+        return Err(format!(
+            "只有失败的超分任务可以重试，当前状态：{}",
+            job.status.as_str()
+        ));
+    }
+    // 内存：重置为排队中，清空错误
+    if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
+        j.status = UpscaleJobStatus::Queued;
+        j.percent = 0.0;
+        j.stage = "排队中…".to_string();
+        j.error = None;
+    }
+    inner.queue.push_back(job_id.clone());
+    let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
+    drop(inner);
+    if let Ok(conn) = util::open_app_conn(&app) {
+        // DB：任务重置为 queued 并清空错误；批次标记恢复为排队中（产物未生成，file_path 保持空）
+        let _ = conn.execute(
+            "UPDATE upscale_jobs SET status='queued', error_message=NULL, updated_at=datetime('now') WHERE id=?1",
+            rusqlite::params![&job_id],
+        );
+        let _ = conn.execute(
+            "UPDATE storyboard_videos SET file_name='视频超分排队中' WHERE id=?1 AND source='upscale'",
+            rusqlite::params![&job.video_id],
+        );
+    }
+    if let Some(s) = &snapshot {
+        broadcast_change(&app, s, false);
+    }
+    Ok(snapshot.unwrap_or(job))
 }
 
 /// 供 setup 调用：创建并注册 manager（Tauri state），并启动 worker（含断点续跑）。

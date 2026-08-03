@@ -386,6 +386,13 @@ pub fn delete_project(
         )
         .map_err(|e| e.to_string())?;
 
+        // 2.5. 超分任务（外键引用 storyboard_videos.id + storyboards.id，必须在视频与镜头之前删除）
+        tx.execute(
+            "DELETE FROM upscale_jobs WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
         // 3. storyboard_videos（依赖 storyboards.id + tasks.id，必须在这两张表之前删除）
         tx.execute(
             "DELETE FROM storyboard_videos WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",

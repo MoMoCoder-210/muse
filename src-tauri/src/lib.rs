@@ -465,6 +465,7 @@ pub fn run() {
             upscale_manager::enqueue_upscale,
             upscale_manager::list_upscale_jobs,
             upscale_manager::cancel_upscale_job,
+            upscale_manager::retry_upscale_job,
             commands::test_connection,
             commands::open_in_folder,
             commands::save_concat_output,

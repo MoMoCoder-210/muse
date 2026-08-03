@@ -254,6 +254,15 @@
     radial-gradient(circle at 50% 22%, rgba(var(--color-danger-rgb), 0.22), transparent 54%),
     rgba(44, 19, 23, 0.78);
 }
+/* 选中失败批次 — 蓝色发光边框（is-task--failed 的红色边框/阴影同级优先级且定义更靠后，
+   会覆盖 .playing 的选中态，故单独特例覆盖回蓝色；失败红色背景保留以辨识状态） */
+.sd-video-thumb-wrap.playing.is-task--failed {
+  border-color: var(--accent-primary);
+  border-style: solid;
+  box-shadow:
+    0 0 6px 1px rgba(var(--accent-primary-rgb), 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+}
 /* 超分中批次 — 紫色脉冲 */
 .sd-video-thumb-wrap.is-upscaling {
   border-color: rgba(139, 108, 255, 0.6);
@@ -436,6 +445,13 @@
   font-size: var(--font-size-sm);
   line-height: 1.55;
 }
+/* 超分失败占位末尾是重试按钮，描述文本不再是 last-child，单独补充同等样式 */
+.sd-player-task-state--upscale-failed > span:nth-of-type(2) {
+  max-width: 290px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+}
 
 /* ── 镜头视频超分：按钮 + 进度动画 ── */
 
@@ -555,6 +571,24 @@
 .sd-player-task-state--upscaling .sd-upscale-cancel:hover {
   background: rgba(var(--color-danger-rgb), 0.24);
   border-color: rgba(var(--color-danger-rgb), 0.5);
+}
+
+/* 超分失败占位的重试按钮 */
+.sd-player-task-state--upscale-failed .sd-upscale-retry {
+  margin-top: 6px;
+  padding: 4px 18px;
+  border-radius: var(--radius-full);
+  border: 0.5px solid rgba(var(--accent-primary-rgb), 0.5);
+  background: rgba(var(--accent-primary-rgb), 0.16);
+  color: var(--text-strong);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.sd-player-task-state--upscale-failed .sd-upscale-retry:hover {
+  background: rgba(var(--accent-primary-rgb), 0.3);
+  border-color: rgba(var(--accent-primary-rgb), 0.72);
 }
 
 @media (prefers-reduced-motion: reduce) {

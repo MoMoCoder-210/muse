@@ -71,6 +71,7 @@
 
 /* 视频预览 */
 .sbu-preview {
+  position: relative;
   width: 100%;
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -86,6 +87,21 @@
   height: 100%;
   display: block;
   object-fit: contain;
+}
+/* 无视频流（纯音频文件）时的占位提示 */
+.sbu-preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  line-height: 1.6;
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* 超分参数 */

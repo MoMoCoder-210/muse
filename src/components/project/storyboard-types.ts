@@ -31,6 +31,10 @@ export type DisplayStoryboardVideo = StoryboardVideoInfo & {
   upscaling?: boolean;
   /** 超分进度（0-100），供超分中批次显示进度条 */
   upscalePercent?: number;
+  /** 超分失败的错误信息（failed 任务附加；存在即表示该批次为超分失败批次） */
+  upscaleError?: string | null;
+  /** 关联的超分任务 id（failed 批次重试用） */
+  upscaleJobId?: string;
 };
 
 // ── 数据加载 ──────────────────────────────────────────
@@ -71,6 +75,10 @@ export type DetailProps = {
   upscaleRun: UpscaleJob | null;
   /** 排队等待超分的任务列表（同一时刻只运行一个） */
   upscaleQueue: UpscaleJob[];
+  /** 超分失败的任务列表（保留失败批次供展示/重试；批次 file_path 为空标记超分失败） */
+  upscaleFailed: UpscaleJob[];
+  /** 已取消的超分任务列表（批次即将被后端删除，仅用于窗口期匹配避免渲染不存在的产物文件） */
+  upscaleCancelled: UpscaleJob[];
   /** 是否支持 GPU 超分（false=无 GPU，禁用按钮） */
   upscaleGpuOk: boolean | null;
   /** 发起镜头视频超分（仅请求，无副作用），返回新的任务或 null */

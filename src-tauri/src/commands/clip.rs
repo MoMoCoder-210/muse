@@ -512,6 +512,13 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除任务锁 clipId={}: {}", id, e))?;
 
+        // 2.5. 超分任务外键引用 storyboard_videos/storyboards，需在二者之前删除
+        tx.execute(
+            "DELETE FROM upscale_jobs WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
+            rusqlite::params![id],
+        )
+        .map_err(|e| format!("无法删除超分任务 clipId={}: {}", id, e))?;
+
         // 3. storyboard_videos 同时引用 storyboards 与 tasks，必须先于二者删除。
         tx.execute(
             "DELETE FROM storyboard_videos WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",

@@ -82,6 +82,8 @@ export function StoryboardUpscaleDrawer({
   const [scale, setScale] = useState(2);
   // 源视频分辨率（由预览 video 的 loadedmetadata 提供；未知时视为不超限）
   const [videoHeight, setVideoHeight] = useState<number | null>(null);
+  // 无视频流（如仅音频的假视频）：隐藏原生控件并显示占位，避免 WebView 渲染原生音频播放器
+  const [noVideoStream, setNoVideoStream] = useState(false);
 
   // 当前视频是否正在超分（父组件运行状态匹配；超分中禁用选项与开始按钮）
   const isThisRunning = !!video
@@ -95,6 +97,7 @@ export function StoryboardUpscaleDrawer({
       setModel("anime");
       setScale(2);
       setVideoHeight(null);
+      setNoVideoStream(false);
     }
   }, [video?.id]);
 
@@ -146,11 +149,20 @@ export function StoryboardUpscaleDrawer({
           <div className="sbu-preview">
             <video
               src={src}
-              controls
+              controls={!noVideoStream}
               playsInline
               preload="metadata"
-              onLoadedMetadata={(e) => setVideoHeight(e.currentTarget.videoHeight)}
+              onLoadedMetadata={(e) => {
+                const h = e.currentTarget.videoHeight;
+                setVideoHeight(h);
+                // 无视频流（纯音频文件）：隐藏原生控件，改占位
+                setNoVideoStream(h === 0);
+              }}
+              onError={() => setNoVideoStream(true)}
             />
+            {noVideoStream && (
+              <div className="sbu-preview-empty">视频损坏！</div>
+            )}
           </div>
 
           {/* 显卡提醒 */}
