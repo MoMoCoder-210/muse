@@ -35,6 +35,7 @@ All data is stored locally by default with no cloud dependency, ensuring creativ
 | 🎙️ **Voice Generation** | Generate TTS voiceovers for shot narration with built-in voice library |
 | 🎥 **Video Generation** | Synthesize video episodes from shot frames + voice, supporting multiple resolutions and aspect ratios |
 | ✂️ **Video Concatenation** | Merge all videos within an episode into a single final export |
+| 🔍 **Video Super-Resolution** | Upscale shot videos to 2x/3x/4x HD using a local ncnn-vulkan engine, with task queue and resume support |
 
 ### Supported Art Styles
 
@@ -50,7 +51,7 @@ Aspect Ratio: `16:9` `9:16` `1:1` `4:3` `3:4` `21:9`
 ## Creative Workflow
 
 ```
-Script Import ──→ Episodes ──→ Assets ──→ Shots ──→ Video Edit ──→ Export
+Script Import ──→ Episodes ──→ Assets ──→ Shots ──→ Video Edit ──→ Video Super-Resolution ──→ Export
 ```
 
 ---
@@ -242,10 +243,18 @@ Default config at `~/.muse/settings.json`.
 
 ## Roadmap
 
-- [ ] Ongoing bug fixes
-- [ ] AI script refinement (polish, expand, rewrite)
-- [ ] AI script generation (create scripts from scratch)
-- [ ] Image & video super-resolution (local & cloud, evaluating options)
+- [x] AI script refinement (polish, expand, rewrite)
+- [x] Video super-resolution (local ncnn-vulkan, shipped)
+- [ ] Image super-resolution (upcoming in a future release)
+- [ ] Agent features (starts after image super-resolution; may focus on bug fixes for a long time with no new features)
+
+---
+
+## Acknowledgements
+
+The video super-resolution feature is powered by the following open-source project:
+
+- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) — local super-resolution engine built on ncnn-vulkan (model & inference approach)
 
 ---
 

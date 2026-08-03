@@ -211,28 +211,6 @@ export function SettingsPage({ onClose }: Props) {
           </div>
         </div>
 
-        {/* 开源地址 */}
-        <div className="sk-group">
-          <h4 className="sk-group-title">开源地址</h4>
-          <div className="sk-card">
-            <p className="sk-about-text">
-              <a href="https://github.com/MoMoCoder-210/muse" target="_blank" rel="noopener noreferrer">
-                github.com/MoMoCoder-210/muse
-              </a>
-            </p>
-          </div>
-        </div>
-
-        {/* 版权 */}
-        <div className="sk-group">
-          <div className="sk-card">
-            <p className="sk-about-copyright">
-              Muse AI 视频创作工具<br/>
-              Built with Tauri · React · Rust · SQLite
-            </p>
-          </div>
-        </div>
-
         {/* 链接 */}
         <div className="sk-group">
           <div className="sk-card sk-card--actions">
@@ -260,6 +238,16 @@ export function SettingsPage({ onClose }: Props) {
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="sk-action-arrow"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
+          </div>
+        </div>
+
+        {/* 版权（页面最下方） */}
+        <div className="sk-group">
+          <div className="sk-card">
+            <p className="sk-about-copyright">
+              Muse AI 视频创作工具<br/>
+              Built with Tauri · React · Rust · SQLite
+            </p>
           </div>
         </div>
       </div>
