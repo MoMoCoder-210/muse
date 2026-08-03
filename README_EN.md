@@ -65,7 +65,7 @@ Upscale generated shot videos with AI for higher-quality final output:
 ## Creative Workflow
 
 ```
-Script Import ──→ Episodes ──→ Assets ──→ Shots ──→ Video Edit ──→ Video Super-Resolution ──→ Export
+Script Import ──→ Episodes ──→ Assets ──→ Shots ──→ Video Edit ──→ Export
 ```
 
 ---
