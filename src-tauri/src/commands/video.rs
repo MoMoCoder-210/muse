@@ -1837,6 +1837,174 @@ pub(crate) fn run_upscale_blocking(
     ))
 }
 
+// ── 素材图片超分（单图 ncnn，无抽帧/合帧，复用 stderr 检测 + 进度广播） ──
+
+/// 图片超分：单次 ncnn 调用，将 input_path 放大 scale 倍写入 output_path。
+///
+/// 与视频超分的区别：
+/// - 无抽帧/合帧阶段（图片是单文件，无需 ffmpeg）；
+/// - ncnn 的 -i/-o 参数指向单文件而非目录；
+/// - 进度：0→30% 启动，30%→95% 按 stderr 输出行数递增（单图 ncnn 输出行数较少），
+///   95%→100% 完成。
+pub(crate) fn run_image_upscale_blocking(
+    input_path: &str,
+    output_path: &str,
+    model: &str,
+    scale: u32,
+    app: tauri::AppHandle,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    on_progress: std::sync::Arc<dyn Fn(f64, &str) + Send + Sync>,
+) -> Result<(), String> {
+    let ncnn_exe =
+        crate::app_paths::ncnn_realesrgan_exe(&app)
+            .ok_or_else(|| "未找到 realesrgan.exe，超分不可用".to_string())?;
+    if !ncnn_exe.exists() {
+        return Err(format!("未找到 realesrgan.exe（{}）", ncnn_exe.display()));
+    }
+    let models_dir = crate::app_paths::ncnn_models_dir(&app)
+        .ok_or_else(|| "未找到 ncnn 模型目录".to_string())?;
+
+    let model_name = match model {
+        "x4plus" => "realesrgan-x4plus",
+        "x4plus-anime" => "realesrgan-x4plus-anime",
+        _ => "realesr-animevideov3",
+    };
+    let scale = if model == "x4plus" || model == "x4plus-anime" { 4 } else { scale };
+
+    log::info!(
+        "[超分-图片] 开始 input={} output={} model={} scale={}",
+        short_path(Path::new(input_path)),
+        short_path(Path::new(output_path)),
+        model_name,
+        scale
+    );
+    on_progress(5.0, "启动中…");
+
+    let mut cmd = Command::new(&ncnn_exe);
+    cmd.arg("-i")
+        .arg(win32_child_path(Path::new(input_path)))
+        .arg("-o")
+        .arg(win32_child_path(Path::new(output_path)))
+        .arg("-n")
+        .arg(model_name)
+        .arg("-s")
+        .arg(scale.to_string())
+        .arg("-m")
+        .arg(win32_child_path(&models_dir))
+        .arg("-t")
+        .arg("64")
+        .arg("-f")
+        .arg("jpg");
+    cmd.stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("启动 realesrgan 失败：{}", e))?;
+    crate::job_guard::assign_child(&child);
+
+    // stderr 异步读取 + GPU 致命错误检测（与视频超分同一套逻辑）
+    let stderr = child.stderr.take();
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    if let Some(stderr) = stderr {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    if stderr_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    let mut stderr_buf = String::new();
+    let mut stderr_line_count = 0u32;
+    let start = std::time::Instant::now();
+    let progress_timeout = std::time::Duration::from_secs(300); // 5 分钟（单图通常 <30s）
+    let mut last_progress = std::time::Instant::now();
+
+    let status = loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(UPSCALE_CANCELED.to_string());
+        }
+        // stderr 致命检测
+        {
+            let mut fatal = false;
+            while let Ok(line) = stderr_rx.try_recv() {
+                let l = line.to_lowercase();
+                if l.contains("device lost")
+                    || l.contains("vk_error")
+                    || l.contains("vkqueuesubmit")
+                    || l.contains("out of memory")
+                    || l.contains("failed to submit")
+                {
+                    fatal = true;
+                }
+                stderr_buf.push_str(&line);
+                stderr_buf.push('\n');
+                stderr_line_count += 1;
+            }
+            if fatal {
+                log::error!("[超分-图片] realesrgan stderr 错误（GPU 设备丢失）:\n{}", stderr_buf);
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{}realesrgan GPU 设备丢失（{}）",
+                    UPSCALE_TIMEOUT_PREFIX,
+                    stderr_buf.lines().last().unwrap_or("未知错误")
+                ));
+            }
+        }
+        // 伪进度：0→30% 启动后，30%→95% 按 stderr 行数递增
+        let pct = if stderr_line_count > 0 {
+            (30.0 + ((stderr_line_count as f64).min(30.0) / 30.0) * 65.0).min(95.0)
+        } else {
+            10.0
+        };
+        on_progress(pct, &format!("AI 超分中…（{}）", model_name));
+        // 超时兜底
+        if last_progress.elapsed() > progress_timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "{}realesrgan 超时（{}s无进展）",
+                UPSCALE_TIMEOUT_PREFIX,
+                progress_timeout.as_secs()
+            ));
+        }
+        last_progress = std::time::Instant::now(); // 每次循环都算"有进展"（stderr 正常输出）
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {}
+            Err(e) => return Err(format!("等待 realesrgan 失败：{}", e)),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+
+    if !status.success() {
+        log::error!(
+            "[超分-图片] realesrgan 失败，返回码: {:?}",
+            status.code()
+        );
+        return Err(format!("realesrgan 超分失败（{}）", model_name));
+    }
+
+    on_progress(100.0, "完成");
+    log::info!(
+        "[超分-图片] 完成 output={} model={} scale={}x 耗时={:.1}s",
+        short_path(Path::new(output_path)),
+        model_name,
+        scale,
+        start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
 // ── 镜头视频超分（在镜头管理页对单个分镜批次视频超分） ──────────────────
 
 

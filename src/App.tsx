@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAppVersion } from "./services/tauri";
+import { initGpuDetect } from "./services/gpu";
 import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
 import { TitleBar } from "./components/layout/TitleBar";
 
@@ -65,6 +66,7 @@ export default function App() {
     getAppVersion().then(setVersion).catch(() => {
       // 版本号获取失败，保持默认 "unknown"，不打扰用户
     });
+    initGpuDetect();
   }, []);
 
   const handleCreated = useCallback(() => {

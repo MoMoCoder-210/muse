@@ -1355,27 +1355,14 @@ function DetailView({
           ) : currentVideoSrc ? (
             <div className="sd-player" ref={playerRef}>
               {activeVideo?.source === "upscale" && (
-                <span className="sd-player-upscale-badge" title="超分产物">
-                  超分
-                </span>
+                <div className="sd-player-ribbon" title="AI 超分产物">
+                  <span>超分</span>
+                </div>
               )}
-              {canUpscaleCurrent && activeVideo && (
-                <button
-                  className="sd-upscale-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenUpscaleDrawer(activeVideo);
-                  }}
-                  disabled={upscaleGpuOk === null}
-                  title={upscaleGpuOk === null
-                    ? "正在检查你的电脑显卡…"
-                    : "使用本地 AI 将视频放大至高清"}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                  </svg>
-                  增强
-                </button>
+              {activeVideo?.id === sb.selected_video_id && activeVideo?.source !== "upscale" && (
+                <div className="sd-player-ribbon sd-player-ribbon--selected" title="已选定">
+                  <span>已选定</span>
+                </div>
               )}
               <video
                 ref={videoRef}
@@ -1451,6 +1438,25 @@ function DetailView({
                     <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                   </svg>
                 </button>
+                {canUpscaleCurrent && activeVideo && (
+                  <button
+                    className="sd-player-btn sd-player-btn--upscale"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenUpscaleDrawer(activeVideo);
+                    }}
+                    disabled={upscaleGpuOk === null}
+                    title={upscaleGpuOk === null
+                      ? "正在检查你的电脑显卡…"
+                      : "使用本地 AI 将视频放大至高清"}
+                    type="button"
+                    aria-label="画质增强"
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                    </svg>
+                  </button>
+                )}
               </div>
               {waiting && <div className="sd-player-loading">加载中…</div>}
             </div>

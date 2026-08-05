@@ -601,7 +601,9 @@
 }
 
 .asset-drawer-backdrop--closing {
-  animation: asset-drawer-fade-out 200ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  opacity: 0;
+  transition: opacity 100ms ease;
+  pointer-events: none;
 }
 
 @keyframes asset-drawer-fade-in {
@@ -629,13 +631,24 @@
   border-left: 0.5px solid var(--glass-border);
   border-radius: var(--radius-3xl) 0 0 var(--radius-3xl);
   box-shadow: var(--shadow-glass-lg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: asset-drawer-slide-in 280ms cubic-bezier(0.25, 0, 0, 1);
+  will-change: transform;
+  contain: layout style;
+  transition: backdrop-filter 400ms ease, -webkit-backdrop-filter 400ms ease;
+}
+/* 动画完成后启用模糊 */
+.asset-drawer--settled {
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
-  animation: asset-drawer-slide-in 280ms cubic-bezier(0.25, 0, 0, 1);
 }
 
 .asset-drawer--closing {
-  animation: asset-drawer-slide-out 200ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  animation: asset-drawer-slide-out 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 @keyframes asset-drawer-slide-in {
@@ -790,6 +803,20 @@
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  /* 性能优化 */
+  isolation: isolate;
+  contain: layout style paint;
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+}
+/* 大厂方案：浏览器自动跳过视口外子元素的渲染 */
+.asset-drawer-body > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
+}
+/* 首屏元素始终渲染（gallery 在顶部） */
+.asset-gallery {
+  content-visibility: visible;
 }
 
 .asset-drawer-body::-webkit-scrollbar {
@@ -1443,6 +1470,9 @@
   align-items: center;
   justify-content: center;
   border: 0.5px solid var(--glass-border);
+  /* GPU 合成层提升 */
+  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 .asset-gallery--loading .asset-gallery-main {
@@ -1464,7 +1494,6 @@
 .asset-gallery-placeholder {
   font-size: var(--font-size-icon-hero);
   opacity: 0.35;
-  filter: grayscale(0.3);
 }
 
 /* 状态提示（gallery 版） */
@@ -1573,6 +1602,48 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
+/* 超分产物角标丝带 — 右上角紫色 */
+.asset-gallery-upscale-ribbon {
+  position: absolute;
+  top: 10px;
+  right: -22px;
+  z-index: 8;
+  width: 100px;
+  padding: 4px 0;
+  background: linear-gradient(135deg, #7c5ce7, #a78bfa);
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.8px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: rotate(45deg);
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+}
+
+/* 已选定角标丝带 — 左上角蓝色 */
+.asset-gallery-selected-ribbon {
+  position: absolute;
+  top: 10px;
+  left: -22px;
+  z-index: 8;
+  width: 100px;
+  padding: 4px 0;
+  background: linear-gradient(135deg, #0071e3, #0a84ff);
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.8px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: rotate(-45deg);
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+}
+
 /* 左右切换 — macOS 风格半透明圆形按钮 */
 .asset-gallery-nav {
   position: absolute;
@@ -1646,14 +1717,11 @@
   height: 48px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+  background: var(--bg-input);
   cursor: pointer;
   overflow: hidden;
-  transition: border-color var(--transition-smooth),
-              transform var(--transition-smooth),
-              box-shadow var(--transition-smooth),
-              background var(--transition-smooth);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .asset-gallery-thumb img {
@@ -1663,59 +1731,45 @@
 }
 
 .asset-gallery-thumb:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
-/* 选中预览 — 蓝色光环 + 浮起 */
+/* 选中预览 — 蓝色发光边框 */
 .asset-gallery-thumb--active {
   border-color: var(--accent-primary);
   border-style: solid;
-  background: rgba(var(--accent-primary-rgb), 0.06);
   box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.22),
-    0 5px 18px rgba(0, 0, 0, 0.3);
-  transform: scale(1.12) translateY(-1px);
+    0 0 6px 1px rgba(var(--accent-primary-rgb), 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: scale(1.1);
   z-index: 2;
-  overflow: visible;
 }
-/* 悬浮在预览图上不缩小 */
 .asset-gallery-thumb--active:hover {
-  transform: scale(1.12) translateY(-2px);
   border-color: var(--accent-primary);
-  box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.28),
-    0 7px 22px rgba(0, 0, 0, 0.35);
+  transform: scale(1.1);
 }
 
 .asset-gallery-thumb--selected {
-  border-color: var(--accent-primary);
-  border-style: solid;
   background: rgba(var(--accent-primary-rgb), 0.1);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.2);
 }
 
-/* 同时绑定 + 预览 */
+/* 同时绑定 + 预览：绑定用内阴影，预览用外发光 */
 .asset-gallery-thumb--selected.asset-gallery-thumb--active {
-  border-color: var(--accent-primary);
-  border-style: solid;
   background: rgba(var(--accent-primary-rgb), 0.06);
   box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.22),
+    0 0 6px 1px rgba(var(--accent-primary-rgb), 0.55),
     inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.18),
-    0 5px 18px rgba(0, 0, 0, 0.3);
-  transform: scale(1.12) translateY(-1px);
+    0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: scale(1.1);
   z-index: 2;
-  overflow: visible;
 }
 .asset-gallery-thumb--selected.asset-gallery-thumb--active:hover {
-  transform: scale(1.12) translateY(-2px);
-  border-color: var(--accent-primary);
+  transform: scale(1.1);
   box-shadow:
-    0 0 0 3px rgba(var(--accent-primary-rgb), 0.28),
+    0 0 6px 1px rgba(var(--accent-primary-rgb), 0.55),
     inset 0 0 0 1px rgba(var(--accent-primary-rgb), 0.18),
-    0 7px 22px rgba(0, 0, 0, 0.35);
+    0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 /* 缩略图选中标记 */
@@ -1860,11 +1914,19 @@
   text-align: center;
 }
 
-/* 删除图片按钮 — macOS 圆形按钮 */
-.asset-gallery-delete {
+/* 底部右下操作按钮组 */
+.asset-gallery-actions {
   position: absolute;
   bottom: var(--spacing-sm);
   right: var(--spacing-sm);
+  display: flex;
+  gap: 6px;
+  z-index: var(--z-above);
+}
+
+/* 删除 / 增强 — macOS 圆形图标按钮（统一设计语言） */
+.asset-gallery-delete,
+.asset-gallery-upscale {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1878,8 +1940,8 @@
   cursor: pointer;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  z-index: var(--z-above);
   transition: background var(--transition-smooth), color var(--transition-smooth), border-color var(--transition-smooth), transform var(--transition-smooth);
+  position: static;
 }
 
 .asset-gallery-delete:hover {
@@ -1887,6 +1949,20 @@
   color: var(--color-white);
   border-color: var(--color-danger);
   transform: scale(1.08);
+}
+.asset-gallery-upscale:hover {
+  background: rgba(139, 108, 255, 0.5);
+  color: #fff;
+  border-color: rgba(139, 108, 255, 0.7);
+  transform: scale(1.08);
+}
+.asset-gallery-upscale--active {
+  background: rgba(139, 108, 255, 0.55);
+  border-color: rgba(139, 108, 255, 0.75);
+  color: #e8e0ff;
+}
+.asset-gallery-upscale--active:hover {
+  background: rgba(var(--upscale-accent-rgb), 0.48);
 }
 
 /* 详情只读内容：与添加素材表单同风格，但不可编辑 */

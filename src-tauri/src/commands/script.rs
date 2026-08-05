@@ -1034,6 +1034,9 @@ pub struct AssetImageTaskItem {
     pub status: String,
     pub error_message: Option<String>,
     pub created_at: String,
+    /// 图片来源：generation | upscale | manual（超分产物用于前端显示"超分"标识）
+    #[serde(default)]
+    pub source: String,
 }
 
 /// 获取指定素材的所有生成图片列表
@@ -1112,7 +1115,7 @@ pub fn list_asset_image_tasks(
     if let Some(ref asset_id) = asset_row {
         let mut stmt = conn
             .prepare(
-                "SELECT id, image_path, size, style, is_selected, created_at
+                "SELECT id, image_path, size, style, is_selected, created_at, source
                  FROM asset_images WHERE asset_id = ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -1128,6 +1131,7 @@ pub fn list_asset_image_tasks(
                     status: "ready".to_string(),
                     error_message: None,
                     created_at: row.get(5)?,
+                    source: row.get::<_, String>(6).unwrap_or_default(),
                 })
             })
             .map_err(|e| e.to_string())?
@@ -1158,7 +1162,7 @@ pub fn list_asset_image_tasks(
                 if let Some(ref src_id) = src_asset_id {
                     let mut fallback_stmt = conn
                         .prepare(
-                            "SELECT id, image_path, size, style, is_selected, created_at
+                            "SELECT id, image_path, size, style, is_selected, created_at, source
                              FROM asset_images WHERE asset_id = ?1",
                         )
                         .map_err(|e| e.to_string())?;
@@ -1173,6 +1177,7 @@ pub fn list_asset_image_tasks(
                                 status: "ready".to_string(),
                                 error_message: None,
                                 created_at: row.get(5)?,
+                                source: row.get::<_, String>(6).unwrap_or_default(),
                             })
                         })
                         .map_err(|e| e.to_string())?
@@ -1229,6 +1234,7 @@ pub fn list_asset_image_tasks(
                     status,
                     error_message: row.get(2)?,
                     created_at: row.get(3)?,
+                    source: String::new(),
                 })
             })
             .map_err(|e| e.to_string())?
@@ -1236,6 +1242,53 @@ pub fn list_asset_image_tasks(
             .map_err(|e| e.to_string())?;
 
         results.extend(task_items);
+    }
+
+    // 3. 图片超分任务（upscale_jobs，task_type='image'）
+    //    映射 status: queued→pending, running→running, failed→failed, done→跳过（产物已在 asset_images）
+    {
+        let asset_type_name = format!("{}|{}", input.asset_type, input.name);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, status, error_message, created_at
+                 FROM upscale_jobs
+                 WHERE task_type = 'image'
+                   AND asset_clip_id = ?1
+                   AND asset_type_name = ?2
+                   AND status IN ('queued', 'running', 'failed')
+                 ORDER BY created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let upscale_items = stmt
+            .query_map(
+                rusqlite::params![&input.clip_id, &asset_type_name],
+                |row| {
+                    let status: String = row.get(1)?;
+                    let mapped_status = match status.as_str() {
+                        "queued" => "pending",
+                        "running" => "running",
+                        "failed" => "failed",
+                        _ => "pending",
+                    };
+                    Ok(AssetImageTaskItem {
+                        id: row.get(0)?,
+                        image_path: None,
+                        size: None,
+                        style: None,
+                        is_selected: false,
+                        status: mapped_status.to_string(),
+                        error_message: row.get(2)?,
+                        created_at: row.get(3)?,
+                        source: String::new(),
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        results.extend(upscale_items);
     }
 
     // 按创建时间排序

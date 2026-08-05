@@ -455,66 +455,46 @@
 
 /* ── 镜头视频超分：按钮 + 进度动画 ── */
 
-/* 视频预览左上角“超分产物”标识 */
-.sd-player-upscale-badge {
+/* 视频预览角标丝带 — 与素材详情统一 */
+.sd-player-ribbon {
   position: absolute;
-  top: 10px;
-  left: 10px;
   z-index: 8;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: var(--radius-full);
-  background: rgba(139, 108, 255, 0.78);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  width: 100px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.8px;
+  text-align: center;
   color: #fff;
-  font-size: var(--font-size-xxs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.3px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+  /* 超分：右上角紫色 */
+  top: 10px;
+  right: -22px;
+  background: linear-gradient(135deg, #7c5ce7, #a78bfa);
+  transform: rotate(45deg);
 }
-.sd-player-upscale-badge::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
+/* 已选定：左上角金色 */
+.sd-player-ribbon--selected {
+  top: 10px;
+  left: -22px;
+  right: auto;
+  background: linear-gradient(135deg, #0071e3, #0a84ff);
+  transform: rotate(-45deg);
 }
 
-/* 视频预览右上角超分按钮 */
-.sd-upscale-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 8;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border: 0.5px solid rgba(139, 108, 255, 0.45);
-  border-radius: var(--radius-full);
-  background: rgba(var(--upscale-accent-rgb), 0.2);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  color: var(--upscale-accent-soft);
-  font-size: var(--font-size-xxs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  transition: all 160ms ease;
+/* 控制栏增强按钮 — 紫色高亮图标 */
+.sd-player-btn--upscale {
+  color: #a78bfa;
 }
-.sd-upscale-btn svg {
-  width: 11px;
-  height: 11px;
+.sd-player-btn--upscale:hover {
+  color: #c4b5fd;
+  background: rgba(139, 108, 255, 0.15);
 }
-.sd-upscale-btn:hover:not(:disabled) {
-  border-color: rgba(139, 108, 255, 0.7);
-  background: rgba(139, 108, 255, 0.22);
-  color: #fff;
-}
-.sd-upscale-btn:disabled {
-  opacity: 0.45;
+.sd-player-btn--upscale:disabled {
+  color: rgba(167, 139, 250, 0.35);
   cursor: not-allowed;
 }
 

@@ -27,6 +27,8 @@ export type GalleryImage = {
   is_selected: boolean;
   status: "ready" | "pending" | "running" | "failed";  // per-item status
   error_message?: string;
+  /** 图片来源：generation | upscale | manual */
+  source?: string;
 };
 
 type AssetImageGalleryProps = {
@@ -53,6 +55,12 @@ type AssetImageGalleryProps = {
   /** 是否正在导入本地图片 */
   importing?: boolean;
   disabled?: boolean;
+  /** 点击"增强"按钮开关超分模式 */
+  onUpscaleToggle?: () => void;
+  /** 是否处于超分模式（按钮高亮态） */
+  upscaleActive?: boolean;
+  /** 超分 GPU 是否可用：null=检测中 / true=可用 / false=不可用（禁用按钮） */
+  upscaleGpuOk?: boolean | null;
 };
 
 /**
@@ -72,6 +80,9 @@ export function AssetImageGallery({
   onSelectFromProject,
   importing,
   disabled,
+  onUpscaleToggle,
+  upscaleActive,
+  upscaleGpuOk,
 }: AssetImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -109,7 +120,7 @@ export function AssetImageGallery({
   // 缩略图内容渲染
   const renderThumbContent = (img: GalleryImage) => {
     if (img.status === "ready" && img.path) {
-      return <img src={convertFileSrc(img.path)} alt="" draggable={false} />;
+      return <img src={convertFileSrc(img.path)} alt="" decoding="async" loading="lazy" draggable={false} />;
     }
     if (img.status === "pending" || img.status === "running") {
       return (
@@ -164,6 +175,7 @@ export function AssetImageGallery({
             className="asset-gallery-img asset-gallery-img--clickable"
             src={convertFileSrc(currentImage.path)}
             alt={altName}
+            decoding="async"
             draggable={false}
             onClick={() => setLightboxOpen(true)}
           />
@@ -174,26 +186,50 @@ export function AssetImageGallery({
             </div>
           )}
           {currentImage.is_selected && (
-            <div className="asset-gallery-badge">
-              <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8L7 12L13 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              已选定
+            <div className="asset-gallery-selected-ribbon" title="已选定">
+              <span>已选定</span>
             </div>
           )}
-          {onDelete && (
-            <button
-              type="button"
-              className="asset-gallery-delete"
-              onClick={() => { setDeleteTarget(currentImage.id); setDeleteFile(false); }}
-              disabled={disabled}
-              aria-label="删除此图片"
-              title="删除此图片"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M2 4H14M5 4V2.5C5 2.22 5.22 2 5.5 2H10.5C10.78 2 11 2.22 11 2.5V4M6.5 7V12M9.5 7V12M3.5 4L4.2 13.5C4.22 13.78 4.45 14 4.74 14H11.26C11.55 14 11.78 13.78 11.8 13.5L12.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+          {/* 底部右侧按钮组：删除 + 增强 */}
+          <div className="asset-gallery-actions">
+            {onDelete && (
+              <button
+                type="button"
+                className="asset-gallery-delete"
+                onClick={() => { setDeleteTarget(currentImage.id); setDeleteFile(false); }}
+                disabled={disabled}
+                aria-label="删除此图片"
+                title="删除此图片"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 4H14M5 4V2.5C5 2.22 5.22 2 5.5 2H10.5C10.78 2 11 2.22 11 2.5V4M6.5 7V12M9.5 7V12M3.5 4L4.2 13.5C4.22 13.78 4.45 14 4.74 14H11.26C11.55 14 11.78 13.78 11.8 13.5L12.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            {onUpscaleToggle && currentImage.source !== "upscale" && (
+              <button
+                type="button"
+                className={`asset-gallery-upscale${upscaleActive ? " asset-gallery-upscale--active" : ""}`}
+                onClick={(e) => { e.stopPropagation(); onUpscaleToggle(); }}
+                disabled={disabled || upscaleGpuOk === null}
+                aria-label="画质增强"
+                title={upscaleGpuOk === null
+                  ? "正在检查你的电脑显卡…"
+                  : upscaleActive
+                    ? "返回生成模式"
+                    : "使用本地 AI 将图片放大至高清"}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+              </button>
+            )}
+          </div>
+          {/* 超分产物标识：右上角丝带 */}
+          {currentImage.source === "upscale" && (
+            <div className="asset-gallery-upscale-ribbon" title="AI 超分产物">
+              <span>超分</span>
+            </div>
           )}
         </>
       );

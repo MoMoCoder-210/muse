@@ -93,7 +93,17 @@ pub struct UpscaleJob {
     pub stage: String,
     pub error: Option<String>,
     pub created_at: String,
+    /// 'video' | 'image'
+    #[serde(default = "default_task_type")]
+    pub task_type: String,
+    /// 素材图片超分定位字段（仅 task_type='image'）
+    pub asset_clip_id: String,
+    pub asset_type_name: String,
+    pub asset_image_id: String,
 }
+
+#[allow(dead_code)]
+fn default_task_type() -> String { "video".to_string() }
 
 /// 内部执行上下文（每个任务独立取消标志，避免互相干扰）
 struct JobContext {
@@ -170,7 +180,7 @@ impl UpscaleManager {
         // 从 DB 恢复未完成任务（queued/running 入队续跑）+ 加载失败任务（供前端展示/重试，不入队）
         let mut recovered = 0usize;
         if let Ok(conn) = util::open_app_conn(&self.app) {
-            let sql = "SELECT id, storyboard_id, video_id, input_path, output_path, model, scale, status, error_message, created_at
+            let sql = "SELECT id, storyboard_id, video_id, input_path, output_path, model, scale, status, error_message, created_at, task_type, asset_clip_id, asset_type_name, asset_image_id
                        FROM upscale_jobs WHERE status IN ('queued','running','failed') ORDER BY created_at";
             if let Ok(mut stmt) = conn.prepare(sql) {
                 if let Ok(rows) = stmt.query_map([], |row| {
@@ -185,19 +195,32 @@ impl UpscaleManager {
                         row.get::<_, String>(7)?,
                         row.get::<_, Option<String>>(8)?,
                         row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
+                        row.get::<_, String>(12)?,
+                        row.get::<_, String>(13)?,
                     ))
                 }) {
                     for row in rows.flatten() {
-                        let (id, sb_id, vid_id, input_path, output_path, model, scale, status, error_message, created_at) = row;
+                        let (id, sb_id, vid_id, input_path, output_path, model, scale, status, error_message, created_at, task_type, asset_clip_id, asset_type_name, asset_image_id) = row;
                         // DB 里 running 视为中断，入队续跑（keep_on_error=true 保留目录）；
                         // failed 保持终态，仅加载进内存供前端展示/重试，不自动入队。
-                        let (status, is_active) = if status == "running" {
-                            (UpscaleJobStatus::Queued, true)
+                        let is_active = if status == "running" {
+                            true
                         } else if status == "failed" {
-                            (UpscaleJobStatus::Failed, false)
+                            false
                         } else {
-                            (UpscaleJobStatus::from_str(&status), true)
+                            true
                         };
+                        let status_enum = if status == "running" {
+                            UpscaleJobStatus::Queued
+                        } else if status == "failed" {
+                            UpscaleJobStatus::Failed
+                        } else {
+                            UpscaleJobStatus::from_str(&status)
+                        };
+                        // 图片任务不自动入队（续跑只在视频任务有意义）
+                        let do_enqueue = is_active && task_type != "image";
                         inner.jobs.push(UpscaleJob {
                             id: id.clone(),
                             storyboard_id: sb_id,
@@ -206,7 +229,7 @@ impl UpscaleManager {
                             output_path,
                             model,
                             scale,
-                            status,
+                            status: status_enum,
                             percent: 0.0,
                             stage: if is_active {
                                 "排队中…".to_string()
@@ -215,8 +238,12 @@ impl UpscaleManager {
                             },
                             error: error_message,
                             created_at,
+                            task_type: task_type.clone(),
+                            asset_clip_id,
+                            asset_type_name,
+                            asset_image_id,
                         });
-                        if is_active {
+                        if do_enqueue {
                             inner.queue.push_back(id.clone());
                         }
                         recovered += 1;
@@ -224,9 +251,10 @@ impl UpscaleManager {
                             &self.app,
                             if is_active { "INFO" } else { "WARN" },
                             &format!(
-                                "启动{}：job={} 输入={}{}",
+                                "启动{}：job={} type={} 输入={}{}",
                                 if is_active { "恢复未完成任务" } else { "加载失败任务" },
                                 &id[..id.len().min(8)],
+                                task_type,
                                 input_path,
                                 if is_active { "（断点续跑）" } else { "" }
                             ),
@@ -303,13 +331,8 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
         }
     };
 
-    let input = UpscaleVideoInput {
-        input_path: job.input_path.clone(),
-        output_path: job.output_path.clone(),
-        model: job.model.clone(),
-    };
-    let scale = job.scale;
     let job_id2 = job_id.to_string();
+    let is_image = job.task_type == "image";
 
     // 进度回调：更新内存 + 广播事件（不落 DB 每次进度，避免高频写库）
     let app_p = app.clone();
@@ -330,37 +353,56 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
         }
     });
 
-    // 同步执行（worker 线程中直接阻塞运行，无需再套子线程）
-    // keep_on_error=false：失败即清理临时目录，避免残留；
-    // 仅当进程被强制关闭（DB 仍是 running）时目录天然保留，下次启动恢复续跑。
-    let result = run_upscale_blocking(
-        input,
-        app.clone(),
-        scale,
-        job_id2,
-        false,
-        cancel,
-        on_progress,
-    );
+    let result: Result<(), String> = if is_image {
+        crate::commands::video::run_image_upscale_blocking(
+            &job.input_path,
+            &job.output_path,
+            &job.model,
+            job.scale,
+            app.clone(),
+            cancel,
+            on_progress,
+        )
+    } else {
+        let input = UpscaleVideoInput {
+            input_path: job.input_path.clone(),
+            output_path: job.output_path.clone(),
+            model: job.model.clone(),
+        };
+        run_upscale_blocking(
+            input,
+            app.clone(),
+            job.scale,
+            job_id2,
+            false,
+            cancel,
+            on_progress,
+        )
+        .map(|_| ())
+    };
 
     let mgr = app.state::<UpscaleManager>();
     let mut inner = mgr.inner.lock().unwrap();
     inner.active = None;
     match result {
-        Ok((_upscale_result, _outcome)) => {
+        Ok(()) => {
             if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
                 j.status = UpscaleJobStatus::Done;
                 j.percent = 100.0;
                 j.stage = "完成".to_string();
             }
-            // 落库为新批次 + 更新任务状态
             let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
             drop(inner);
-            finalize_success(app, &job, &snapshot.unwrap_or(job.clone()));
+            let s = snapshot.unwrap_or(job.clone());
+            if is_image {
+                finalize_image_success(app, &s);
+            } else {
+                finalize_success(app, job, &s);
+            }
         }
         Err(e) => {
             if e.contains(crate::commands::video::UPSCALE_CANCELED) {
-                // ── 取消 = 用户主动放弃：删任务 + 删批次 ──
+                // ── 取消 = 用户主动放弃：删任务（图片无批次可删） ──
                 if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
                     j.status = UpscaleJobStatus::Cancelled;
                     j.error = Some(e.clone());
@@ -369,30 +411,28 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
                 }
                 let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
                 drop(inner);
-                log_upscale(
-                    app,
-                    "WARN",
-                    &format!("超分已取消：{}", job_label(&job)),
-                );
+                log_upscale(app, "WARN", &format!("超分已取消：{}", job_label(job)));
                 if let Some(s) = snapshot {
                     if let Ok(conn) = util::open_app_conn(app) {
                         let _ = conn.execute(
                             "DELETE FROM upscale_jobs WHERE id=?1",
                             rusqlite::params![job_id],
                         );
-                        let _ = conn.execute(
-                            "DELETE FROM storyboard_videos WHERE id=?1 AND source='upscale'",
-                            rusqlite::params![&job.video_id],
-                        );
+                        if !is_image {
+                            let _ = conn.execute(
+                                "DELETE FROM storyboard_videos WHERE id=?1 AND source='upscale'",
+                                rusqlite::params![&job.video_id],
+                            );
+                        }
                     }
                     broadcast_change(app, &s, true);
                 }
             } else if e.starts_with(crate::commands::video::UPSCALE_TIMEOUT_PREFIX) {
-                // ── 超时自动重试：目录已保留（已完成帧可续跑复用），重试直至成功或超限 ──
+                // ── 超时自动重试：图片任务也支持自动重试（至多 MAX_AUTO_RETRIES 次） ──
                 let retries = {
-                    let e = inner.timeout_retries.entry(job_id.to_string()).or_insert(0);
-                    *e += 1;
-                    *e
+                    let ent = inner.timeout_retries.entry(job_id.to_string()).or_insert(0);
+                    *ent += 1;
+                    *ent
                 };
                 let exhausted = retries > MAX_AUTO_RETRIES;
                 if exhausted {
@@ -404,25 +444,19 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
                     }
                     let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
                     drop(inner);
-                    log_upscale(
-                        app,
-                        "ERROR",
-                        &format!(
-                            "超分超时重试耗尽：{} 错误={}",
-                            job_label(&job),
-                            e
-                        ),
-                    );
+                    log_upscale(app, "ERROR", &format!("超分超时重试耗尽：{} 错误={}", job_label(job), e));
                     if let Some(s) = snapshot {
                         if let Ok(conn) = util::open_app_conn(app) {
                             let _ = conn.execute(
                                 "UPDATE upscale_jobs SET status='failed', error_message=?1, updated_at=datetime('now') WHERE id=?2",
                                 rusqlite::params![&e, job_id],
                             );
-                            let _ = conn.execute(
-                                "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
-                                rusqlite::params![&job.video_id],
-                            );
+                            if !is_image {
+                                let _ = conn.execute(
+                                    "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
+                                    rusqlite::params![&job.video_id],
+                                );
+                            }
                         }
                         broadcast_change(app, &s, true);
                     }
@@ -437,32 +471,25 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
                     inner.queue.push_back(job_id.to_string());
                     let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
                     drop(inner);
-                    log_upscale(
-                        app,
-                        "WARN",
-                        &format!(
-                            "超分超时，自动重试（{}/{}）：{}",
-                            retries,
-                            MAX_AUTO_RETRIES,
-                            job_label(&job)
-                        ),
-                    );
+                    log_upscale(app, "WARN", &format!("超分超时，自动重试（{}/{}）：{}", retries, MAX_AUTO_RETRIES, job_label(job)));
                     if let Ok(conn) = util::open_app_conn(app) {
                         let _ = conn.execute(
                             "UPDATE upscale_jobs SET status='queued', error_message=NULL, updated_at=datetime('now') WHERE id=?1",
                             rusqlite::params![job_id],
                         );
-                        let _ = conn.execute(
-                            "UPDATE storyboard_videos SET file_name='视频超分排队中' WHERE id=?1 AND source='upscale'",
-                            rusqlite::params![&job.video_id],
-                        );
+                        if !is_image {
+                            let _ = conn.execute(
+                                "UPDATE storyboard_videos SET file_name='视频超分排队中' WHERE id=?1 AND source='upscale'",
+                                rusqlite::params![&job.video_id],
+                            );
+                        }
                     }
                     if let Some(s) = snapshot {
                         broadcast_change(app, &s, false);
                     }
                 }
             } else {
-                // ── 其他失败 = 保留现场：任务记录（含错误信息）+ 批次标记失败 ──
+                // ── 其他失败 = 保留现场 ──
                 let status = UpscaleJobStatus::Failed;
                 if let Some(j) = inner.jobs.iter_mut().find(|j| j.id == job_id) {
                     j.status = status;
@@ -471,21 +498,19 @@ fn execute_one(app: &AppHandle, job_id: &str, job: &UpscaleJob) {
                 }
                 let snapshot = inner.jobs.iter().find(|j| j.id == job_id).cloned();
                 drop(inner);
-                log_upscale(
-                    app,
-                    "ERROR",
-                    &format!("超分失败：{} 错误={}", job_label(&job), e),
-                );
+                log_upscale(app, "ERROR", &format!("超分失败：{} 错误={}", job_label(job), e));
                 if let Some(s) = snapshot {
                     if let Ok(conn) = util::open_app_conn(app) {
                         let _ = conn.execute(
                             "UPDATE upscale_jobs SET status=?1, error_message=?2, updated_at=datetime('now') WHERE id=?3",
                             rusqlite::params![status.as_str(), &e, job_id],
                         );
-                        let _ = conn.execute(
-                            "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
-                            rusqlite::params![&job.video_id],
-                        );
+                        if !is_image {
+                            let _ = conn.execute(
+                                "UPDATE storyboard_videos SET file_path='', file_name='超分失败' WHERE id=?1 AND source='upscale'",
+                                rusqlite::params![&job.video_id],
+                            );
+                        }
                     }
                     broadcast_change(app, &s, true);
                 }
@@ -529,19 +554,80 @@ fn finalize_success(app: &AppHandle, job: &UpscaleJob, snapshot: &UpscaleJob) {
     broadcast_change(app, snapshot, true);
 }
 
+/// 图片超分成功：将产物写入 asset_images 表（source='upscale'），供前端轮询刷新画廊。
+fn finalize_image_success(app: &AppHandle, snapshot: &UpscaleJob) {
+    log_upscale(
+        app,
+        "INFO",
+        &format!(
+            "图片超分完成：{} model={} scale={}x output={}",
+            &snapshot.id[..snapshot.id.len().min(8)],
+            snapshot.model,
+            snapshot.scale,
+            short_path_str(&snapshot.output_path),
+        ),
+    );
+    if let Ok(conn) = util::open_app_conn(app) {
+        let _ = conn.execute(
+            "UPDATE upscale_jobs SET status='done', updated_at=datetime('now') WHERE id=?1",
+            rusqlite::params![&snapshot.id],
+        );
+        // 查询 asset_id（通过 clip_id + type + name 定位）
+        let asset_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM assets WHERE clip_id=?1 AND type=?2 AND name=?3",
+                rusqlite::params![&snapshot.asset_clip_id, type_from_key(&snapshot.asset_type_name), name_from_key(&snapshot.asset_type_name)],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(ref aid) = asset_id {
+            let image_id = uuid::Uuid::new_v4().to_string();
+            let file_name = Path::new(&snapshot.output_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("upscaled")
+                .to_string();
+            let _ = conn.execute(
+                "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, is_selected, source, file_name, created_at)
+                 VALUES (?1, ?2, '', '', '', ?3, 0, 'upscale', ?4, datetime('now'))",
+                rusqlite::params![&image_id, aid.as_str(), &snapshot.output_path, &file_name],
+            );
+            // 更新 assets.generated_image_path（素材主缩略图）
+            let _ = conn.execute(
+                "UPDATE assets SET generated_image_path=?1, updated_at=datetime('now') WHERE id=?2",
+                rusqlite::params![&snapshot.output_path, aid.as_str()],
+            );
+        }
+    }
+    broadcast_change(app, snapshot, true);
+}
+
+/// 从 "type|name" 格式解析 type
+fn type_from_key(key: &str) -> &str {
+    key.split('|').next().unwrap_or("")
+}
+/// 从 "type|name" 格式解析 name
+fn name_from_key(key: &str) -> &str {
+    key.splitn(2, '|').nth(1).unwrap_or("")
+}
+
 /// 广播任务状态变化事件
 fn broadcast_change(app: &AppHandle, job: &UpscaleJob, is_final: bool) {
     let _ = app.emit("upscale-changed", job.clone());
-    // 完成/失败/取消时额外广播 done 事件（前端据此刷新视频列表）
     if is_final && job.status != UpscaleJobStatus::Running && job.status != UpscaleJobStatus::Queued
     {
+        let is_image = job.task_type == "image";
         let _ = app.emit(
             "upscale-done",
             UpscaleDonePayload {
                 storyboard_id: job.storyboard_id.clone(),
                 video_id: job.video_id.clone(),
                 result_id: if job.status == UpscaleJobStatus::Done {
-                    job.video_id.clone() // 批次 id（enqueue 时真实落库，前端可直接定位产物）
+                    if is_image {
+                        job.output_path.clone() // 图片超分：返回产物路径供前端刷新
+                    } else {
+                        job.video_id.clone()
+                    }
                 } else {
                     String::new()
                 },
@@ -552,6 +638,8 @@ fn broadcast_change(app: &AppHandle, job: &UpscaleJob, is_final: bool) {
                     .and_then(|n| n.to_str())
                     .unwrap_or("")
                     .to_string(),
+                task_type: job.task_type.clone(),
+                asset_image_id: if is_image { job.asset_image_id.clone() } else { String::new() },
             },
         );
     }
@@ -566,6 +654,12 @@ pub struct UpscaleDonePayload {
     pub status: UpscaleJobStatus,
     pub output_path: String,
     pub file_name: String,
+    /// 'video' | 'image'（素材图片超分时，前端据此区分刷新目标）
+    #[serde(default)]
+    pub task_type: String,
+    /// 图片超分的源 asset_image_id（仅 task_type='image' 时有值）
+    #[serde(default)]
+    pub asset_image_id: String,
 }
 
 /// 入队超分任务。
@@ -668,13 +762,17 @@ pub fn enqueue_upscale(
         stage: "排队中…".to_string(),
         error: None,
         created_at,
+        task_type: "video".to_string(),
+        asset_clip_id: String::new(),
+        asset_type_name: String::new(),
+        asset_image_id: String::new(),
     };
 
     // 加入内存队列
     let mgr = app.state::<UpscaleManager>();
     let mut inner = mgr.inner.lock().unwrap();
     inner.jobs.push(job.clone());
-    inner.queue.push_back(job_id);
+    inner.queue.push_back(job_id.clone());
     drop(inner);
     log_upscale(
         &app,
@@ -689,6 +787,137 @@ pub fn enqueue_upscale(
     broadcast_change(&app, &job, false);
 
     Ok(job)
+}
+
+/// 素材图片超分入参
+#[derive(Debug, Deserialize)]
+pub struct AssetUpscaleInput {
+    pub clip_id: String,
+    pub asset_type: String,
+    pub asset_name: String,
+    pub image_id: String,
+    pub image_path: String,
+    #[serde(default = "default_model")]
+    pub model: String,
+    #[serde(default = "default_scale")]
+    pub scale: u32,
+}
+
+/// 图片超分入队（统一由 UpscaleManager 调度，与视频超分共享队列/串行/取消/重试）。
+///
+/// 与视频超分的区别：
+/// - 不创建 storyboard_videos 批次（产物直接写入 asset_images）；
+/// - task_type='image'，execute_one 走简化管道（ncnn 单图，无抽帧/合帧）；
+/// - 插入 upscale_jobs 时 storyboard_id/video_id 为空串（临时关 FK，事务保证安全）。
+#[tauri::command]
+pub fn enqueue_asset_upscale(
+    input: AssetUpscaleInput,
+    app: AppHandle,
+) -> Result<UpscaleJob, String> {
+    let scale = if input.model == "x4plus" || input.model == "x4plus-anime" {
+        4
+    } else {
+        match input.scale {
+            2 | 3 | 4 => input.scale,
+            _ => 4,
+        }
+    };
+
+    // 生成输出路径（与源图同目录，避免跨卷）
+    let src_path = Path::new(&input.image_path);
+    let out_path = match (src_path.parent(), src_path.file_name()) {
+        (Some(parent), Some(name)) => {
+            let name = name.to_string_lossy().to_string();
+            let (base, ext) = match name.rsplit_once('.') {
+                Some((b, e)) if !e.is_empty() => (b.to_string(), format!(".{e}")),
+                _ => (name, ".jpg".to_string()),
+            };
+            let rand = &uuid::Uuid::new_v4().to_string()[..8];
+            parent.join(format!("{base}_up{scale}x_{rand}{ext}"))
+        }
+        _ => return Err("无法解析源图路径".to_string()),
+    };
+    let out_path_str = out_path.to_string_lossy().to_string();
+    let asset_type_name = format!("{}|{}", input.asset_type, input.asset_name);
+    let job_id = uuid::Uuid::new_v4().to_string();
+
+    // 图片任务插入时 storyboard_id='' 且 video_id=''，外键约束会失败。
+    // 在同一个连接中临时关闭 FK 检查，事务提交后自动恢复（PRAGMA 作用域 = 连接级）。
+    let conn = util::open_app_conn(&app)?;
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .map_err(|e| format!("关闭外键约束失败：{}", e))?;
+    conn.execute(
+        "INSERT INTO upscale_jobs (id, storyboard_id, video_id, input_path, output_path, model, scale, status, task_type, asset_clip_id, asset_type_name, asset_image_id, created_at)
+         VALUES (?1, '', '', ?2, ?3, ?4, ?5, 'queued', 'image', ?6, ?7, ?8, datetime('now'))",
+        rusqlite::params![
+            &job_id,
+            &input.image_path,
+            &out_path_str,
+            &input.model,
+            scale,
+            &input.clip_id,
+            &asset_type_name,
+            &input.image_id,
+        ],
+    )
+    .map_err(|e| format!("保存图片超分任务失败：{}", e))?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|e| format!("恢复外键约束失败：{}", e))?;
+
+    let created_at: String = conn
+        .query_row(
+            "SELECT created_at FROM upscale_jobs WHERE id = ?1",
+            rusqlite::params![&job_id],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+
+    let job = UpscaleJob {
+        id: job_id.clone(),
+        storyboard_id: String::new(),
+        video_id: String::new(),
+        input_path: input.image_path,
+        output_path: out_path_str,
+        model: input.model,
+        scale,
+        status: UpscaleJobStatus::Queued,
+        percent: 0.0,
+        stage: "排队中…".to_string(),
+        error: None,
+        created_at,
+        task_type: "image".to_string(),
+        asset_clip_id: input.clip_id,
+        asset_type_name,
+        asset_image_id: input.image_id,
+    };
+
+    let mgr = app.state::<UpscaleManager>();
+    let mut inner = mgr.inner.lock().unwrap();
+    inner.jobs.push(job.clone());
+    inner.queue.push_back(job_id.clone());
+    drop(inner);
+
+    log_upscale(
+        &app,
+        "INFO",
+        &format!(
+            "收到图片超分请求：id={} model={} scale={}x input={}",
+            &job_id[..job_id.len().min(8)],
+            job.model,
+            job.scale,
+            short_path_str(&job.input_path),
+        ),
+    );
+    broadcast_change(&app, &job, false);
+
+    Ok(job)
+}
+
+fn short_path_str(path: &str) -> &str {
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(path)
 }
 
 /// 查询全量超分任务（前端启动时用于恢复状态）

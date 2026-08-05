@@ -876,6 +876,11 @@ export interface UpscaleJob {
   stage: string;
   error: string | null;
   created_at: string;
+  /** 'video' | 'image'（图片超分时用于前端区分刷新目标） */
+  task_type?: string;
+  asset_clip_id?: string;
+  asset_type_name?: string;
+  asset_image_id?: string;
 }
 
 /** 超分任务入队输入 */
@@ -920,6 +925,26 @@ export interface UpscaleDoneEvent {
   status: UpscaleJobStatus;
   output_path: string;
   file_name: string;
+  /** 'video' | 'image' — 图片超分时前端据此刷新素材画廊 */
+  task_type?: string;
+  /** 图片超分的源 asset_image_id */
+  asset_image_id?: string;
+}
+
+/** 素材图片超分入参 */
+export interface AssetUpscaleInput {
+  clip_id: string;
+  asset_type: string;
+  asset_name: string;
+  image_id: string;
+  image_path: string;
+  model?: string;
+  scale?: number;
+}
+
+/** 素材图片超分入队（统一由 UpscaleManager 调度） */
+export async function enqueueAssetUpscale(input: AssetUpscaleInput): Promise<UpscaleJob> {
+  return invoke<UpscaleJob>("enqueue_asset_upscale", { input });
 }
 
 /**

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STYLE_OPTIONS, type StyleMode } from "../../config/muse";
 import { SelectField } from "../common/SelectField";
-import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip, retryAssetImageTask } from "../../services/tauri";
+import { listAssetImageTasks, selectAssetImage, deleteAssetImage, updateAssetInClip, retryAssetImageTask, enqueueAssetUpscale, type UpscaleDoneEvent } from "../../services/tauri";
+import { useGpuDetect } from "../../services/gpu";
 import { useToast } from "../../hooks/useToast";
 import { formatDeleteResult } from "../../utils/delete-result";
 import type { AssetCardData } from "./AssetCard";
@@ -43,6 +44,22 @@ const TYPE_ICONS: Record<string, string> = {
   scene: "🏞",
   item: "📦",
 };
+
+/** 超分模型选项（复用于素材图片超分） */
+const UPSCALE_MODELS: { value: string; label: string; tag: string; desc: string }[] = [
+  { value: "anime", label: "动漫视频", tag: "2x/3x/4x · 不限分辨率", desc: "专为动漫视频优化，不限输入分辨率，速度最快，支持 2x/3x/4x" },
+  { value: "x4plus-anime", label: "动漫高清", tag: "固定 4x · 限 1080p", desc: "动漫场景的高细节版，画质优于动漫视频但更慢；固定 4x，最高支持 1080p 输入" },
+  { value: "x4plus", label: "真人写实", tag: "固定 4x · 限 1080p", desc: "适合真人写实与普通画面，细节最丰富；固定 4x ，最高支持 1080p 输入" },
+];
+const UPSCALE_SCALES: { value: number; label: string }[] = [
+  { value: 2, label: "2x" }, { value: 3, label: "3x" }, { value: 4, label: "4x" },
+];
+const FIXED_4X = new Set(["x4plus", "x4plus-anime"]);
+const INFO_ICON_SVG = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" />
+  </svg>
+);
 
 /**
  * 根据比例和分辨率档位计算实际像素尺寸。
@@ -136,6 +153,14 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
   const [importing, setImporting] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerClosing, setPickerClosing] = useState(false);
+  // 抽屉动画完成后启用 backdrop-filter
+  const [settled, setSettled] = useState(false);
+
+  // 超分模式
+  const [upscaleMode, setUpscaleMode] = useState(false);
+  const [upscaleModel, setUpscaleModel] = useState("anime");
+  const [upscaleScale, setUpscaleScale] = useState(2);
+  const upscaleGpuOk = useGpuDetect();
 
   const isBatch = cards.length > 1;
   const current = cards[currentIndex] ?? cards[0];
@@ -150,11 +175,12 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
     setCurrentIndex((prev) => (prev < cards.length - 1 ? prev + 1 : 0));
   }, [cards.length]);
 
-  // 监听 Worker 推送的图片生成事件，即时刷新画廊（事件驱动 + 轮询兜底）
+  // 监听 Worker 推送的图片生成/超分事件，即时刷新画廊（事件驱动 + 轮询兜底）
   useEffect(() => {
     if (!current) return;
     let unlistenTask: UnlistenFn | undefined;
     let unlistenProgress: UnlistenFn | undefined;
+    let unlistenUpscaleDone: UnlistenFn | undefined;
 
     const matches = (payload: { clip_id: string; asset_type: string; name: string }) =>
       payload.clip_id === current.clipId &&
@@ -171,11 +197,25 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
       }
     }).then((fn) => { unlistenProgress = fn; });
 
+    // 图片超分完成事件：task_type='image' 且 status='done' 时刷新画廊
+    listen<UpscaleDoneEvent>("upscale-done", (e) => {
+      if (e.payload.task_type === "image" && e.payload.status === "done") {
+        setPollKey((k) => k + 1);
+      }
+    }).then((fn) => { unlistenUpscaleDone = fn; });
+
     return () => {
       unlistenTask?.();
       unlistenProgress?.();
+      unlistenUpscaleDone?.();
     };
   }, [current?.clipId, current?.type, current?.resource.name]);
+
+  // 抽屉 mount 550ms 后启用 blur（避开滑入动画 + 首帧图片拉取）
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(true), 550);
+    return () => clearTimeout(t);
+  }, []);
 
   // 轮询当前素材的图片+任务状态（含 pending / running / failed）
   useEffect(() => {
@@ -203,6 +243,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
           is_selected: t.is_selected,
           status: t.status as GalleryImage["status"],
           error_message: t.error_message ?? undefined,
+          source: (t as { source?: string }).source,
         }));
 
         setGalleryImages(galleryItems);
@@ -229,20 +270,61 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
       }
     };
 
-    fetchStatus();
-    pollRef.current = setInterval(fetchStatus, 3000);
+    // 首帧延迟 400ms：滑入动画 280ms + blur 启用 500ms，完全结束后再拉取图片
+    const delayMs = pollKey > 0 ? 0 : 400;
+    const timeout = setTimeout(() => {
+      if (cancelled) return;
+      fetchStatus();
+      pollRef.current = setInterval(fetchStatus, 3000);
+    }, delayMs);
 
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
   }, [current?.clipId, current?.type, current?.resource.name, pollKey]);
+
+  // 切换素材时恢复生成模式（超分参数不跨素材复用）
+  useEffect(() => {
+    setUpscaleMode(false);
+    setUpscaleModel("anime");
+    setUpscaleScale(2);
+  }, [current?.clipId, current?.type, current?.resource.name]);
 
   // 点击生成后重新开始轮询（不清空已有图片）
   const handleGenerateClick = (fn: () => void) => {
     setPollKey((k) => k + 1);
     fn();
   };
+
+  // 图片超分：找到画廊当前选中图片，发起超分任务
+  const handleStartAssetUpscale = useCallback(async () => {
+    if (!current) return;
+    const currentImg = galleryImages.find(
+      (img) => img.status === "ready" && img.path,
+    );
+    if (!currentImg || !currentImg.path) {
+      toast("没有可用的图片进行超分", "error");
+      return;
+    }
+    try {
+      await enqueueAssetUpscale({
+        clip_id: current.clipId,
+        asset_type: current.type,
+        asset_name: current.resource.name,
+        image_id: currentImg.id,
+        image_path: currentImg.path,
+        model: upscaleModel,
+        scale: upscaleScale,
+      });
+      toast("超分任务已提交", "success");
+      setUpscaleMode(false);
+      setPollKey((k) => k + 1);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "超分提交失败", "error");
+    }
+  }, [current, galleryImages, upscaleModel, upscaleScale, toast]);
 
   // 选中某张图片作为最终使用
   const handleSelectImage = useCallback(async (imageId: string) => {
@@ -359,7 +441,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
       <div className={`asset-drawer-backdrop${closing ? " asset-drawer-backdrop--closing" : ""}`} onClick={onClose} />
 
       {/* 抽屉面板 */}
-      <aside className={`asset-drawer${closing ? " asset-drawer--closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <aside className={`asset-drawer${closing ? " asset-drawer--closing" : ""}${settled && !closing ? " asset-drawer--settled" : ""}`} onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div className="asset-drawer-header">
           <div className="asset-drawer-title-row">
@@ -448,94 +530,189 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
             onSelectFromProject={onCopyFromProject ? handleOpenPicker : undefined}
             importing={importing}
             disabled={disabled}
+            onUpscaleToggle={() => setUpscaleMode((v) => !v)}
+            upscaleActive={upscaleMode}
+            upscaleGpuOk={upscaleGpuOk}
           />
 
-          {/* 素材信息（提示词/描述可编辑，失焦保存） */}
-          <div className="add-asset-form">
-            <div className="add-asset-field">
-              <label className="add-asset-label">描述</label>
-              <textarea
-                value={descDraft}
-                onChange={(e) => setDescDraft(e.target.value)}
-                onBlur={handleSaveAsset}
-                placeholder="暂无描述"
-                rows={2}
-                disabled={disabled || savingAsset}
-              />
-            </div>
-            <div className="add-asset-field">
-              <label className="add-asset-label">提示词</label>
-              <textarea
-                className="add-asset-prompt"
-                value={promptDraft}
-                onChange={(e) => setPromptDraft(e.target.value)}
-                onBlur={handleSaveAsset}
-                placeholder="暂无"
-                rows={4}
-                disabled={disabled || savingAsset}
-              />
-            </div>
-          </div>
-
-          {/* 分隔线 */}
-          <div className="asset-drawer-divider" />
-
-          {/* 生成参数 */}
-          <div className="asset-drawer-section-title">生成参数</div>
-          <div className="generate-asset-form">
-            <div className="field">
-              <span>画幅比例</span>
-              <div className="segmented segmented--cols5">
-                {(["16:9", "9:16", "4:3", "3:4", "1:1"] as AspectRatio[]).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    className={ratio === r ? "active" : ""}
-                    onClick={() => setRatio(r)}
-                    disabled={disabled}
-                  >
-                    {r}
-                  </button>
-                ))}
+          {!upscaleMode ? (
+            <>
+              {/* 素材信息（提示词/描述可编辑，失焦保存） */}
+              <div className="add-asset-form">
+                <div className="add-asset-field">
+                  <label className="add-asset-label">描述</label>
+                  <textarea
+                    value={descDraft}
+                    onChange={(e) => setDescDraft(e.target.value)}
+                    onBlur={handleSaveAsset}
+                    placeholder="暂无描述"
+                    rows={2}
+                    disabled={disabled || savingAsset}
+                  />
+                </div>
+                <div className="add-asset-field">
+                  <label className="add-asset-label">提示词</label>
+                  <textarea
+                    className="add-asset-prompt"
+                    value={promptDraft}
+                    onChange={(e) => setPromptDraft(e.target.value)}
+                    onBlur={handleSaveAsset}
+                    placeholder="暂无"
+                    rows={4}
+                    disabled={disabled || savingAsset}
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="field">
-              <span>生成数量</span>
-              <div className="segmented segmented--cols4">
-                {([1, 2, 3, 4] as number[]).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={imageCount === n ? "active" : ""}
-                    onClick={() => setImageCount(n)}
-                    disabled={disabled}
-                  >
-                    {n} 张
-                  </button>
-                ))}
+              {/* 分隔线 */}
+              <div className="asset-drawer-divider" />
+
+              {/* 生成参数 */}
+              <div className="asset-drawer-section-title">生成参数</div>
+              <div className="generate-asset-form">
+                <div className="field">
+                  <span>画幅比例</span>
+                  <div className="segmented segmented--cols5">
+                    {(["16:9", "9:16", "4:3", "3:4", "1:1"] as AspectRatio[]).map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        className={ratio === r ? "active" : ""}
+                        onClick={() => setRatio(r)}
+                        disabled={disabled}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <span>生成数量</span>
+                  <div className="segmented segmented--cols4">
+                    {([1, 2, 3, 4] as number[]).map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={imageCount === n ? "active" : ""}
+                        onClick={() => setImageCount(n)}
+                        disabled={disabled}
+                      >
+                        {n} 张
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <SelectField
+                  label="分辨率"
+                  value={tier}
+                  options={resOptions}
+                  onChange={(v) => setTier(v as ResolutionTier)}
+                />
+
+                <SelectField
+                  label="创作风格"
+                  value={style}
+                  options={STYLE_OPTIONS}
+                  onChange={(v) => setStyle(v as StyleMode)}
+                />
               </div>
-            </div>
+            </>
+          ) : (
+            <>
+              {/* 显卡提醒 */}
+              <div className={`sbu-gpu-tip${upscaleGpuOk === false ? " sbu-gpu-tip--warn" : ""}`}>
+                {upscaleGpuOk === false ? (
+                  INFO_ICON_SVG
+                ) : (
+                  <span className="sbu-gpu-tip-more" tabIndex={0} role="tooltip" aria-label="查看详细硬件配置要求">
+                    {INFO_ICON_SVG}
+                    <div className="sbu-gpu-tip-popover">
+                      <div className="sbu-gpu-tip-popover-title">需要什么显卡？</div>
+                      <ul className="sbu-gpu-tip-popover-list">
+                        <li>支持 NVIDIA / AMD / Intel 显卡</li>
+                        <li>显卡内存（显存）建议 4GB 以上</li>
+                        <li>没有可用显卡加速时超分会禁用</li>
+                      </ul>
+                    </div>
+                  </span>
+                )}
+                <span>
+                  {upscaleGpuOk === false
+                    ? "你的电脑没有可用的显卡，无法使用画质增强"
+                    : "画质增强使用显卡加速"}
+                </span>
+              </div>
 
-            <SelectField
-              label="分辨率"
-              value={tier}
-              options={resOptions}
-              onChange={(v) => setTier(v as ResolutionTier)}
-            />
+              {/* 模型选择 */}
+              <div className="sbu-section">
+                <div className="sbu-section-head">
+                  <span className="sbu-section-label">模型</span>
+                </div>
+                <div className="segmented segmented--cols3">
+                  {UPSCALE_MODELS.map((m) => {
+                    const isFixed4x = FIXED_4X.has(m.value);
+                    return (
+                      <button
+                        key={m.value}
+                        type="button"
+                        className={upscaleModel === m.value ? "active" : ""}
+                        onClick={() => {
+                          setUpscaleModel(m.value);
+                          if (isFixed4x) setUpscaleScale(4);
+                        }}
+                        disabled={disabled || upscaleGpuOk === false}
+                      >
+                        <span className="sbu-model-name">{m.label}</span>
+                        <span className="sbu-model-tag">{m.tag}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="sbu-section-desc">
+                  {UPSCALE_MODELS.find((m) => m.value === upscaleModel)?.desc ?? ""}
+                </p>
+              </div>
 
-            <SelectField
-              label="创作风格"
-              value={style}
-              options={STYLE_OPTIONS}
-              onChange={(v) => setStyle(v as StyleMode)}
-            />
-          </div>
+              {/* 倍率选择（仅动漫优化模型可选） */}
+              {!FIXED_4X.has(upscaleModel) && (
+                <div className="sbu-section">
+                  <div className="sbu-section-head">
+                    <span className="sbu-section-label">倍率</span>
+                  </div>
+                  <div className="segmented segmented--cols3">
+                    {UPSCALE_SCALES.map((s) => (
+                      <button
+                        key={s.value}
+                        type="button"
+                        className={upscaleScale === s.value ? "active" : ""}
+                        onClick={() => setUpscaleScale(s.value)}
+                        disabled={disabled || upscaleGpuOk === false}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="sbu-section-desc">输出按图片分辨率的 {upscaleScale} 倍放大</p>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* 底部操作栏 */}
         <div className="asset-drawer-footer">
-          {isBatch && onBatchGenerate ? (
+          {upscaleMode ? (
+            <button
+              type="button"
+              className="asset-drawer-btn asset-drawer-btn--primary"
+              onClick={handleStartAssetUpscale}
+              disabled={disabled || upscaleGpuOk === false || upscaleGpuOk === null}
+            >
+              {upscaleGpuOk === null ? "检查显卡中…" : "开始"}
+            </button>
+          ) : isBatch && onBatchGenerate ? (
             <>
               <button
                 type="button"

@@ -463,6 +463,7 @@ pub fn run() {
             commands::detect_ffmpeg,
             commands::detect_gpu_support,
             upscale_manager::enqueue_upscale,
+            upscale_manager::enqueue_asset_upscale,
             upscale_manager::list_upscale_jobs,
             upscale_manager::cancel_upscale_job,
             upscale_manager::retry_upscale_job,

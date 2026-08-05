@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   cancelUpscaleJob,
-  detectGpuSupport,
   enqueueUpscale,
   listUpscaleJobs,
   type UpscaleChangedEvent,
   type UpscaleDoneEvent,
   type UpscaleJob,
 } from "../../services/tauri";
+import { useGpuDetect } from "../../services/gpu";
 
 /**
  * 镜头视频超分 hook。
@@ -22,7 +22,7 @@ import {
  */
 export function useStoryboardUpscale() {
   const [jobs, setJobs] = useState<UpscaleJob[]>([]);
-  const [gpuOk, setGpuOk] = useState<boolean | null>(null);
+  const gpuOk = useGpuDetect();
   // 防止事件闭包读取过期 jobs：始终用最新列表
   const jobsRef = useRef<UpscaleJob[]>([]);
   jobsRef.current = jobs;
@@ -69,21 +69,6 @@ export function useStoryboardUpscale() {
     return () => {
       disposed = true;
       unlisten?.();
-    };
-  }, []);
-
-  // 打开镜头页时探测 GPU（无 GPU 则不可超分）
-  useEffect(() => {
-    let disposed = false;
-    detectGpuSupport()
-      .then((ok) => {
-        if (!disposed) setGpuOk(ok);
-      })
-      .catch(() => {
-        if (!disposed) setGpuOk(false);
-      });
-    return () => {
-      disposed = true;
     };
   }, []);
 

@@ -224,10 +224,11 @@ export function AssetPanel({ project }: AssetPanelProps) {
     loadSelectedImages(selectedClipId ?? "");
   }, [selectedClipId, loadSelectedImages]);
 
-  // 抽屉关闭时刷新卡片缩略图（可能新绑定了图片）
+  // 抽屉关闭后延迟刷新卡片缩略图（避开关闭动画 + 组件卸载）
   useEffect(() => {
     if (!drawerTarget && selectedClipId) {
-      loadSelectedImages(selectedClipId);
+      const t = setTimeout(() => loadSelectedImages(selectedClipId), 250);
+      return () => clearTimeout(t);
     }
   }, [drawerTarget, selectedClipId, loadSelectedImages]);
 
@@ -510,7 +511,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
     closeTimerRef.current = setTimeout(() => {
       setDrawerTarget(null);
       setDrawerClosing(false);
-    }, 260);
+    }, 180);
   }, []);
 
   useEffect(() => {

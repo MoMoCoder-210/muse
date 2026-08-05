@@ -259,11 +259,11 @@ CREATE INDEX IF NOT EXISTS idx_sv_storyboard
 
 
 -- ============================================================================
--- 6.2 upscale_jobs — 镜头视频超分任务（支持断点续跑）
+-- 6.2 upscale_jobs — 超分任务（镜头视频 + 素材图片，统一调度）
 -- ============================================================================
--- 超分任务启动前先落一条记录（status=running），每阶段结束同步进度；
--- 应用异常退出后，启动时发现 status=running 的任务即自动续跑（跳过已完成阶段）。
--- 正常完成 → done；失败 → failed；用户取消 → cancelled。
+-- task_type='video'：镜头视频超分（storyboard_id/video_id 指向真实记录）；
+-- task_type='image'：素材图片超分（asset 系列字段定位源，插入时临时关外键）。
+-- 视频：断点续跑（抽帧→ncnn→合帧）；图片：单阶段 ncnn 单图。
 CREATE TABLE IF NOT EXISTS upscale_jobs (
     id              TEXT PRIMARY KEY,
     storyboard_id   TEXT NOT NULL REFERENCES storyboards(id),
@@ -275,6 +275,12 @@ CREATE TABLE IF NOT EXISTS upscale_jobs (
     -- running | done | failed | cancelled
     status          TEXT NOT NULL DEFAULT 'running',
     error_message   TEXT,
+    -- task_type: 'video'（默认，兼容旧数据）| 'image'（素材图片超分）
+    task_type       TEXT NOT NULL DEFAULT 'video',
+    -- 素材图片超分定位字段（仅 task_type='image' 时有值）
+    asset_clip_id   TEXT NOT NULL DEFAULT '',
+    asset_type_name TEXT NOT NULL DEFAULT '',
+    asset_image_id  TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

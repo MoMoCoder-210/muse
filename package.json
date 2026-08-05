@@ -1,7 +1,7 @@
 {
   "name": "muse",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "桌面端AI视频视频创作工作流",
   "workspaces": [
