@@ -47,6 +47,21 @@
   font-size: var(--font-size-md);
   line-height: 1;
 }
+.tb-separator {
+  color: var(--text-muted);
+  opacity: 0.35;
+  font-weight: 300;
+  margin: 0 1px;
+}
+.tb-project-name {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* 弹性填充 */
 .tb-spacer {

@@ -8,6 +8,10 @@ const HELP_URL = "https://github.com/MoMoCoder-210/muse";
 
 type TitleBarProps = {
   onOpenSettings: () => void;
+  onEnterAgent?: () => void;
+  isAgentMode?: boolean;
+  onExitAgent?: () => void;
+  projectName?: string | null;
 };
 
 // 浏览器预览环境（非 Tauri 运行时）下禁用窗口控制，避免调用报错
@@ -21,7 +25,7 @@ const isTauri =
  * 右侧设置 / 帮助 与窗口控制（最小化 / 最大化 / 关闭）。
  * 拖拽由 onMouseDown 手动调用 startDragging 实现，双击空白处最大化。
  */
-export function TitleBar({ onOpenSettings }: TitleBarProps) {
+export function TitleBar({ onOpenSettings, onEnterAgent, isAgentMode, onExitAgent, projectName }: TitleBarProps) {
   const [isMax, setIsMax] = useState(false);
   const services = useServiceStatus();
   const serviceIndicator = useMemo(() => {
@@ -69,7 +73,7 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
   const onTitleMouseDown = (e: React.MouseEvent) => {
     if (!isTauri) return;
     if (e.button !== 0) return; // 仅响应左键
-    if ((e.target as HTMLElement).closest(".tb-actions")) return; // 工具栏按钮区不拖拽
+    if ((e.target as HTMLElement).closest(".tb-actions,.tb-segment")) return;
     getCurrentWindow().startDragging().catch((e) => console.error("[TitleBar] 开始拖拽失败:", e));
   };
 
@@ -88,6 +92,43 @@ export function TitleBar({ onOpenSettings }: TitleBarProps) {
       <div className="tb-brand">
         <span className="tb-logo">◆</span>
         <span className="tb-title">{APP_NAME}</span>
+        {projectName && (
+          <>
+            <span className="tb-separator">/</span>
+            <span className="tb-project-name">{projectName}</span>
+          </>
+        )}
+      </div>
+
+      {/* macOS 风格居中分段控件 — 手动模式 / Agent */}
+      <div className="tb-segment" role="tablist" aria-label="工作模式">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!isAgentMode}
+          className={`tb-segment__item${!isAgentMode ? " tb-segment__item--active" : ""}`}
+          onClick={isAgentMode ? onExitAgent : undefined}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+          <span>手动</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isAgentMode}
+          className={`tb-segment__item${isAgentMode ? " tb-segment__item--active" : ""}`}
+          onClick={!isAgentMode ? onEnterAgent : undefined}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="7" width="18" height="13" rx="2" />
+            <circle cx="12" cy="16" r="1" fill="currentColor" />
+            <path d="M9 2v3M15 2v3M3 12h18" />
+          </svg>
+          <span>Agent</span>
+        </button>
       </div>
 
       <div className="tb-spacer" />

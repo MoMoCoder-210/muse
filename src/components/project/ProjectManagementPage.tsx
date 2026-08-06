@@ -11,6 +11,7 @@ import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type ProjectManagementPageProps = {
   onGoHome: () => void;
+  onSelectedProjectChange?: (project: ProjectInfo | null) => void;
 };
 
 /**
@@ -18,7 +19,7 @@ type ProjectManagementPageProps = {
  *
  * 集成侧边栏、工作区与弹窗的作品管理主界面。
  */
-export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) {
+export function ProjectManagementPage({ onGoHome, onSelectedProjectChange }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();
   const { toast } = useToast();
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -39,6 +40,11 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
       ?? projects.find((project) => project.id === selectedProjectId)
       ?? null;
   })();
+
+  // 向上同步选中作品（供 TitleBar Agent 按钮判断可用性）
+  useEffect(() => {
+    onSelectedProjectChange?.(selectedProject);
+  }, [selectedProject, onSelectedProjectChange]);
 
   const handleCreated = useCallback((project: ProjectInfo) => {
     setModalOpen(false);
@@ -82,21 +88,23 @@ export function ProjectManagementPage({ onGoHome }: ProjectManagementPageProps) 
   return (
     <section className={`projects-screen${sidebarOpen ? " projects-screen--sidebar-open" : ""}`}>
       {/* 侧边栏收起时的窄把手 — 点击展开 */}
-      <div
-        className="sidebar-grabber"
-        onClick={() => setSidebarOpen(true)}
-        title="展开作品列表"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M6 4L10 8L6 12"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
+      {!sidebarOpen && (
+        <div
+          className="sidebar-grabber"
+          onClick={() => setSidebarOpen(true)}
+          title="展开作品列表"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M6 4L10 8L6 12"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      )}
 
       <div className={`sidebar-drawer${sidebarOpen ? " sidebar-drawer--open" : ""}`}>
         <ProjectSidebar

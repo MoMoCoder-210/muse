@@ -7,7 +7,7 @@
  * 前提：已执行过 npm install 且 worker:build (tsc) 已完成。
  */
 
-import { cpSync, existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, writeFileSync, readdirSync, lstatSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -69,6 +69,15 @@ for (const pkg of collected) {
   const src = join(ROOT_NM, pkg);
   const dest = join(DEST_NM, pkg);
   if (existsSync(src)) {
+    // 跳过 workspace symlink（如 `muse` 指向根目录），Windows 下 cpSync 会 EPERM
+    try {
+      if (lstatSync(src).isSymbolicLink()) {
+        console.warn(`  [skip] ${pkg} (symlink, workspace)`);
+        continue;
+      }
+    } catch {
+      // lstat 失败则忽略，继续尝试复制
+    }
     cpSync(src, dest, { recursive: true });
     copied++;
   }

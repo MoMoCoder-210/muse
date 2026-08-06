@@ -1,0 +1,57 @@
+/* ── Agent 配置面板（复用项目 token）─────────────── */
+
+.agent-config { padding: var(--spacing-xs) 0; }
+
+.agent-config__card {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.agent-config__group { margin-bottom: 14px; }
+.agent-config__group:last-child { margin-bottom: 0; }
+
+.agent-config__label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.agent-config__select,
+.agent-config__input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.agent-config__select:focus,
+.agent-config__input:focus { border-color: var(--border-accent); }
+
+.agent-config__save-btn {
+  margin-top: var(--spacing-sm);
+  padding: 6px 16px;
+  background: var(--btn-primary-bg);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.agent-config__save-btn:hover { opacity: 0.85; }
+.agent-config__save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.agent-config__hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-quaternary);
+  margin-top: var(--spacing-sm);
+}

@@ -1,0 +1,282 @@
+/* ═══════════════════════════════════════════════════════════
+   Agent Page — 使用项目设计 token
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 页面容器 ──────────────────────────────────────── */
+.agent-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+/* ── 主区域 ──────────────────────────────────────── */
+.agent-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── 侧边栏与 grabber 适配 ───────────────────────── */
+.agent-page .sidebar-drawer {
+  width: 0;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+.agent-page .sidebar-drawer--open {
+  width: 300px;
+}
+
+/* ── 右下角悬浮聊天气泡（macOS 风格）─────────────── */
+
+.agent-fab {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: var(--z-above);
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(30, 30, 48, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+.agent-fab:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(40, 40, 64, 0.9);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  transform: scale(1.05);
+}
+/* ── 画布 ─────────────────────────────────────────── */
+.agent-canvas {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  /* 现代深色画布：非纯黑，带微暖灰底让点阵可视 */
+  background: #111118;
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.28) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.agent-canvas .react-flow {
+  background: transparent !important;
+}
+.agent-canvas .react-flow__background {
+  display: none;
+}
+
+.agent-canvas__controls {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+}
+.agent-canvas__controls button {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border-faint) !important;
+  fill: var(--text-tertiary) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+.agent-canvas__controls button:hover {
+  background: var(--bg-hover) !important;
+  fill: var(--text-primary) !important;
+}
+.agent-canvas__controls button:last-child {
+  border-bottom: none !important;
+}
+
+.agent-canvas__minimap {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--glass-border) !important;
+}
+
+/* ── 对话抽屉（覆盖在画布上方）────────────────────── */
+.agent-drawer {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 0;
+  overflow: hidden;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: var(--z-drawer);
+}
+.agent-drawer--open {
+  width: 400px;
+}
+
+.agent-drawer__inner {
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  height: 100%;
+  background: var(--glass-bg);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  border: 0.5px solid var(--glass-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-glass);
+}
+
+.agent-drawer__messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.agent-drawer__welcome {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+  padding: var(--spacing-sm) var(--spacing-xs);
+}
+.agent-drawer__welcome p { margin: 0; color: inherit; }
+
+/* 对话气泡 */
+.agent-bubble {
+  max-width: 92%;
+  padding: 10px var(--spacing-lg);
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  align-self: flex-start;
+  white-space: pre-wrap;
+}
+.agent-bubble p { margin: 0; color: inherit; }
+.agent-bubble--user {
+  align-self: flex-end;
+  background: var(--btn-primary-bg);
+  color: #fff;
+}
+.agent-bubble--user p { color: #fff; }
+
+/* 输入区 */
+.agent-drawer__input {
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.agent-drawer__input-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.agent-drawer__input-box:focus-within {
+  border-color: var(--border-accent);
+}
+
+.agent-drawer__textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  background: transparent;
+  padding: 10px var(--spacing-lg) 4px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  line-height: var(--line-height-base);
+  outline: none;
+}
+.agent-drawer__textarea::placeholder {
+  color: var(--text-quaternary);
+}
+
+.agent-drawer__input-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px 8px;
+}
+
+.agent-drawer__token-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-quaternary);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-drawer__send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--btn-primary-bg);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.agent-drawer__send:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.agent-drawer__send:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ── TitleBar 分段控件 ────────────────────────────── */
+.tb-segment {
+  display: flex;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--segmented-bg);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.tb-segment__item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.tb-segment__item:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+.tb-segment__item:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.tb-segment__item--active {
+  background: var(--segmented-active-bg);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}

@@ -23,3 +23,5 @@
 @import "./styles/toast.css";
 @import "./styles/startup-screen.css";
 @import "./styles/responsive.css";
+@import "./styles/agent/workspace.css";
+@import "./styles/agent/agent-config.css";

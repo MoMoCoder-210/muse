@@ -12,14 +12,17 @@ import {
 } from "../../types/settings";
 import { VIDEO_RESOLUTION_OPTIONS } from "../../config/muse";
 import { useToast } from "../../hooks/useToast";
+import { loadAgentConfig, saveAgentConfig } from "../../services/agent-api";
+import type { AgentConfig } from "../../types/agent";
 
 // ── Tab 定义 ──────────────────────────────────────────
 
-type SettingsTab = "general" | "models" | "about";
+type SettingsTab = "general" | "models" | "agent" | "about";
 
 const TABS = [
   { key: "general" as const, label: "通用", icon: "gear" },
   { key: "models" as const, label: "模型", icon: "cpu" },
+  { key: "agent" as const, label: "Agent", icon: "robot" },
   { key: "about" as const, label: "关于", icon: "info" },
 ];
 
@@ -99,6 +102,15 @@ export function SettingsPage({ onClose }: Props) {
         <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
         <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
         <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+      </svg>
+    );
+    if (name === "robot") return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="7" width="18" height="13" rx="2"/>
+        <circle cx="12" cy="16" r="1" fill="currentColor"/>
+        <path d="M9 2v3M15 2v3M3 12h18"/>
+        <line x1="8" y1="12" x2="8" y2="12.01"/>
+        <line x1="16" y1="12" x2="16" y2="12.01"/>
       </svg>
     );
     return (
@@ -298,6 +310,104 @@ export function SettingsPage({ onClose }: Props) {
     );
   }
 
+  // ── Agent 设置 ──────────────────────────────────────
+
+  function AgentConfigForm() {
+    const [agentConfig, setAgentConfig] = useState<AgentConfig>({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "",
+      baseUrl: "",
+    });
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+      loadAgentConfig().then((c) => { if (c) setAgentConfig(c); });
+    }, []);
+
+    const handleSave = async () => {
+      setSaving(true);
+      try {
+        await saveAgentConfig(agentConfig);
+        toast("Agent 配置已保存", "success");
+      } catch {
+        toast("保存失败", "error");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div className="agent-config">
+        <div className="agent-config__card">
+          <div className="agent-config__group">
+            <label className="agent-config__label">AI 服务商</label>
+            <select
+              className="agent-config__select"
+              value={agentConfig.provider}
+              onChange={(e) => setAgentConfig({ ...agentConfig, provider: e.target.value as "openai" | "anthropic" })}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+          <div className="agent-config__group">
+            <label className="agent-config__label">模型</label>
+            <input
+              className="agent-config__input"
+              type="text"
+              value={agentConfig.model}
+              onChange={(e) => setAgentConfig({ ...agentConfig, model: e.target.value })}
+              placeholder="gpt-4o"
+            />
+          </div>
+          <div className="agent-config__group">
+            <label className="agent-config__label">API Key</label>
+            <input
+              className="agent-config__input"
+              type="password"
+              value={agentConfig.apiKey}
+              onChange={(e) => setAgentConfig({ ...agentConfig, apiKey: e.target.value })}
+              placeholder="sk-..."
+            />
+          </div>
+          <div className="agent-config__group">
+            <label className="agent-config__label">Base URL（可选，自定义端点）</label>
+            <input
+              className="agent-config__input"
+              type="text"
+              value={agentConfig.baseUrl ?? ""}
+              onChange={(e) => setAgentConfig({ ...agentConfig, baseUrl: e.target.value || undefined })}
+              placeholder="留空使用默认地址"
+            />
+          </div>
+          <button
+            type="button"
+            className="agent-config__save-btn"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? "保存中…" : "保存配置"}
+          </button>
+          <p className="agent-config__hint">
+            API Key 仅存储在你的本地电脑上，不会上传到任何服务器。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  function renderAgent() {
+    return (
+      <div className="sk-general">
+        <div className="sk-group">
+          <h4 className="sk-group-title">AI Agent 配置</h4>
+          <AgentConfigForm />
+        </div>
+      </div>
+    );
+  }
+
   // ── 主体 ──────────────────────────────────────────
 
   return (
@@ -336,7 +446,7 @@ export function SettingsPage({ onClose }: Props) {
 
         {/* 内容区 */}
         <div className="sk-body">
-          {tab === "general" ? renderGeneral() : tab === "models" ? renderModels() : renderAbout()}
+          {tab === "general" ? renderGeneral() : tab === "models" ? renderModels() : tab === "agent" ? renderAgent() : renderAbout()}
         </div>
       </div>
     </div>

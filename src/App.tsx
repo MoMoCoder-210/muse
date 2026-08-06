@@ -3,57 +3,33 @@ import { getAppVersion } from "./services/tauri";
 import { initGpuDetect } from "./services/gpu";
 import { DynamicBackdrop } from "./components/layout/DynamicBackdrop";
 import { TitleBar } from "./components/layout/TitleBar";
-
-
 import { HomePage } from "./components/home/HomePage";
 import { ProjectManagementPage } from "./components/project/ProjectManagementPage";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsPage } from "./components/settings/SettingsPage";
+import { AgentPage } from "./components/agent/AgentPage";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { useWorkerStatus } from "./hooks/useWorkerStatus";
 import type { WorkerStatusPayload } from "./hooks/useWorkerStatus";
+import type { ProjectInfo } from "./types/project";
 import { StartupScreen } from "./components/layout/StartupScreen";
 
 type ViewMode = "home" | "projects";
 
-/**
- * 内部组件：监听 Worker 生命周期事件并通过 Toast 提示用户。
- * 必须放在 ToastProvider 内部。
- */
 function WorkerStatusMonitor() {
   const { toast } = useToast();
-
   useWorkerStatus((payload: WorkerStatusPayload) => {
     switch (payload.status) {
-      case "ready":
-        // 启动期状态已由标题栏显示，无需额外弹出提示。
-        break;
-      case "restarting":
-        toast(payload.message, "warning");
-        break;
-      case "restarted":
-        toast(payload.message, "success");
-        break;
-      case "start_failed":
-        toast(payload.message, "error");
-        break;
-      case "max_restarts":
-        toast(payload.message, "error");
-        break;
-      default:
-        toast(payload.message, "warning");
+      case "restarting": toast(payload.message, "warning"); break;
+      case "restarted": toast(payload.message, "success"); break;
+      case "start_failed": toast(payload.message, "error"); break;
+      case "max_restarts": toast(payload.message, "error"); break;
+      default: break;
     }
   });
-
   return null;
 }
 
-/**
- * 应用根组件
- *
- * 启动流程：显示 StartupScreen 等待后端健康检测 → 全部通过后进入主界面。
- *
- */
 export default function App() {
   const [startupReady, setStartupReady] = useState(false);
   const [view, setView] = useState<ViewMode>("home");
@@ -61,11 +37,12 @@ export default function App() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Agent 模式 — 随时可进入，不依赖是否选中作品
+  const [isAgentMode, setIsAgentMode] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<ProjectInfo | null>(null);
 
   useEffect(() => {
-    getAppVersion().then(setVersion).catch(() => {
-      // 版本号获取失败，保持默认 "unknown"，不打扰用户
-    });
+    getAppVersion().then(setVersion).catch(() => {});
     initGpuDetect();
   }, []);
 
@@ -74,8 +51,15 @@ export default function App() {
     setView("projects");
   }, []);
 
-  const handleStartupReady = useCallback(() => {
-    setStartupReady(true);
+  const handleStartupReady = useCallback(() => setStartupReady(true), []);
+
+  const handleEnterAgent = useCallback(() => setIsAgentMode(true), []);
+  const handleExitAgent = useCallback(() => setIsAgentMode(false), []);
+
+  const handleGoHome = useCallback(() => {
+    setView("home");
+    setIsAgentMode(false);
+    setSelectedProject(null);
   }, []);
 
   if (!startupReady) {
@@ -90,10 +74,18 @@ export default function App() {
 
         <TitleBar
           onOpenSettings={() => setSettingsOpen(true)}
+          onEnterAgent={handleEnterAgent}
+          isAgentMode={isAgentMode}
+          onExitAgent={handleExitAgent}
+          projectName={isAgentMode ? selectedProject?.name ?? null : null}
         />
 
-
-        {view === "home" ? (
+        {isAgentMode ? (
+          <AgentPage
+            project={selectedProject}
+            onSelectProject={setSelectedProject}
+          />
+        ) : view === "home" ? (
           <HomePage
             version={version}
             onCreateProject={() => setCreateModalOpen(true)}
@@ -101,21 +93,21 @@ export default function App() {
           />
         ) : (
           <ProjectManagementPage
-            onGoHome={() => setView("home")}
+            onGoHome={handleGoHome}
+            onSelectedProjectChange={setSelectedProject}
           />
         )}
 
-        {createModalOpen ? (
+        {createModalOpen && (
           <CreateProjectModal
             onClose={() => setCreateModalOpen(false)}
             onCreated={handleCreated}
           />
-        ) : null}
+        )}
 
-        {settingsOpen ? (
+        {settingsOpen && (
           <SettingsPage onClose={() => setSettingsOpen(false)} />
-        ) : null}
-
+        )}
       </div>
     </ToastProvider>
   );

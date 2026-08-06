@@ -449,3 +449,19 @@ CREATE INDEX IF NOT EXISTS idx_script_optimizations_clip
 
 CREATE INDEX IF NOT EXISTS idx_script_optimizations_project
     ON script_optimizations(project_id);
+
+-- ============================================================================
+-- 12. agent_sessions — AI Agent 会话持久化
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id),
+    messages    TEXT NOT NULL,   -- JSON 消息数组
+    summary     TEXT,            -- LLM 生成的会话摘要
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_project
+    ON agent_sessions(project_id, created_at DESC);
