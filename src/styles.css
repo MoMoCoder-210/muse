@@ -25,3 +25,4 @@
 @import "./styles/responsive.css";
 @import "./styles/agent/workspace.css";
 @import "./styles/agent/agent-config.css";
+@import "./styles/agent/canvas-nodes.css";

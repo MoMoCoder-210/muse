@@ -988,3 +988,137 @@ export async function testConnection(input: {
     timeoutMs: input.timeoutMs,
   });
 }
+
+
+// ── Agent Canvas read model ──────────────────────────────────────
+// The canvas owns no business mutations. This project-scoped snapshot is its
+// only refresh source; legacy list wrappers above remain for other pages.
+export interface CanvasProjectRead {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  current_step: string;
+  created_at: string;
+}
+
+export interface CanvasClipRead {
+  id: string;
+  project_id: string;
+  sort_index: number;
+  title: string;
+  summary: string;
+  estimated_duration: number | null;
+  status: string;
+  current_step: string;
+  updated_at: string;
+}
+
+export interface CanvasAssetImageRead {
+  id: string;
+  image_path: string;
+  size: string | null;
+  is_selected: boolean;
+  created_at: string;
+}
+
+export interface CanvasAssetTaskRead {
+  id: string;
+  task_type: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface CanvasAssetRead {
+  id: string;
+  project_id: string;
+  /** null means project-shared; Rust normalizes legacy empty owners to null. */
+  clip_id: string | null;
+  type: AssetType;
+  name: string;
+  description: string;
+  status: string;
+  selected_image_path: string | null;
+  images: CanvasAssetImageRead[];
+  tasks: CanvasAssetTaskRead[];
+}
+
+export interface CanvasAssetReferenceRead {
+  asset_id: string;
+  index: number;
+  asset_tag: string;
+}
+
+export interface CanvasStoryboardTaskRead {
+  id: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface CanvasStoryboardVideoRead {
+  id: string;
+  file_path: string;
+  file_name: string;
+  source: string;
+  task_id: string | null;
+  duration: number | null;
+  created_at: string;
+}
+
+export interface CanvasUpscaleTaskRead {
+  id: string;
+  video_id: string;
+  model: string;
+  scale: number;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface CanvasStoryboardRead {
+  id: string;
+  project_id: string;
+  clip_id: string;
+  selected_video_id: string | null;
+  sbid: string;
+  seq_num: number;
+  summary: string;
+  dialogue: string;
+  image_state: string;
+  voice_state: string;
+  video_state: string;
+  video_duration: number | null;
+  asset_references: CanvasAssetReferenceRead[];
+  video_tasks: CanvasStoryboardTaskRead[];
+  videos: CanvasStoryboardVideoRead[];
+  upscale_tasks: CanvasUpscaleTaskRead[];
+}
+
+export interface CanvasConcatOutputRead {
+  id: string;
+  project_id: string;
+  clip_id: string;
+  output_path: string;
+  file_name: string;
+  duration: number;
+  segment_count: number;
+  audio_included: boolean;
+  source: string;
+  created_at: string;
+}
+
+export interface ProjectCanvasReadModel {
+  project: CanvasProjectRead;
+  clips: CanvasClipRead[];
+  assets: CanvasAssetRead[];
+  storyboards: CanvasStoryboardRead[];
+  /** Real persisted concat/upscale outputs, newest first for each clip. */
+  concat_outputs: CanvasConcatOutputRead[];
+}
+
+/** The single Tauri read-model IPC used by the Agent canvas refresh loop. */
+export async function getProjectCanvasReadModel(projectId: string): Promise<ProjectCanvasReadModel> {
+  return invoke<ProjectCanvasReadModel>("get_project_canvas_read_model", { projectId });
+}

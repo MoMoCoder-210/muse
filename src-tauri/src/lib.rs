@@ -400,6 +400,7 @@ pub fn run() {
             commands::open_log_dir,
             commands::create_project,
             commands::get_project,
+            commands::get_project_canvas_read_model,
             commands::list_projects,
             commands::import_script,
             commands::list_script_sources,

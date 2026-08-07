@@ -38,6 +38,8 @@ pub struct StoryboardInfo {
 #[derive(Debug, Serialize)]
 pub struct StoryboardAssetInfo {
     pub asset_id: String,
+    /// 素材记录本身的归属分集；None 表示项目级素材，不能伪装成查询分集所有。
+    pub clip_id: Option<String>,
     pub r#type: String,
     pub name: String,
     pub description: String,
@@ -171,7 +173,7 @@ pub fn list_clip_assets(
 
     let mut stmt = conn
         .prepare(
-            "SELECT a.id, a.type, a.name, a.description, a.prompt,
+            "SELECT a.id, a.clip_id, a.type, a.name, a.description, a.prompt,
                     (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id LIMIT 1)
              FROM assets a
              WHERE a.clip_id = ?1
@@ -192,11 +194,12 @@ pub fn list_clip_assets(
             let mention = mention_by_asset.get(&asset_id);
             Ok(StoryboardAssetInfo {
                 asset_id,
-                r#type: row.get(1)?,
-                name: row.get(2)?,
-                description: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                prompt: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                selected_image_path: row.get(5)?,
+                clip_id: row.get(1)?,
+                r#type: row.get(2)?,
+                name: row.get(3)?,
+                description: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                prompt: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                selected_image_path: row.get(6)?,
                 index: mention.map(|(index, _)| *index),
                 asset_tag: mention.map(|(_, asset_tag)| asset_tag.clone()),
             })

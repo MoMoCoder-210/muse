@@ -213,6 +213,8 @@ export type Storyboard = {
 /** 镜头关联的素材简要信息（含绑定图片路径） */
 export type StoryboardAssetInfo = {
   asset_id: string;
+  /** 素材记录的真实归属分集；null 为项目级素材。 */
+  clip_id: string | null;
   type: AssetType;
   name: string;
   description: string;

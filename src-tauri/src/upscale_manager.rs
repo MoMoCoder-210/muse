@@ -164,11 +164,11 @@ impl UpscaleManager {
         }
     }
 
-    /// 启动 worker + 从 DB 恢复未完成任务。
+    /// 启动 worker，并从 DB 加载画布与任务面板需要的任务快照。
     ///
     /// 只应调用一次（应用 setup 中）。恢复逻辑：
-    /// 1. 查询 DB 中 status in ('queued','running') 的任务；
-    /// 2. 将它们的目录视为断点（续跑时跳过已完成阶段），重新入队；
+    /// 1. 仅将 `queued` / `running` 任务视为可恢复工作并重新入队；
+    /// 2. `failed` / `done` 任务只保留为只读历史，供画布关联批次；
     /// 3. 启动 worker 串行执行。
     pub fn start(&self) {
         let mut inner = self.inner.lock().unwrap();
@@ -177,11 +177,11 @@ impl UpscaleManager {
         }
         inner.started = true;
 
-        // 从 DB 恢复未完成任务（queued/running 入队续跑）+ 加载失败任务（供前端展示/重试，不入队）
+        // queued/running 入队续跑；failed/done 只供前端展示，不会重新执行。
         let mut recovered = 0usize;
         if let Ok(conn) = util::open_app_conn(&self.app) {
             let sql = "SELECT id, storyboard_id, video_id, input_path, output_path, model, scale, status, error_message, created_at, task_type, asset_clip_id, asset_type_name, asset_image_id
-                       FROM upscale_jobs WHERE status IN ('queued','running','failed') ORDER BY created_at";
+                       FROM upscale_jobs WHERE status IN ('queued','running','failed','done') ORDER BY created_at";
             if let Ok(mut stmt) = conn.prepare(sql) {
                 if let Ok(rows) = stmt.query_map([], |row| {
                     Ok((
@@ -204,23 +204,15 @@ impl UpscaleManager {
                     for row in rows.flatten() {
                         let (id, sb_id, vid_id, input_path, output_path, model, scale, status, error_message, created_at, task_type, asset_clip_id, asset_type_name, asset_image_id) = row;
                         // DB 里 running 视为中断，入队续跑（keep_on_error=true 保留目录）；
-                        // failed 保持终态，仅加载进内存供前端展示/重试，不自动入队。
-                        let is_active = if status == "running" {
-                            true
-                        } else if status == "failed" {
-                            false
-                        } else {
-                            true
-                        };
+                        // failed/done 保持终态，只加载为前端可见的只读历史。
+                        let should_resume = status == "queued" || status == "running";
                         let status_enum = if status == "running" {
                             UpscaleJobStatus::Queued
-                        } else if status == "failed" {
-                            UpscaleJobStatus::Failed
                         } else {
                             UpscaleJobStatus::from_str(&status)
                         };
                         // 图片任务不自动入队（续跑只在视频任务有意义）
-                        let do_enqueue = is_active && task_type != "image";
+                        let do_enqueue = should_resume && task_type != "image";
                         inner.jobs.push(UpscaleJob {
                             id: id.clone(),
                             storyboard_id: sb_id,
@@ -231,8 +223,10 @@ impl UpscaleManager {
                             scale,
                             status: status_enum,
                             percent: 0.0,
-                            stage: if is_active {
+                            stage: if should_resume {
                                 "排队中…".to_string()
+                            } else if status == "done" {
+                                "完成".to_string()
                             } else {
                                 "失败".to_string()
                             },
@@ -249,14 +243,20 @@ impl UpscaleManager {
                         recovered += 1;
                         log_upscale(
                             &self.app,
-                            if is_active { "INFO" } else { "WARN" },
+                            if should_resume { "INFO" } else { "WARN" },
                             &format!(
                                 "启动{}：job={} type={} 输入={}{}",
-                                if is_active { "恢复未完成任务" } else { "加载失败任务" },
+                                if should_resume {
+                                    "恢复未完成任务"
+                                } else if status == "done" {
+                                    "加载已完成任务"
+                                } else {
+                                    "加载失败任务"
+                                },
                                 &id[..id.len().min(8)],
                                 task_type,
                                 input_path,
-                                if is_active { "（断点续跑）" } else { "" }
+                                if should_resume { "（断点续跑）" } else { "" }
                             ),
                         );
                     }
