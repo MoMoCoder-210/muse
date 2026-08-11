@@ -1,6 +1,6 @@
 /** Strict adapter for a real Agent disclosure into the read-only production canvas. */
 import type { ProjectCanvasReadModel } from "../../services/tauri";
-import { canvasCenterId, canonicalAssetId, canonicalStoryboardId, canonicalTaskId, canonicalVideoId, createCanvasHierarchy, episodeExpansionId, type CanvasHierarchy } from "./sync";
+import { canvasCenterId, canonicalAssetId, canonicalStoryboardId, canonicalTaskId, canonicalVideoId, createCanvasHierarchy, type CanvasHierarchy } from "./sync";
 
 export type CanvasDisclosureTarget = { kind: "asset"; id: string } | { kind: "storyboard"; id: string } | { kind: "video"; id: string } | { kind: "task"; id: string };
 export interface CanvasDisclosure { projectId: string; target: CanvasDisclosureTarget; }
@@ -28,9 +28,8 @@ export function adaptCanvasDisclosure(disclosure: CanvasDisclosure, model: Proje
     current = parent;
   }
   if (target.data.entityType === "asset" || target.data.entityType === "image") material = true;
-  const center = material ? canvasCenterId("materials") : canvasCenterId("shots");
+  const center = canvasCenterId(material ? "materials" : "shots", clipId);
   const expansions = new Set(path.reverse());
   expansions.add(center);
-  if (clipId) expansions.add(episodeExpansionId(clipId));
   return { expandedCanonicalIds: [...expansions], selectedCanonicalId: targetId, centerCanonicalId: targetId };
 }

@@ -10,7 +10,7 @@ export const CANVAS_LAYOUT = {
   shotsWidth: 700,
   releaseX: 1530,
   releaseWidth: 660,
-  top: 86,
+  top: 24,
   rowGap: 34,
   entryY: 18,
   materialContentX: 132,

@@ -3,7 +3,7 @@ import type { AssetType } from "../../types/project";
 
 export type CanvasEntityType =
   | "project" | "clip" | "asset" | "image" | "storyboard" | "video" | "task"
-  | "center" | "episode-entry" | "material-category" | "shot-track" | "shot-anchor"
+  | "center" | "material-category" | "shot-track" | "shot-anchor"
   | "release-summary" | "release-task" | "release-output";
 export type CanvasCenterKind = "materials" | "shots" | "release";
 export type CanvasTaskKind = "asset" | "video-generation" | "upscale";
@@ -21,13 +21,10 @@ export interface CanvasNodeBase {
 
 export interface ProjectNodeData extends CanvasNodeBase { entityType: "project"; name: string; description: string; clipCount: number; }
 export interface ClipNodeData extends CanvasNodeBase {
-  entityType: "clip"; summary: string; assetCount: number; storyboardCount: number; estimatedDuration: number | null; expansionId: string;
+  entityType: "clip"; summary: string; assetCount: number; storyboardCount: number; estimatedDuration: number | null;
 }
 export interface CanvasCenterNodeData extends CanvasNodeBase {
-  entityType: "center"; centerKind: CanvasCenterKind; itemCount: number; width: number; height: number;
-}
-export interface EpisodeEntryNodeData extends CanvasNodeBase {
-  entityType: "episode-entry"; centerKind: CanvasCenterKind; clipId: string; expansionId: string; summary: string; itemCount: number; detailOpen: boolean;
+  entityType: "center"; centerKind: CanvasCenterKind; clipId: string | null; itemCount: number; width: number; height: number;
 }
 export interface MaterialCategoryNodeData extends CanvasNodeBase {
   entityType: "material-category"; clipId: string | null; category: AssetType; itemCount: number; expansionId: string;
@@ -79,7 +76,7 @@ export interface ReleaseOutputNodeData extends CanvasNodeBase {
 }
 
 export type CanvasNodeData = ProjectNodeData | ClipNodeData | AssetNodeData | ImageNodeData | StoryboardNodeData | VideoNodeData | TaskNodeData;
-export type CanvasFlowNodeData = CanvasNodeData | CanvasCenterNodeData | EpisodeEntryNodeData | MaterialCategoryNodeData | ShotTrackNodeData | ShotAnchorNodeData | ReleaseSummaryNodeData | ReleaseTaskNodeData | ReleaseOutputNodeData;
+export type CanvasFlowNodeData = CanvasNodeData | CanvasCenterNodeData | MaterialCategoryNodeData | ShotTrackNodeData | ShotAnchorNodeData | ReleaseSummaryNodeData | ReleaseTaskNodeData | ReleaseOutputNodeData;
 
 export type NodeStateColor = "gray" | "blue" | "green" | "orange" | "red" | "purple";
 export function assetTypeColor(type: AssetType): NodeStateColor { return type === "character" ? "orange" : type === "scene" ? "green" : "purple"; }

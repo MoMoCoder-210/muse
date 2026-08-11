@@ -1,5 +1,5 @@
 /**
- * Canonical read-only hierarchy plus the three-center production-canvas projection.
+ * Canonical read-only hierarchy plus per-episode three-center canvas projections.
  * No IPC or business mutation happens in this module.
  */
 import { MarkerType, type Edge, type Node } from "reactflow";
@@ -8,9 +8,9 @@ import type { CanvasAssetRead, CanvasConcatOutputRead, CanvasStoryboardRead, Pro
 import { CANVAS_LAYOUT, createProductionRows } from "./layout";
 import type {
   AssetNodeData, CanvasCenterKind, CanvasCenterNodeData, CanvasFlowNodeData, CanvasNodeBase, ClipNodeData,
-  EpisodeEntryNodeData, ImageNodeData, MaterialCategoryNodeData, ProjectNodeData, ReleaseOutputNodeData,
-  ReleaseSummaryNodeData, ReleaseTaskNodeData, ShotAnchorNodeData, ShotTrackNodeData, StoryboardAssetReference,
-  StoryboardNodeData, TaskNodeData, VideoNodeData,
+  ImageNodeData, MaterialCategoryNodeData, ProjectNodeData, ReleaseOutputNodeData, ReleaseSummaryNodeData,
+  ReleaseTaskNodeData, ShotAnchorNodeData, ShotTrackNodeData, StoryboardAssetReference, StoryboardNodeData,
+  TaskNodeData, VideoNodeData,
 } from "./node-data";
 
 const encode = (value: string) => encodeURIComponent(value);
@@ -21,11 +21,9 @@ export const canonicalStoryboardId = (id: string) => `storyboard:${encode(id)}`;
 export const canonicalImageId = (id: string) => `image:${encode(id)}`;
 export const canonicalVideoId = (id: string) => `video:${encode(id)}`;
 export const canonicalTaskId = (id: string) => `task:${encode(id)}`;
-export const canvasCenterId = (kind: CanvasCenterKind) => `center:${kind}`;
-export const episodeExpansionId = (clipId: string) => `episode:${encode(clipId)}`;
+export const canvasCenterId = (kind: CanvasCenterKind, clipId: string | null) => `center:${kind}:${clipId ? encode(clipId) : "shared"}`;
 const materialCategoryId = (clipId: string | null, type: AssetType, projectId: string) => `material-category:${clipId ? encode(clipId) : `shared:${encode(projectId)}`}:${type}`;
 const sharedCategoryId = (projectId: string, type: AssetType) => materialCategoryId(null, type, projectId);
-const episodeEntryId = (kind: CanvasCenterKind, clipId: string) => `entry:${kind}:${encode(clipId)}`;
 const shotTrackId = (clipId: string) => `shot-track:${encode(clipId)}`;
 const shotAnchorId = (storyboardId: string) => `shot-anchor:${encode(storyboardId)}`;
 const releaseSummaryId = (clipId: string) => `release-summary:${encode(clipId)}`;
@@ -89,25 +87,18 @@ function addStoryboard(hierarchy: CanvasHierarchy, storyboard: CanvasStoryboardR
     } satisfies TaskNodeData });
   }
   const upscaleByVideoId = new Map(storyboard.upscale_tasks.map((task) => [task.video_id, task]));
-  for (const task of storyboard.upscale_tasks) {
-    const taskId = canonicalTaskId(task.id);
-    addNode(hierarchy, { id: taskId, parentId: id, type: "TaskNode", data: {
-      ...base(storyboard.project_id, taskId, id, "task", task.id, "视频超分", task.status), taskKind: "upscale", targetName: `${storyboard.sbid} · 超分输出`, model: task.model, scale: task.scale, error: task.error_message,
-    } satisfies TaskNodeData });
-  }
   for (const video of storyboard.videos) {
     const upscale = upscaleByVideoId.get(video.id);
     if (video.source === "upscale" && !upscale) continue;
-    const parent = id;
     const videoId = canonicalVideoId(video.id);
-    addNode(hierarchy, { id: videoId, parentId: parent, type: "VideoNode", data: {
-      ...base(storyboard.project_id, videoId, parent, "video", video.id, video.file_name || "镜头视频"), storyboardId: storyboard.id,
+    addNode(hierarchy, { id: videoId, parentId: id, type: "VideoNode", data: {
+      ...base(storyboard.project_id, videoId, id, "video", video.id, video.file_name || "镜头视频"), storyboardId: storyboard.id,
       filePath: video.file_path, fileName: video.file_name, duration: video.duration, source: video.source, isUpscaleOutput: Boolean(upscale), isOutputReady: !upscale || upscale.status === "done",
     } satisfies VideoNodeData });
   }
 }
 
-/** Semantic owner hierarchy used by expansion and disclosure, not the old visual tree. */
+/** Semantic owner hierarchy used by expansion and disclosure, not the visual canvas layout. */
 export function createCanvasHierarchy(model: ProjectCanvasReadModel): CanvasHierarchy {
   const rootId = canonicalProjectId(model.project.id);
   const hierarchy: CanvasHierarchy = { projectId: model.project.id, rootId, byId: new Map(), childrenById: new Map() };
@@ -130,11 +121,10 @@ export function createCanvasHierarchy(model: ProjectCanvasReadModel): CanvasHier
   }
   for (const clip of model.clips) {
     const clipId = canonicalClipId(clip.id);
-    const episodeId = episodeExpansionId(clip.id);
     const owned = model.assets.filter((asset) => asset.clip_id === clip.id);
     const boards = boardsByClip.get(clip.id) ?? [];
     addNode(hierarchy, { id: clipId, parentId: rootId, type: "ClipNode", data: {
-      ...base(model.project.id, clipId, rootId, "clip", clip.id, clip.title, clip.status), summary: clip.summary, assetCount: owned.length, storyboardCount: boards.length, estimatedDuration: clip.estimated_duration, expansionId: episodeId,
+      ...base(model.project.id, clipId, rootId, "clip", clip.id, clip.title, clip.status), summary: clip.summary, assetCount: owned.length, storyboardCount: boards.length, estimatedDuration: clip.estimated_duration,
     } satisfies ClipNodeData });
     for (const type of MATERIAL_TYPES) {
       const id = materialCategoryId(clip.id, type, model.project.id);
@@ -155,11 +145,14 @@ export function createCanvasHierarchy(model: ProjectCanvasReadModel): CanvasHier
 
 export function defaultCanvasExpandedIds(model: ProjectCanvasReadModel): Set<string> {
   const hierarchy = createCanvasHierarchy(model);
-  const expanded = new Set<string>([canvasCenterId("materials"), canvasCenterId("shots"), canvasCenterId("release")]);
-  for (const node of hierarchy.byId.values()) {
-    if (node.data.hasChildren) expanded.add(node.id);
-    if (node.data.entityType === "clip") expanded.add(episodeExpansionId(node.data.entityId));
+  const expanded = new Set<string>();
+  for (const clip of model.clips) {
+    expanded.add(canvasCenterId("materials", clip.id));
+    expanded.add(canvasCenterId("shots", clip.id));
+    expanded.add(canvasCenterId("release", clip.id));
   }
+  if (model.assets.some((asset) => asset.clip_id === null)) expanded.add(canvasCenterId("materials", null));
+  for (const node of hierarchy.byId.values()) if (node.data.hasChildren) expanded.add(node.id);
   for (const output of model.concat_outputs ?? []) expanded.add(outputNodeId(output.id));
   return expanded;
 }
@@ -181,9 +174,9 @@ function readyStoryboardCount(boards: readonly CanvasStoryboardRead[]): number {
 function asNode<T extends CanvasFlowNodeData>(id: string, type: string, position: { x: number; y: number }, data: T, style?: Node["style"], zIndex = 2): Node<CanvasFlowNodeData> {
   return { id, type, position, data, style, zIndex };
 }
-function bezierEdge(id: string, source: string, target: string, external = false): Edge {
+function bezierEdge(id: string, source: string, target: string, external = false, sourceHandle = "source"): Edge {
   return {
-    id, source, target, sourceHandle: "source", targetHandle: "target", type: "bezier",
+    id, source, target, sourceHandle, targetHandle: "target", type: "bezier",
     markerEnd: external ? { type: MarkerType.ArrowClosed, color: "rgba(136, 177, 206, .76)", width: 13, height: 13 } : undefined,
     style: external ? { stroke: "rgba(136, 177, 206, .66)", strokeWidth: 1.7 } : { stroke: "rgba(119, 151, 173, .48)", strokeWidth: 1.25 },
     className: external ? "cn-edge cn-edge--production" : "cn-edge cn-edge--local",
@@ -192,27 +185,26 @@ function bezierEdge(id: string, source: string, target: string, external = false
 const MATERIAL_CATEGORY_MIN_WIDTH = 280;
 const MATERIAL_CATEGORY_MIN_HEIGHT = 96;
 const MATERIAL_CATEGORY_GAP = 18;
-const MATERIAL_CATEGORY_CONTENT_X = 144;
 type CanvasPositionOverride = { x: number; y: number };
 type MaterialCategoryLayout = { width: number; height: number; assetPositions: Map<string, CanvasPositionOverride>; };
-function materialAssetSize(asset: CanvasAssetRead, expandedIds: ReadonlySet<string>): { width: number; height: number } {
-  return expandedIds.has(canonicalAssetId(asset.id)) ? { width: 320, height: 190 } : { width: 146, height: 64 };
+function materialAssetSize(_asset: CanvasAssetRead, _expandedIds: ReadonlySet<string>): { width: number; height: number } {
+  return { width: 252, height: 152 };
 }
 function createMaterialCategoryLayout(assets: readonly CanvasAssetRead[], categoryOpen: boolean, expandedIds: ReadonlySet<string>, positionOverrides: Readonly<Record<string, CanvasPositionOverride>>): MaterialCategoryLayout {
   if (!categoryOpen) return { width: MATERIAL_CATEGORY_MIN_WIDTH, height: 38, assetPositions: new Map() };
   const assetPositions = new Map<string, CanvasPositionOverride>();
-  let cursorX = 12;
+  let cursorY = 48;
   let width = MATERIAL_CATEGORY_MIN_WIDTH;
   let height = MATERIAL_CATEGORY_MIN_HEIGHT;
   for (const asset of assets) {
     const id = canonicalAssetId(asset.id);
     const size = materialAssetSize(asset, expandedIds);
     const saved = positionOverrides[id];
-    const position = { x: Math.max(12, saved?.x ?? cursorX), y: Math.max(48, saved?.y ?? 48) };
+    const position = { x: Math.max(12, saved?.x ?? 12), y: Math.max(48, saved?.y ?? cursorY) };
     assetPositions.set(id, position);
     width = Math.max(width, position.x + size.width + 12);
     height = Math.max(height, position.y + size.height + 12);
-    cursorX += size.width + 12;
+    cursorY += size.height + 12;
   }
   return { width, height, assetPositions };
 }
@@ -220,7 +212,7 @@ function materialLaneWidth(layouts: readonly MaterialCategoryLayout[]): number {
   return layouts.reduce((width, layout, index) => width + layout.width + (index ? MATERIAL_CATEGORY_GAP : 0), 0);
 }
 
-/** Build the visual three-center production line from the one project read snapshot. */
+/** Build independent material, shot, and release centers for every clip. */
 export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: ReadonlySet<string>, positionOverrides: Readonly<Record<string, CanvasPositionOverride>> = {}): CanvasProjection {
   const hierarchy = createCanvasHierarchy(model);
   const nodes: Node<CanvasFlowNodeData>[] = [];
@@ -231,12 +223,7 @@ export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: Readonly
   for (const output of model.concat_outputs ?? []) { const list = outputsByClip.get(output.clip_id) ?? []; list.push(output); outputsByClip.set(output.clip_id, list); }
   for (const list of boardsByClip.values()) list.sort((left, right) => left.seq_num - right.seq_num || left.id.localeCompare(right.id));
   for (const list of outputsByClip.values()) list.sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id));
-  const maxStoryboardCount = Math.max(0, ...[...boardsByClip.values()].map((boards) => boards.length));
-  const shotsWidth = Math.max(CANVAS_LAYOUT.shotsWidth, 403 + Math.max(0, maxStoryboardCount - 1) * 282);
 
-  const materialOpen = expandedIds.has(canvasCenterId("materials"));
-  const shotsOpen = expandedIds.has(canvasCenterId("shots"));
-  const releaseOpen = expandedIds.has(canvasCenterId("release"));
   const sharedAssets = model.assets.filter((asset) => asset.clip_id === null);
   const sharedLayouts = MATERIAL_TYPES.map((type) => createMaterialCategoryLayout(
     sharedAssets.filter((asset) => asset.type === type), expandedIds.has(sharedCategoryId(model.project.id, type)), expandedIds, positionOverrides,
@@ -248,48 +235,37 @@ export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: Readonly
       owned.filter((asset) => asset.type === type), expandedIds.has(materialCategoryId(clip.id, type, model.project.id)), expandedIds, positionOverrides,
     )));
   }
-  const materialLaneWidths = [materialLaneWidth(sharedLayouts), ...model.clips.map((clip) => materialLaneWidth(clipLayouts.get(clip.id) ?? []))];
-  const materialWidth = Math.max(CANVAS_LAYOUT.materialWidth, MATERIAL_CATEGORY_CONTENT_X + Math.max(...materialLaneWidths, 0) + 18);
+
+  const materialLaneWidths = model.clips.map((clip) => materialLaneWidth(clipLayouts.get(clip.id) ?? []));
+  if (sharedAssets.length > 0) materialLaneWidths.push(materialLaneWidth(sharedLayouts));
+  const materialWidth = Math.max(CANVAS_LAYOUT.materialWidth, Math.max(...materialLaneWidths, 0) + 36);
+  const maxStoryboardCount = Math.max(0, ...[...boardsByClip.values()].map((boards) => boards.length));
+  const shotsWidth = Math.max(CANVAS_LAYOUT.shotsWidth, 403 + Math.max(0, maxStoryboardCount - 1) * 282);
   const shotsX = CANVAS_LAYOUT.materialX + materialWidth + 40;
   const releaseX = shotsX + shotsWidth + 40;
-  const sharedHeight = materialOpen ? Math.max(...sharedLayouts.map((layout) => layout.height), 0) + 28 : 0;
+  const centerOpen = (kind: CanvasCenterKind, clipId: string | null) => expandedIds.has(canvasCenterId(kind, clipId));
+
   const rowHeights = new Map<string, number>();
   for (const clip of model.clips) {
-    const rowOpen = expandedIds.has(episodeExpansionId(clip.id));
-    if (!rowOpen) { rowHeights.set(clip.id, 112); continue; }
-    const materialHeight = Math.max(...(clipLayouts.get(clip.id) ?? []).map((layout) => layout.height), 0) + 100;
+    const layouts = clipLayouts.get(clip.id) ?? [];
+    const materialHeight = centerOpen("materials", clip.id) ? Math.max(120, ...layouts.map((layout) => layout.height + 58)) : 62;
     const boards = boardsByClip.get(clip.id) ?? [];
-    const boardDetails = boards.some((board) => expandedIds.has(canonicalStoryboardId(board.id)));
-    const release = outputsByClip.get(clip.id) ?? [];
-    const releaseHeight = release.length > 1 && expandedIds.has(outputNodeId(release[0].id)) ? 250 : 162;
-    rowHeights.set(clip.id, Math.max(materialHeight, boardDetails ? 350 : 250, releaseHeight));
+    const hasBoardDetails = boards.some((board) => expandedIds.has(canonicalStoryboardId(board.id)));
+    const shotsHeight = centerOpen("shots", clip.id) ? hasBoardDetails ? 374 : 272 : 62;
+    const outputs = outputsByClip.get(clip.id) ?? [];
+    const hasOutputHistory = outputs.length > 1 && expandedIds.has(outputNodeId(outputs[0].id));
+    const releaseHeight = centerOpen("release", clip.id) ? hasOutputHistory ? 278 : 174 : 62;
+    rowHeights.set(clip.id, Math.max(materialHeight, shotsHeight, releaseHeight));
   }
-  const rowStart = CANVAS_LAYOUT.top + sharedHeight;
-  const rows = createProductionRows(model.clips, rowHeights, rowStart);
-  const totalHeight = Math.max(420, [...rows.values()].reduce((max, row) => Math.max(max, row.y + row.height + 24), rowStart + 96));
+  const rows = createProductionRows(model.clips, rowHeights);
+  const clipBottom = [...rows.values()].reduce<number>((bottom, row) => Math.max(bottom, row.y + row.height), CANVAS_LAYOUT.top);
+  const sharedHeight = sharedAssets.length > 0 ? Math.max(120, ...sharedLayouts.map((layout) => layout.height + 58)) : 0;
+  const sharedY = model.clips.length > 0 ? clipBottom + CANVAS_LAYOUT.rowGap : CANVAS_LAYOUT.top;
 
-  const centerData = (kind: CanvasCenterKind, title: string, itemCount: number, width: number): CanvasCenterNodeData => ({
-    ...base(model.project.id, canvasCenterId(kind), null, "center", kind, title), centerKind: kind, itemCount, width, height: totalHeight,
-  });
-  nodes.push(
-    asNode(canvasCenterId("materials"), "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: 16 }, centerData("materials", "素材中心", model.assets.length, materialWidth), { width: materialWidth, height: totalHeight }, 0),
-    asNode(canvasCenterId("shots"), "CanvasCenterNode", { x: shotsX, y: 16 }, centerData("shots", "镜头中心", model.storyboards.length, shotsWidth), { width: shotsWidth, height: totalHeight }, 0),
-    asNode(canvasCenterId("release"), "CanvasCenterNode", { x: releaseX, y: 16 }, centerData("release", "成片中心", model.concat_outputs?.length ?? 0, CANVAS_LAYOUT.releaseWidth), { width: CANVAS_LAYOUT.releaseWidth, height: totalHeight }, 0),
-  );
-
-  if (materialOpen) {
-    let x = CANVAS_LAYOUT.materialX + 18;
-    for (const [index, type] of MATERIAL_TYPES.entries()) {
-      const categoryId = sharedCategoryId(model.project.id, type);
-      const categoryAssets = sharedAssets.filter((asset) => asset.type === type);
-      const categoryOpen = expandedIds.has(categoryId);
-      const layout = sharedLayouts[index];
-      const categoryData: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, canonicalProjectId(model.project.id), "material-category", categoryId, "项目共享 · " + type), clipId: null, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
-      nodes.push(asNode(categoryId, "MaterialCategoryNode", { x, y: 58 }, categoryData, { width: layout.width, height: layout.height }, 1));
-      if (categoryOpen) addMaterialAssets(nodes, hierarchy, categoryAssets, x, 58, expandedIds, layout);
-      x += layout.width + MATERIAL_CATEGORY_GAP;
-    }
-  }
+  const centerData = (kind: CanvasCenterKind, clipId: string | null, title: string, itemCount: number, width: number, height: number, parentId: string | null): CanvasCenterNodeData => {
+    const id = canvasCenterId(kind, clipId);
+    return { ...base(model.project.id, id, parentId, "center", clipId ? `${clipId}:${kind}` : kind, title), centerKind: kind, clipId, itemCount, width, height };
+  };
 
   for (const clip of model.clips) {
     const row = rows.get(clip.id);
@@ -297,106 +273,123 @@ export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: Readonly
     const semanticClip = hierarchy.byId.get(canonicalClipId(clip.id));
     if (!semanticClip || semanticClip.data.entityType !== "clip") continue;
     const clipData = semanticClip.data;
-    nodes.push(asNode(clipData.canonicalId, "ClipNode", { x: CANVAS_LAYOUT.clipX, y: row.y + CANVAS_LAYOUT.entryY }, clipData));
-    const rowOpen = expandedIds.has(episodeExpansionId(clip.id));
-    const boards = boardsByClip.get(clip.id) ?? [];
+    const clipParentId = canonicalClipId(clip.id);
+    const materialCenter = canvasCenterId("materials", clip.id);
+    const shotsCenter = canvasCenterId("shots", clip.id);
+    const releaseCenter = canvasCenterId("release", clip.id);
     const owned = model.assets.filter((asset) => asset.clip_id === clip.id);
+    const boards = boardsByClip.get(clip.id) ?? [];
     const outputs = outputsByClip.get(clip.id) ?? [];
-    const entryData = (kind: CanvasCenterKind, count: number, title: string): EpisodeEntryNodeData => ({
-      ...base(model.project.id, episodeEntryId(kind, clip.id), canonicalClipId(clip.id), "episode-entry", clip.id, title, clip.status), centerKind: kind, clipId: clip.id,
-      expansionId: episodeExpansionId(clip.id), summary: clip.summary, itemCount: count, detailOpen: rowOpen, hasChildren: true,
-    });
-    const materialEntry = episodeEntryId("materials", clip.id);
-    const shotEntry = episodeEntryId("shots", clip.id);
-    const releaseEntry = episodeEntryId("release", clip.id);
-    if (materialOpen) nodes.push(asNode(materialEntry, "EpisodeEntryNode", { x: CANVAS_LAYOUT.materialX + 18, y: row.y + CANVAS_LAYOUT.entryY }, entryData("materials", owned.length, "素材区")));
-    if (shotsOpen) nodes.push(asNode(shotEntry, "EpisodeEntryNode", { x: shotsX + 18, y: row.y + CANVAS_LAYOUT.entryY }, entryData("shots", boards.length, "镜头区")));
-    if (releaseOpen) nodes.push(asNode(releaseEntry, "EpisodeEntryNode", { x: releaseX + 18, y: row.y + CANVAS_LAYOUT.entryY }, entryData("release", outputs.length, "成片区")));
-    if (materialOpen && shotsOpen && releaseOpen) {
-      edges.push(bezierEdge(`production:${clip.id}:material`, clipData.canonicalId, materialEntry, true));
-      edges.push(bezierEdge(`production:${clip.id}:shots`, materialEntry, shotEntry, true));
-      edges.push(bezierEdge(`production:${clip.id}:release`, shotEntry, releaseEntry, true));
-    }
-    if (!rowOpen) continue;
 
-    if (materialOpen) {
-      let categoryX = CANVAS_LAYOUT.materialX + MATERIAL_CATEGORY_CONTENT_X;
+    nodes.push(
+      asNode(clipData.canonicalId, "ClipNode", { x: CANVAS_LAYOUT.clipX, y: row.y + 6 }, clipData),
+      asNode(materialCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: row.y }, centerData("materials", clip.id, "素材中心", owned.length, materialWidth, row.height, clipParentId), { width: materialWidth, height: row.height }, 0),
+      asNode(shotsCenter, "CanvasCenterNode", { x: shotsX, y: row.y }, centerData("shots", clip.id, "镜头中心", boards.length, shotsWidth, row.height, clipParentId), { width: shotsWidth, height: row.height }, 0),
+      asNode(releaseCenter, "CanvasCenterNode", { x: releaseX, y: row.y }, centerData("release", clip.id, "成片中心", outputs.length, CANVAS_LAYOUT.releaseWidth, row.height, clipParentId), { width: CANVAS_LAYOUT.releaseWidth, height: row.height }, 0),
+    );
+    edges.push(bezierEdge(`production:${clip.id}:shots`, materialCenter, shotsCenter, true));
+    edges.push(bezierEdge(`production:${clip.id}:release`, shotsCenter, releaseCenter, true));
+
+    if (centerOpen("materials", clip.id)) {
+      let categoryX = CANVAS_LAYOUT.materialX + 18;
       const layouts = clipLayouts.get(clip.id) ?? [];
       for (const [index, type] of MATERIAL_TYPES.entries()) {
         const categoryId = materialCategoryId(clip.id, type, model.project.id);
         const categoryAssets = owned.filter((asset) => asset.type === type);
         const categoryOpen = expandedIds.has(categoryId);
         const layout = layouts[index];
-        const data: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, canonicalClipId(clip.id), "material-category", categoryId, type), clipId: clip.id, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
-        nodes.push(asNode(categoryId, "MaterialCategoryNode", { x: categoryX, y: row.y + 72 }, data, { width: layout.width, height: layout.height }, 1));
-        edges.push(bezierEdge(`material:${clip.id}:${type}`, materialEntry, categoryId));
-        if (categoryOpen) addMaterialAssets(nodes, hierarchy, categoryAssets, categoryX, row.y + 72, expandedIds, layout);
+        const data: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, clipParentId, "material-category", categoryId, type), clipId: clip.id, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
+        nodes.push(asNode(categoryId, "MaterialCategoryNode", { x: categoryX, y: row.y + 58 }, data, { width: layout.width, height: layout.height }, 1));
+        edges.push(bezierEdge(`material-entry:${clip.id}:${type}`, materialCenter, categoryId, false, "content-source"));
+        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, categoryX, row.y + 58, expandedIds, layout);
         categoryX += layout.width + MATERIAL_CATEGORY_GAP;
       }
     }
-    if (shotsOpen) addShotTrack(nodes, edges, hierarchy, model, clip.id, boards, row.y, expandedIds, shotEntry, shotsX);
-    if (releaseOpen) addReleaseChain(nodes, edges, model, clip.id, outputs, boards, row.y, expandedIds, releaseEntry, releaseX);
+    if (centerOpen("shots", clip.id)) addShotTrack(nodes, edges, hierarchy, model, clip.id, boards, row.y + 58, expandedIds, shotsCenter, shotsX);
+    if (centerOpen("release", clip.id)) addReleaseChain(nodes, edges, model, clip.id, outputs, boards, row.y + 58, expandedIds, releaseCenter, releaseX);
+  }
+
+  if (sharedAssets.length > 0) {
+    const sharedCenter = canvasCenterId("materials", null);
+    nodes.push(asNode(sharedCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: sharedY }, centerData("materials", null, "共享素材", sharedAssets.length, materialWidth, sharedHeight, canonicalProjectId(model.project.id)), { width: materialWidth, height: sharedHeight }, 0));
+    if (centerOpen("materials", null)) {
+      let categoryX = CANVAS_LAYOUT.materialX + 18;
+      for (const [index, type] of MATERIAL_TYPES.entries()) {
+        const categoryId = sharedCategoryId(model.project.id, type);
+        const categoryAssets = sharedAssets.filter((asset) => asset.type === type);
+        const categoryOpen = expandedIds.has(categoryId);
+        const layout = sharedLayouts[index];
+        const categoryData: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, canonicalProjectId(model.project.id), "material-category", categoryId, "项目共享 · " + type), clipId: null, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
+        nodes.push(asNode(categoryId, "MaterialCategoryNode", { x: categoryX, y: sharedY + 58 }, categoryData, { width: layout.width, height: layout.height }, 1));
+        edges.push(bezierEdge(`material-entry:shared:${type}`, sharedCenter, categoryId, false, "content-source"));
+        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, categoryX, sharedY + 58, expandedIds, layout);
+        categoryX += layout.width + MATERIAL_CATEGORY_GAP;
+      }
+    }
   }
   return { hierarchy, nodes, edges };
 }
 
-function addMaterialAssets(nodes: Node<CanvasFlowNodeData>[], hierarchy: CanvasHierarchy, assets: readonly CanvasAssetRead[], categoryX: number, categoryY: number, expandedIds: ReadonlySet<string>, layout: MaterialCategoryLayout): void {
+function addMaterialAssets(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, categoryId: string, assets: readonly CanvasAssetRead[], categoryX: number, categoryY: number, _expandedIds: ReadonlySet<string>, layout: MaterialCategoryLayout): void {
   for (const asset of assets) {
     const semantic = hierarchy.byId.get(canonicalAssetId(asset.id));
     const position = layout.assetPositions.get(semantic?.id ?? "");
     if (!semantic || semantic.data.entityType !== "asset" || !position) continue;
-    const expanded = expandedIds.has(semantic.id);
-    nodes.push(asNode(semantic.id, "AssetNode", { x: categoryX + position.x, y: categoryY + position.y }, semantic.data, expanded ? { width: 320 } : undefined));
+    nodes.push(asNode(semantic.id, "AssetNode", { x: categoryX + position.x, y: categoryY + position.y }, semantic.data, { width: 252 }));
+    edges.push(bezierEdge(`material-detail:${categoryId}:${semantic.id}`, categoryId, semantic.id, false, "asset-source"));
   }
 }
-function addShotTrack(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, model: ProjectCanvasReadModel, clipId: string, boards: CanvasStoryboardRead[], rowY: number, expandedIds: ReadonlySet<string>, entryId: string, shotsX: number): void {
+function addShotTrack(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, model: ProjectCanvasReadModel, clipId: string, boards: CanvasStoryboardRead[], contentY: number, expandedIds: ReadonlySet<string>, centerId: string, shotsX: number): void {
   const trackId = shotTrackId(clipId);
   const trackWidth = Math.max(CANVAS_LAYOUT.shotTrackWidth, 185 + Math.max(0, boards.length - 1) * 282);
   const trackData: ShotTrackNodeData = { ...base(model.project.id, trackId, canonicalClipId(clipId), "shot-track", clipId, "镜头轨"), clipId, shotCount: boards.length, width: trackWidth };
-  nodes.push(asNode(trackId, "ShotTrackNode", { x: shotsX + CANVAS_LAYOUT.shotTrackX, y: rowY + 70 }, trackData, { width: trackWidth }, 1));
+  nodes.push(asNode(trackId, "ShotTrackNode", { x: shotsX + CANVAS_LAYOUT.shotTrackX, y: contentY + 12 }, trackData, { width: trackWidth }, 1));
   boards.forEach((board, index) => {
     const anchorId = shotAnchorId(board.id);
     const anchorData: ShotAnchorNodeData = { ...base(model.project.id, anchorId, canonicalStoryboardId(board.id), "shot-anchor", board.id, `镜头 ${board.seq_num}`, board.video_state), clipId, storyboardId: board.id, seqNum: board.seq_num };
     const x = shotsX + 261 + index * 282;
-    nodes.push(asNode(anchorId, "ShotAnchorNode", { x, y: rowY + 58 }, anchorData, undefined, 3));
-    if (index === 0) edges.push(bezierEdge(`track-entry:${clipId}`, entryId, anchorId));
+    nodes.push(asNode(anchorId, "ShotAnchorNode", { x, y: contentY }, anchorData, undefined, 3));
+    if (index === 0) edges.push(bezierEdge(`track-entry:${clipId}`, centerId, anchorId, false, "content-source"));
     const boardNode = hierarchy.byId.get(canonicalStoryboardId(board.id));
     if (!boardNode || boardNode.data.entityType !== "storyboard") return;
-    nodes.push(asNode(boardNode.id, "StoryboardNode", { x: shotsX + 145 + index * 282, y: rowY + 104 }, boardNode.data));
+    nodes.push(asNode(boardNode.id, "StoryboardNode", { x: shotsX + 145 + index * 282, y: contentY + 46 }, boardNode.data));
     edges.push(bezierEdge(`shot-hang:${board.id}`, anchorId, boardNode.id));
     if (!expandedIds.has(boardNode.id)) return;
     const details = hierarchy.childrenById.get(boardNode.id) ?? [];
-    details.forEach((detailId, detailIndex) => {
+    let detailY = contentY + 212;
+    for (const detailId of details) {
       const detail = hierarchy.byId.get(detailId);
-      if (!detail) return;
-      nodes.push(asNode(detail.id, detail.type, { x: shotsX + 145 + index * 282, y: rowY + 270 + detailIndex * 62 }, detail.data));
+      if (!detail) continue;
+      nodes.push(asNode(detail.id, detail.type, { x: shotsX + 145 + index * 282, y: detailY }, detail.data));
       edges.push(bezierEdge(`shot-detail:${board.id}:${detail.id}`, boardNode.id, detail.id));
-    });
+      const isReadyVideo = detail.data.entityType === "video" && detail.data.filePath && (!detail.data.isUpscaleOutput || detail.data.isOutputReady);
+      detailY += (isReadyVideo ? 134 : 58) + 8;
+    }
   });
 }
-function addReleaseChain(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], model: ProjectCanvasReadModel, clipId: string, outputs: CanvasConcatOutputRead[], boards: CanvasStoryboardRead[], rowY: number, expandedIds: ReadonlySet<string>, entryId: string, releaseX: number): void {
+function addReleaseChain(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], model: ProjectCanvasReadModel, clipId: string, outputs: CanvasConcatOutputRead[], boards: CanvasStoryboardRead[], contentY: number, expandedIds: ReadonlySet<string>, centerId: string, releaseX: number): void {
   const readyShots = readyStoryboardCount(boards);
   const summaryId = releaseSummaryId(clipId);
   const taskId = releaseTaskId(clipId);
   const summary: ReleaseSummaryNodeData = { ...base(model.project.id, summaryId, canonicalClipId(clipId), "release-summary", clipId, "镜头就绪汇总"), clipId, readyShots, totalShots: boards.length };
   const task: ReleaseTaskNodeData = { ...base(model.project.id, taskId, canonicalClipId(clipId), "release-task", clipId, readyShots === boards.length && boards.length > 0 ? "等待合成" : "等待镜头"), clipId, readyShots, totalShots: boards.length, status: readyShots === boards.length && boards.length > 0 ? "ready" : "pending" };
-  nodes.push(asNode(summaryId, "ReleaseSummaryNode", { x: releaseX + 136, y: rowY + CANVAS_LAYOUT.entryY }, summary));
-  nodes.push(asNode(taskId, "ReleaseTaskNode", { x: releaseX + 252, y: rowY + CANVAS_LAYOUT.entryY }, task));
+  nodes.push(asNode(summaryId, "ReleaseSummaryNode", { x: releaseX + 136, y: contentY + 17 }, summary));
+  nodes.push(asNode(taskId, "ReleaseTaskNode", { x: releaseX + 252, y: contentY + 17 }, task));
   const current = outputs[0];
   const releaseId = current ? outputNodeId(current.id) : emptyReleaseId(clipId);
   const output: ReleaseOutputNodeData = current ? {
-    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", current.id, current.file_name || "当前成片"), clipId, fileName: current.file_name, filePath: current.output_path, duration: current.duration, segmentCount: current.segment_count, source: current.source, isEmpty: false, hasChildren: outputs.length > 1,
+    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", current.id, current.file_name || "当前成片"), clipId, fileName: current.file_name, filePath: current.output_path, duration: current.duration, segmentCount: current.segment_count, source: current.source, isEmpty: false,
   } : {
     ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", clipId, "尚无成片"), clipId, fileName: null, filePath: null, duration: null, segmentCount: 0, source: null, isEmpty: true,
   };
-  nodes.push(asNode(releaseId, "ReleaseOutputNode", { x: releaseX + 364, y: rowY + 5 }, output));
-  edges.push(bezierEdge(`release:${clipId}:summary`, entryId, summaryId));
+  nodes.push(asNode(releaseId, "ReleaseOutputNode", { x: releaseX + 364, y: contentY }, output));
+  edges.push(bezierEdge(`release:${clipId}:summary`, centerId, summaryId, false, "content-source"));
   edges.push(bezierEdge(`release:${clipId}:task`, summaryId, taskId));
   edges.push(bezierEdge(`release:${clipId}:output`, taskId, releaseId));
   if (!current || !expandedIds.has(releaseId)) return;
   outputs.slice(1).forEach((history, index) => {
     const id = outputNodeId(history.id);
     const historyData: ReleaseOutputNodeData = { ...base(model.project.id, id, releaseId, "release-output", history.id, history.file_name || "历史成片"), clipId, fileName: history.file_name, filePath: history.output_path, duration: history.duration, segmentCount: history.segment_count, source: history.source, isEmpty: false };
-    nodes.push(asNode(id, "ReleaseOutputNode", { x: releaseX + 388, y: rowY + 164 + index * 58 }, historyData));
+    nodes.push(asNode(id, "ReleaseOutputNode", { x: releaseX + 388, y: contentY + 110 + index * 58 }, historyData));
   });
 }

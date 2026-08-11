@@ -1,11 +1,12 @@
 /* Agent page layout, canvas material and chat drawer. */
 .agent-page { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); }
 .agent-main { flex: 1; min-height: 0; display: flex; position: relative; overflow: hidden; }
-.agent-page .sidebar-drawer { width: 0; flex-shrink: 0; transition: width .2s ease; }
-.agent-page .sidebar-drawer--open { width: 300px; }
+.agent-page .sidebar-drawer { position: absolute; top: 12px; bottom: 12px; left: 12px; z-index: var(--z-drawer); width: 300px; pointer-events: none; }
+.agent-page .sidebar-drawer--open { pointer-events: auto; }
 
 .agent-canvas { flex: 1; min-width: 0; position: relative; background-color: #1b2026; background-image: radial-gradient(circle, rgba(170, 187, 200, .13) .7px, transparent .9px), linear-gradient(135deg, rgba(112,132,148,.07), transparent 46%); background-size: 22px 22px, auto; }
 .agent-canvas .react-flow { background: transparent !important; }
+.agent-canvas .react-flow__node { contain: layout style; }
 .agent-canvas .react-flow__background { display: none; }
 .agent-canvas__controls { overflow: hidden; border: 1px solid rgba(185, 199, 210, .18) !important; border-radius: 9px !important; background: rgba(46, 54, 64, .76) !important; box-shadow: 0 3px 12px rgba(0,0,0,.16); backdrop-filter: blur(14px); }
 .agent-canvas__controls button { width: 30px !important; height: 30px !important; border-bottom: 1px solid rgba(196,206,214,.12) !important; background: transparent !important; fill: var(--text-tertiary) !important; }
@@ -19,13 +20,10 @@
 .agent-canvas__loading-spin { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.16); border-top-color: #78a8cf; border-radius: 50%; animation: cn-spin .6s linear infinite; }
 @keyframes cn-spin { to { transform: rotate(360deg); } }
 
-.sidebar-grabber,
-.agent-fab { position: absolute; z-index: var(--z-above); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(185,199,210,.16); background: rgba(44,51,61,.8); color: var(--text-secondary); cursor: pointer; backdrop-filter: blur(14px); transition: color .15s, background .15s, transform .15s; }
-.sidebar-grabber { top: 50%; left: 10px; width: 30px; height: 48px; transform: translateY(-50%); border-radius: 10px; }
-.sidebar-grabber:hover,
-.agent-fab:hover { background: rgba(59,69,81,.9); color: var(--text-primary); }
-.agent-fab { right: 20px; bottom: 20px; width: 48px; height: 48px; border-radius: 50%; box-shadow: 0 3px 14px rgba(0,0,0,.2); }
-.agent-fab:hover { transform: scale(1.04); }
+.agent-page .sidebar-grabber { opacity: 1; padding: 0; border: 0; appearance: none; background: transparent; }
+.agent-page .sidebar-grabber:hover { background: var(--bg-hover-subtle); }
+.agent-fab { position: absolute; z-index: var(--z-above); display: flex; align-items: center; justify-content: center; right: 20px; bottom: 20px; width: 48px; height: 48px; border: 1px solid rgba(185,199,210,.16); border-radius: 50%; background: rgba(44,51,61,.8); box-shadow: 0 3px 14px rgba(0,0,0,.2); color: var(--text-secondary); cursor: pointer; backdrop-filter: blur(14px); transition: color .15s, background .15s, transform .15s; }
+.agent-fab:hover { transform: scale(1.04); background: rgba(59,69,81,.9); color: var(--text-primary); }
 
 .agent-inspector { position: absolute; top: 12px; right: 16px; bottom: 12px; z-index: var(--z-drawer); display: flex; flex-direction: column; width: 280px; overflow: auto; border: 1px solid rgba(190,203,213,.16); border-radius: 14px; background: rgba(42,49,58,.78); box-shadow: 0 10px 28px rgba(0,0,0,.22); color: var(--text-secondary); backdrop-filter: blur(24px) saturate(120%); transition: right .25s cubic-bezier(.16,1,.3,1); }
 .agent-inspector--with-chat { right: 416px; }
@@ -77,3 +75,4 @@
 .tb-segment__item--active { background: var(--segmented-active-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 
 @media (max-width: 1100px) { .agent-inspector--with-chat { right: 16px; bottom: 310px; } .agent-drawer--open { top: auto; width: min(400px, calc(100% - 16px)); height: 292px; } .agent-drawer__inner { width: 100%; } .agent-canvas__notice { top: 54px; } }
+.agent-inspector__batches { margin: 0 14px 12px; padding: 10px; border: 1px solid rgba(126,172,206,.2); border-radius: 9px; background: rgba(92,137,170,.07); }.agent-inspector__batches header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.agent-inspector__batches header div { display: flex; align-items: center; gap: 6px; }.agent-inspector__batches header span { color: var(--text-tertiary); font-size: 10px; }.agent-inspector__batches header strong { color: #b4d5eb; font-size: 10px; }.agent-inspector__batches header em { padding: 1px 5px; border-radius: 999px; background: rgba(120,168,207,.13); color: #a8cae1; font-size: 9px; font-style: normal; }.agent-inspector__batch-selection { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--text-tertiary); font-size: 10px; }.agent-inspector__batch-selection strong { color: var(--text-secondary); font-weight: 600; }.agent-inspector__batch-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 9px; }.agent-inspector__batch-image { position: relative; aspect-ratio: 1; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: rgba(10,14,18,.3); }.agent-inspector__batch-image img { display: block; width: 100%; height: 100%; object-fit: cover; }.agent-inspector__batch-image span { position: absolute; right: 2px; bottom: 2px; min-width: 13px; border-radius: 3px; background: rgba(7,10,13,.72); color: #eef6fb; font-size: 8px; line-height: 13px; text-align: center; }.agent-inspector__batch-image b { position: absolute; top: 2px; left: 2px; padding: 1px 3px; border-radius: 3px; background: #78a8cf; color: #10202a; font-size: 8px; line-height: 11px; }.agent-inspector__batch-image--selected { border-color: #92c6e8; box-shadow: 0 0 0 2px rgba(103,171,215,.24); }.agent-inspector__batch-empty { margin: 10px 0 0; color: var(--text-quaternary); font-size: 10px; }

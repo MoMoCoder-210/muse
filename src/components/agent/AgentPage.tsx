@@ -57,7 +57,7 @@ export function AgentPage({ project, onSelectProject }: Props) {
     return expanded;
   }, []);
 
-  const applyCanvas = useCallback((nextNodes: Node<CanvasFlowNodeData>[], nextEdges: Edge[], isInitialLoad: boolean, centerNodeId?: string) => {
+  const applyCanvas = useCallback((nextNodes: Node<CanvasFlowNodeData>[], nextEdges: Edge[], isInitialLoad: boolean, centerNodeId?: string, restoreViewport = true) => {
     const previousViewport = isInitialLoad ? undefined : flowRef.current?.getViewport();
     const selectedNodeId = selectedNodeIdRef.current;
     const projectId = nextNodes[0]?.data.projectId;
@@ -82,6 +82,7 @@ export function AgentPage({ project, onSelectProject }: Props) {
       return selectedProjection;
     });
     if (viewportRestoreFrameRef.current != null) cancelAnimationFrame(viewportRestoreFrameRef.current);
+    if (!restoreViewport) return;
     viewportRestoreFrameRef.current = requestAnimationFrame(() => {
       if (centerNodeId && boundedNodes.some((node) => node.id === centerNodeId)) {
         flowRef.current?.fitView({ nodes: [{ id: centerNodeId }], padding: 0.65, maxZoom: 1.1, duration: 260 });
@@ -162,6 +163,14 @@ export function AgentPage({ project, onSelectProject }: Props) {
     selectedNodeIdRef.current = node.id;
     setSelectedNode(node);
   }, []);
+  const constrainDraggingNode = useCallback((_: unknown, node: Node<CanvasFlowNodeData>) => {
+    if (!isCanvasContentDraggable(node)) return;
+    const visibleNodes = flowRef.current?.getNodes() as Node<CanvasFlowNodeData>[] | undefined;
+    const canvasNodes = visibleNodes ?? nodes;
+    const position = constrainCanvasNodePosition(node, node.position, canvasNodes);
+    if (position.x === node.position.x && position.y === node.position.y) return;
+    setNodes((current) => current.map((item) => item.id === node.id ? { ...item, position } : item));
+  }, [nodes, setNodes]);
   const persistCanvasNodePosition = useCallback((node: Node<CanvasFlowNodeData>) => {
     const activeProject = projectRef.current;
     if (!activeProject || !isCanvasContentDraggable(node)) return;
@@ -205,7 +214,7 @@ export function AgentPage({ project, onSelectProject }: Props) {
     <div className={`sidebar-drawer${sidebarOpen ? " sidebar-drawer--open" : ""}`}><ProjectSidebar projects={projects} selectedProjectId={project?.id ?? ""} onSelectProject={(projectId) => { const nextProject = projects.find((item) => item.id === projectId); if (nextProject) onSelectProjectWrapped(nextProject); }} onCreateProject={() => {}} onDeleteProject={() => {}} onGoHome={() => {}} /></div>
     <div className="agent-canvas">
       <CanvasInteractionProvider expandedIds={activeExpanded} onToggleExpanded={toggleExpanded} onAssetPillClick={revealReferencedAsset}>
-        <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={(_, node) => selectCanvasNode(node)} onNodeDragStop={(_, node) => persistCanvasNodePosition(node)} onPaneClick={clearSelectedNode} onInit={(instance) => { flowRef.current = instance; }} nodeTypes={agentNodeTypes} nodesConnectable={false} nodesDraggable panOnDrag proOptions={{ hideAttribution: true }}>
+        <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={(_, node) => selectCanvasNode(node)} onNodeDrag={(_, node) => constrainDraggingNode(_, node)} onNodeDragStop={(_, node) => persistCanvasNodePosition(node)} onPaneClick={clearSelectedNode} onInit={(instance) => { flowRef.current = instance; }} nodeTypes={agentNodeTypes} nodesConnectable={false} nodesDraggable panOnDrag onlyRenderVisibleElements proOptions={{ hideAttribution: true }}>
           <Controls className="agent-canvas__controls" showInteractive={false} />
           {nodes.length > 0 && <MiniMap className="agent-canvas__minimap" nodeColor="rgba(117, 143, 164, 0.48)" maskColor="rgba(20, 25, 31, 0.7)" style={{ background: "rgba(35, 42, 50, 0.78)" }} />}
         </ReactFlow>
@@ -232,7 +241,7 @@ function readCanvasPositionOverrides(): CanvasPositionOverrides {
       for (const [nodeId, position] of Object.entries(projectPositions as Record<string, unknown>)) {
         if (!position || typeof position !== "object" || Array.isArray(position)) continue;
         const { x, y } = position as Partial<CanvasNodePosition>;
-        if (Number.isFinite(x) && Number.isFinite(y)) positions[nodeId] = { x, y };
+        if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) positions[nodeId] = { x, y };
       }
       if (Object.keys(positions).length) sanitized[projectId] = positions;
     }
@@ -245,17 +254,29 @@ function writeCanvasPositionOverrides(positions: CanvasPositionOverrides): void 
 function isCanvasContentDraggable(node: Node<CanvasFlowNodeData>): boolean {
   return ["asset", "storyboard", "video", "task", "release-summary", "release-task", "release-output"].includes(node.data.entityType);
 }
-function canvasCenterForNode(node: Node<CanvasFlowNodeData>): "materials" | "shots" | "release" | null {
+function canvasCenterKindForNode(node: Node<CanvasFlowNodeData>): "materials" | "shots" | "release" | null {
   const { entityType } = node.data;
   if (entityType === "asset" || entityType === "image" || (entityType === "task" && node.data.taskKind === "asset")) return "materials";
   if (entityType === "storyboard" || entityType === "video" || entityType === "shot-track" || entityType === "shot-anchor" || (entityType === "task" && node.data.taskKind !== "asset")) return "shots";
   if (entityType === "release-summary" || entityType === "release-task" || entityType === "release-output") return "release";
-  if (entityType === "episode-entry") return node.data.centerKind;
   return null;
+}
+function canvasCenterForNode(node: Node<CanvasFlowNodeData>, nodes: readonly Node<CanvasFlowNodeData>[]): Node<CanvasFlowNodeData> | null {
+  const kind = canvasCenterKindForNode(node);
+  if (!kind) return null;
+  let current: Node<CanvasFlowNodeData> | undefined = node;
+  while (current) {
+    if (current.data.entityType === "clip") {
+      const clipId = current.data.entityId;
+      return nodes.find((candidate) => candidate.data.entityType === "center" && candidate.data.centerKind === kind && candidate.data.clipId === clipId) ?? null;
+    }
+    current = current.data.parentCanonicalId ? nodes.find((candidate) => candidate.id === current?.data.parentCanonicalId) : undefined;
+  }
+  return nodes.find((candidate) => candidate.data.entityType === "center" && candidate.data.centerKind === kind && candidate.data.clipId === null) ?? null;
 }
 function numericStyleDimension(value: unknown, fallback: number): number { return typeof value === "number" ? value : fallback; }
 function estimatedNodeSize(node: Node<CanvasFlowNodeData>): { width: number; height: number } {
-  if (node.data.entityType === "asset") return { width: typeof node.style?.width === "number" ? node.style.width : 146, height: node.style?.width === 320 ? 190 : 64 };
+  if (node.data.entityType === "asset") return { width: typeof node.style?.width === "number" ? node.style.width : 252, height: 152 };
   if (node.data.entityType === "storyboard") return { width: 258, height: 132 };
   if (node.data.entityType === "video") {
     const hasPreview = Boolean(node.data.filePath && (!node.data.isUpscaleOutput || node.data.isOutputReady));
@@ -279,8 +300,7 @@ function constrainCanvasNodePosition(node: Node<CanvasFlowNodeData>, position: C
     // Material categories grow from the drag result, so only their content origin is a hard boundary.
     return { x: Math.max(position.x, category.position.x + 12), y: Math.max(position.y, category.position.y + 48) };
   }
-  const center = canvasCenterForNode(node);
-  const centerNode = center ? nodes.find((candidate) => candidate.id === `center:${center}`) : null;
+  const centerNode = canvasCenterForNode(node, nodes);
   if (!centerNode) return position;
   const centerWidth = numericStyleDimension(centerNode.style?.width, 500);
   const centerHeight = numericStyleDimension(centerNode.style?.height, 420);
@@ -295,8 +315,24 @@ function isBusinessCanvasNode(node: Node<CanvasFlowNodeData>): node is Node<Canv
   return ["project", "clip", "asset", "storyboard", "image", "video", "task"].includes(node.data.entityType);
 }
 function CanvasInspector({ node, className, onClose }: { node: Node<CanvasNodeData>; className: string; onClose: () => void }) {
-  const data = node.data; const preview = getPreview(data);
-  return <aside className={`agent-inspector${className}`} aria-label="画布对象检查器"><div className="agent-inspector__header"><div><span className="agent-inspector__kind">{entityLabel(data.entityType)}</span><h2>{data.title}</h2></div><div className="agent-inspector__actions"><button type="button" onClick={onClose} aria-label="关闭检查器">×</button></div></div>{preview && <div className="agent-inspector__preview">{preview.kind === "image" ? <img src={toMediaUrl(preview.path)} alt={data.title} /> : <video src={toMediaUrl(preview.path)} controls preload="metadata" playsInline />}</div>}<div className="agent-inspector__summary">{inspectorSummary(data)}</div><dl className="agent-inspector__facts"><div><dt>状态</dt><dd>{data.status || "可用"}</dd></div><div><dt>实体 ID</dt><dd title={data.entityId}>{data.entityId}</dd></div></dl><p className="agent-inspector__hint">检查器只展示 Tauri 权威只读投影；业务编辑和生成仍在手动工作区或确认流程中执行。</p></aside>;
+  const data = node.data;
+  const preview = getPreview(data);
+  return <aside className={`agent-inspector${className}`} aria-label="画布对象检查器">
+    <div className="agent-inspector__header"><div><span className="agent-inspector__kind">{entityLabel(data.entityType)}</span><h2>{data.title}</h2></div><div className="agent-inspector__actions"><button type="button" onClick={onClose} aria-label="关闭检查器">×</button></div></div>
+    {preview && <div className="agent-inspector__preview">{preview.kind === "image" ? <img src={toMediaUrl(preview.path)} alt={data.title} /> : <video src={toMediaUrl(preview.path)} controls preload="metadata" playsInline />}</div>}
+    <div className="agent-inspector__summary">{inspectorSummary(data)}</div>
+    {data.entityType === "asset" && <AssetImageBatchInspector data={data} />}
+    <dl className="agent-inspector__facts"><div><dt>状态</dt><dd>{data.status || "可用"}</dd></div><div><dt>实体 ID</dt><dd title={data.entityId}>{data.entityId}</dd></div></dl>
+    <p className="agent-inspector__hint">检查器只展示 Tauri 权威只读投影；业务编辑和生成仍在手动工作区或确认流程中执行。</p>
+  </aside>;
+}
+function AssetImageBatchInspector({ data }: { data: Extract<CanvasNodeData, { entityType: "asset" }> }) {
+  const selectedIndex = data.previewImages.findIndex((image) => image.isSelected);
+  return <section className="agent-inspector__batches" aria-label="图片批次">
+    <header><div><span>图片批次</span><strong>批次 01</strong></div><em>{data.imageCount} 张</em></header>
+    <div className="agent-inspector__batch-selection"><span>选中批次</span><strong>批次 01 · 图片 #{selectedIndex >= 0 ? selectedIndex + 1 : "—"}</strong></div>
+    {data.previewImages.length > 0 ? <div className="agent-inspector__batch-grid">{data.previewImages.map((image, index) => <div key={image.id} className={`agent-inspector__batch-image${image.isSelected ? " agent-inspector__batch-image--selected" : ""}`}><img src={toMediaUrl(image.imagePath)} alt={`${data.name} 图片 ${index + 1}`} /><span>{index + 1}</span>{image.isSelected && <b>选中</b>}</div>)}</div> : <p className="agent-inspector__batch-empty">当前批次暂无图片。</p>}
+  </section>;
 }
 function getPreview(data: CanvasNodeData): { kind: "image" | "video"; path: string } | null { if (data.entityType === "image") return { kind: "image", path: data.imagePath }; if (data.entityType === "video" && data.filePath && (!data.isUpscaleOutput || data.isOutputReady)) return { kind: "video", path: data.filePath }; if (data.entityType === "asset" && data.selectedImagePath) return { kind: "image", path: data.selectedImagePath }; return null; }
 function toMediaUrl(path: string): string { return path.startsWith("http") ? path : convertFileSrc(path); }
