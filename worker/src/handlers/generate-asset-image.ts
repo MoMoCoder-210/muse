@@ -1,8 +1,9 @@
 import { randomUUID } from "crypto";
-import { mkdir } from "fs/promises";
+import { unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import type { TaskContext } from "../types.js";
+import { generateImageThumbnail, imageThumbnailPath } from "../media.js";
 import { l, le } from "../utils/utils.js";
 
 /**
@@ -72,6 +73,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     const suffix = count > 1 ? `_${batchStamp}_${i + 1}` : `_${batchStamp}`;
     const imageFileName = `${safeName}_${uuidShort}${suffix}.png`;
     const savePath = join(saveDir, imageFileName);
+    let imagePersisted = false;
 
     try {
       // 严格校验 size：前端计算的值必须符合 API 最低 3.68MP 要求
@@ -86,6 +88,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
       l("素材生图", `使用 size=${input.size ?? "默认"} prompt长度=${input.prompt.length} prompt=${input.prompt}`);
 
       await imageClient.generateAndSave(input.prompt, savePath, genOptions);
+      const thumbnailPath = await generateImageThumbnail(ctx.ffmpeg, savePath, ctx.signal);
 
       // 复用上方生成的 UUID 作为图片唯一 ID
       const imageId = imageUuid;
@@ -93,16 +96,17 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
       // 创建 asset_images 记录（无已绑定时首张自动选中）
       const shouldSelect = !hasExistingBinding && i === 0;
       db.prepare(
-        `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'generation', ?, 'pending')`
+        `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, file_name, is_selected, source, task_id, ark_upload_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'generation', ?, 'pending')`
       ).run(
         imageId, assetId, input.prompt,
         input.size ?? null, input.style ?? null,
-        savePath, imageFileName, shouldSelect ? 1 : 0, ctx.taskId
+        savePath, thumbnailPath, imageFileName, shouldSelect ? 1 : 0, ctx.taskId
       );
+      imagePersisted = true;
 
       generatedPaths.push({ path: savePath, imageId });
-      l("素材生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath}`);
+      l("素材生图", `第${i + 1}/${count}张完成 assetId=${assetId} imageId=${imageId} path=${savePath} thumbnail=${thumbnailPath}`);
 
       // 单张图片已 ready，通知前端即时刷新画廊
       emit({
@@ -118,6 +122,10 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       le("素材生图", `第${i + 1}张失败 assetType=${input.assetType} name=${input.name} 错误=${msg}`);
+      if (!imagePersisted) {
+        await unlink(savePath).catch(() => undefined);
+        await unlink(imageThumbnailPath(savePath)).catch(() => undefined);
+      }
       if (i === 0 && generatedPaths.length === 0) throw err;
       // 后续图片失败不影响已生成的结果
     }

@@ -116,6 +116,30 @@ export class FFmpegHelper {
   }
 
   /**
+   * 从图片生成最长边不超过 320px 的 JPEG 缩略图。
+   */
+  async createImageThumbnail(
+    inputPath: string,
+    outputPath: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const result = await this.execFFmpeg([
+      "-y",
+      "-loglevel", "error",
+      "-i", inputPath,
+      "-vf", "scale=320:320:force_original_aspect_ratio=decrease",
+      "-frames:v", "1",
+      "-q:v", "4",
+      "-map_metadata", "-1",
+      outputPath,
+    ], signal, 120_000);
+
+    if (result.exitCode !== 0) {
+      throw new Error(`FFmpeg 生成图片缩略图失败（exit=${result.exitCode}）：${result.stderr || inputPath}`);
+    }
+  }
+
+  /**
    * 探测媒体文件属性。
    *
    * 使用 ffprobe 以 JSON 格式输出流信息，解析为 ProbeResult。

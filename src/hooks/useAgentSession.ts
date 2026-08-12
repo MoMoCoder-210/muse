@@ -16,7 +16,7 @@ export function useAgentSession() {
 
   const sendMessage = useCallback(
     async (userInput: string): Promise<AgentRunResult | null> => {
-      const { config, projectId, messages } = useAgentStore.getState();
+      const { config, projectId } = useAgentStore.getState();
       if (!config) return null;
 
       const userMsg: ChatMessage = { role: "user", content: userInput };

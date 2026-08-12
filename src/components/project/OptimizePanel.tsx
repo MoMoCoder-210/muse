@@ -111,14 +111,15 @@ export function OptimizePanel({
     };
     smoothScrollRef.current = smoothScroll;
 
-    // 鼠标滚轮：纵向滚轮转为横向平滑滚动
+    // 鼠标滚轮：纵向滚轮转为横向平滑滚动。
+    // 监听器必须保持 passive，避免 Chrome 报告 scroll-blocking listener；
+    // 滚动链由 .op-tabbar 的 overscroll-behavior 控制。
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        e.preventDefault();
         smoothScroll(e.deltaY > 0 ? Math.max(e.deltaY, 40) : Math.min(e.deltaY, -40));
       }
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("wheel", onWheel, { passive: true });
 
     return () => {
       el.removeEventListener("wheel", onWheel);

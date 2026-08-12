@@ -288,7 +288,10 @@ fn collect_clip_file_paths(
             .map(|(i, _)| format!("?{}", i + 1))
             .collect();
         let img_sql = format!(
-            "SELECT image_path FROM asset_images WHERE asset_id IN ({})",
+            "SELECT image_path FROM asset_images WHERE asset_id IN ({})
+             UNION
+             SELECT thumbnail_path FROM asset_images WHERE asset_id IN ({}) AND thumbnail_path IS NOT NULL",
+            placeholders.join(","),
             placeholders.join(",")
         );
         {

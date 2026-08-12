@@ -1,6 +1,4 @@
-/** Stable production-line layout shared by the three composite canvas centers. */
-import type { AssetType } from "../../types/project";
-import type { CanvasFlowNodeData } from "./node-data";
+/** Deterministic geometry for the Agent production canvas. */
 
 export const CANVAS_LAYOUT = {
   clipX: 24,
@@ -9,33 +7,50 @@ export const CANVAS_LAYOUT = {
   shotsX: 790,
   shotsWidth: 700,
   releaseX: 1530,
-  releaseWidth: 660,
+  releaseWidth: 602,
   top: 24,
   rowGap: 34,
-  entryY: 18,
-  materialContentX: 132,
-  shotTrackX: 104,
+  centerHeaderHeight: 42,
+  centerContentTop: 58,
+  centerContentPadding: 12,
+  categoryHeaderHeight: 36,
+  categoryContentTop: 48,
+  materialCategoryGap: 32,
+  materialCategoryInset: 64,
+  materialAssetInsetX: 20,
+  materialAssetRightPadding: 20,
+  materialAssetStartY: 48,
+  shotsSidePadding: 64,
+  shotCardWidth: 258,
+  shotTrackX: 64,
   shotTrackWidth: 545,
-  releaseContentX: 130,
+  shotAnchorX: 180,
+  shotColumnStep: 330,
+  releaseContentX: 64,
+  releaseOutputX: 292,
+  releaseHistoryX: 292,
+  releaseOutputHeight: 164,
+  releaseHistoryTop: 180,
+  releaseHistoryHeight: 76,
+  releaseHistoryGap: 12,
+  releaseContentBottomPadding: 12,
+  videoCardHeight: 154,
+  taskCardHeight: 58,
+  shotDetailGap: 8,
 } as const;
 
-export interface ProductionLayoutItem {
-  id: string;
-  clipId: string;
-  center: "materials" | "shots" | "release";
-  data: CanvasFlowNodeData;
-}
 export interface ProductionRowMetric {
   clipId: string;
   y: number;
   height: number;
 }
 
-/**
- * Every clip is allocated one shared vertical band. Callers contribute the
- * tallest detail area for that clip, then all three centers use its same y.
- */
-export function createProductionRows(clips: readonly { id: string }[], rowHeights: ReadonlyMap<string, number>, startY: number = CANVAS_LAYOUT.top): Map<string, ProductionRowMetric> {
+/** Allocate one stable vertical band per clip for all three centers. */
+export function createProductionRows(
+  clips: readonly { id: string }[],
+  rowHeights: ReadonlyMap<string, number>,
+  startY: number = CANVAS_LAYOUT.top,
+): Map<string, ProductionRowMetric> {
   let cursor = startY;
   const rows = new Map<string, ProductionRowMetric>();
   for (const clip of clips) {
@@ -44,23 +59,4 @@ export function createProductionRows(clips: readonly { id: string }[], rowHeight
     cursor += height + CANVAS_LAYOUT.rowGap;
   }
   return rows;
-}
-
-export function categoryDetailHeight(assets: readonly { id: string; type: AssetType; expanded: boolean; detailCount: number }[], type: AssetType, categoryOpen: boolean): number {
-  if (!categoryOpen) return 38;
-  const members = assets.filter((asset) => asset.type === type);
-  if (members.length === 0) return 74;
-  let height = 0;
-  let compactColumn = 0;
-  for (const asset of members) {
-    if (asset.expanded) {
-      if (compactColumn) { height += 72; compactColumn = 0; }
-      height += 150 + Math.min(2, Math.max(0, asset.detailCount)) * 20;
-      continue;
-    }
-    compactColumn += 1;
-    if (compactColumn === 2) { height += 72; compactColumn = 0; }
-  }
-  if (compactColumn) height += 72;
-  return 42 + height;
 }

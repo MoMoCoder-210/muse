@@ -1,7 +1,10 @@
-/** Agent canvas public boundary. */
+export { CANVAS_LAYOUT } from "./layout";
+export type { ProductionRowMetric } from "./layout";
 export { agentNodeTypes, CanvasInteractionProvider } from "./nodes";
 export { buildCanvas, createCanvasHierarchy, defaultCanvasExpandedIds, agentExecutingCanvasExpandedIds, canonicalAssetId, canonicalProjectId, canonicalStoryboardId, canonicalTaskId, canonicalVideoId } from "./sync";
 export { adaptCanvasDisclosure } from "./disclosure";
+export { debugCanvas, summarizeCanvasNode, summarizeCanvasNodes } from "./debug";
 export type { CanvasDisclosure, CanvasDisclosureEffect, CanvasDisclosureTarget } from "./disclosure";
 export type { CanvasHierarchy, CanvasProjection } from "./sync";
-export type { CanvasFlowNodeData, CanvasNodeData, StoryboardAssetReference } from "./node-data";
+export { isCanvasVideoReady } from "./node-data";
+export type { CanvasFlowNodeData, CanvasNodeData, ReleaseOutputNodeData, ReleaseShotPreview, ReleaseSummaryNodeData, StoryboardAssetReference, StoryboardNodeData } from "./node-data";

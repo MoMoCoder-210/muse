@@ -679,6 +679,9 @@ pub fn delete_asset_from_clip(
                     .prepare(
                         "SELECT image_path FROM asset_images WHERE asset_id = ?1
                          UNION
+                         SELECT thumbnail_path FROM asset_images
+                         WHERE asset_id = ?1 AND thumbnail_path IS NOT NULL
+                         UNION
                          SELECT reference_image_path FROM assets
                          WHERE id = ?1 AND reference_image_path IS NOT NULL
                          UNION
@@ -1563,9 +1566,14 @@ pub fn delete_asset_image(
 
     // 先尝试 asset_images 表（已完成图片）
     let img_result = tx.query_row(
-        "SELECT image_path, is_selected, ark_file_id FROM asset_images WHERE id = ?1 AND asset_id = ?2",
+        "SELECT image_path, thumbnail_path, is_selected, ark_file_id FROM asset_images WHERE id = ?1 AND asset_id = ?2",
         rusqlite::params![&input.image_id, &asset_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0, row.get::<_, Option<String>>(2)?)),
+        |row| Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, i64>(2)? != 0,
+            row.get::<_, Option<String>>(3)?,
+        )),
     );
 
     // 若 asset_images 中找不到，则尝试 tasks 表（pending / running / failed 任务）
@@ -1609,7 +1617,7 @@ pub fn delete_asset_image(
         });
     }
 
-    let (image_path, was_selected, ark_file_id) = img_result.unwrap();
+    let (image_path, thumbnail_path, was_selected, ark_file_id) = img_result.unwrap();
 
     tx.execute(
         "DELETE FROM asset_images WHERE id = ?1",
@@ -1651,12 +1659,18 @@ pub fn delete_asset_image(
 
     // 数据库事务已提交后再删除文件，且只能清理该作品工作区内的安全路径。
     let result = if input.delete_file {
-        crate::commands::clip::delete_managed_files(vec![
-            crate::commands::clip::ClipFileCandidate {
-                workspace_path: std::path::PathBuf::from(workspace_path),
-                file_path: std::path::PathBuf::from(image_path),
-            },
-        ])
+        let workspace = std::path::PathBuf::from(workspace_path);
+        let mut candidates = vec![crate::commands::clip::ClipFileCandidate {
+            workspace_path: workspace.clone(),
+            file_path: std::path::PathBuf::from(image_path),
+        }];
+        if let Some(path) = thumbnail_path {
+            candidates.push(crate::commands::clip::ClipFileCandidate {
+                workspace_path: workspace,
+                file_path: std::path::PathBuf::from(path),
+            });
+        }
+        crate::commands::clip::delete_managed_files(candidates)
     } else {
         crate::commands::clip::DeleteClipsResult {
             deleted_file_count: 0,
@@ -1785,8 +1799,10 @@ pub fn import_local_asset_image(
     let target_filename = format!("{}_{}_{}.{}", safe_name, uuid_short, timestamp, ext);
     let target_path = save_dir.join(&target_filename);
     let target_path_str = target_path.to_string_lossy().to_string();
+    let thumbnail_path = crate::media::image_thumbnail_path(&target_path)?;
+    let thumbnail_path_str = thumbnail_path.to_string_lossy().to_string();
 
-    // 4. 事务：确保 assets + asset_images 记录就绪，然后复制文件并提交
+    // 4. 事务：确保 assets + asset_images 记录就绪，然后复制原图并生成缩略图
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let asset_id: String = match tx.query_row(
@@ -1826,11 +1842,15 @@ pub fn import_local_asset_image(
     // 6. 插入 asset_images 记录
     let image_id = image_uuid.to_string();
     tx.execute(
-        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
-         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, 'local', NULL, 'pending', datetime('now'))",
-        rusqlite::params![&image_id, &asset_id, &target_path_str, &target_filename, if is_selected { 1 } else { 0 }],
+        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
+         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, ?6, 'local', NULL, 'pending', datetime('now'))",
+        rusqlite::params![&image_id, &asset_id, &target_path_str, &thumbnail_path_str, &target_filename, if is_selected { 1 } else { 0 }],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| {
+        let _ = fs::remove_file(&target_path);
+        let _ = fs::remove_file(&thumbnail_path);
+        error.to_string()
+    })?;
 
     // 7. 若自动绑定，回写 assets 表
     if is_selected {
@@ -1847,17 +1867,20 @@ pub fn import_local_asset_image(
         .map_err(|e| e.to_string())?;
     }
 
-    // 8. 复制文件（在 DB 记录就绪后，提交前）
-    //    若复制失败则回滚事务，不留孤儿数据
-    if let Err(e) = fs::copy(&src, &target_path) {
-        // 事务自动回滚（tx drop），DB 无残留
-        return Err(format!("复制文件失败：{}", e));
+    // 8. 复制原图并生成缩略图；任一步失败都会回滚事务。
+    if let Err(error) = fs::copy(&src, &target_path) {
+        return Err(format!("复制文件失败：{}", error));
+    }
+    if let Err(error) = crate::media::generate_image_thumbnail(&app, &target_path) {
+        let _ = fs::remove_file(&target_path);
+        return Err(format!("生成图片缩略图失败：{}", error));
     }
 
     // 9. 提交事务
     tx.commit().map_err(|e| {
-        // 提交失败时清理已复制到磁盘的文件
+        // 提交失败时清理已复制到磁盘的原图和缩略图
         let _ = fs::remove_file(&target_path);
+        let _ = fs::remove_file(&thumbnail_path);
         format!("保存记录失败：{}", e)
     })?;
 
@@ -2015,8 +2038,10 @@ pub fn copy_asset_image_from(
     let target_filename = format!("{}_{}_{}.{}", safe_name, uuid_short, timestamp, ext);
     let target_path = save_dir.join(&target_filename);
     let target_path_str = target_path.to_string_lossy().to_string();
+    let thumbnail_path = crate::media::image_thumbnail_path(&target_path)?;
+    let thumbnail_path_str = thumbnail_path.to_string_lossy().to_string();
 
-    // 4. 事务：确保目标 assets 记录存在，插入 asset_images，复制文件
+    // 4. 事务：确保目标 assets 记录存在，插入 asset_images，然后复制原图并生成缩略图
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let target_asset_id: String = match tx.query_row(
@@ -2061,11 +2086,15 @@ pub fn copy_asset_image_from(
     // 6. 插入新的 asset_images 记录
     let new_image_id = image_uuid.to_string();
     tx.execute(
-        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
-         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, 'imported', NULL, 'pending', datetime('now'))",
-        rusqlite::params![&new_image_id, &target_asset_id, &target_path_str, &target_filename, if is_selected { 1 } else { 0 }],
+        "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, file_name, is_selected, source, task_id, ark_upload_status, created_at)
+         VALUES (?1, ?2, '', NULL, NULL, ?3, ?4, ?5, ?6, 'imported', NULL, 'pending', datetime('now'))",
+        rusqlite::params![&new_image_id, &target_asset_id, &target_path_str, &thumbnail_path_str, &target_filename, if is_selected { 1 } else { 0 }],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| {
+        let _ = fs::remove_file(&target_path);
+        let _ = fs::remove_file(&thumbnail_path);
+        error.to_string()
+    })?;
 
     // 7. 若自动绑定，回写 assets 表
     if is_selected {
@@ -2082,9 +2111,13 @@ pub fn copy_asset_image_from(
         .map_err(|e| e.to_string())?;
     }
 
-    // 8. 复制文件
-    if let Err(e) = fs::copy(&src, &target_path) {
-        return Err(format!("复制文件失败：{}", e));
+    // 8. 复制原图并生成缩略图；任一步失败都会回滚事务。
+    if let Err(error) = fs::copy(&src, &target_path) {
+        return Err(format!("复制文件失败：{}", error));
+    }
+    if let Err(error) = crate::media::generate_image_thumbnail(&app, &target_path) {
+        let _ = fs::remove_file(&target_path);
+        return Err(format!("生成图片缩略图失败：{}", error));
     }
 
     // 9. 提交事务
@@ -2095,12 +2128,13 @@ pub fn copy_asset_image_from(
                 "素材",
                 "WARN",
                 &format!(
-                    "事务回滚后清理残留文件失败 path={} error={}",
+                    "事务回滚后清理残留原图失败 path={} error={}",
                     target_path.display(),
                     remove_err
                 ),
             );
         }
+        let _ = fs::remove_file(&thumbnail_path);
         format!("保存记录失败：{}", e)
     })?;
 

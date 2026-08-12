@@ -1017,7 +1017,11 @@ export interface CanvasClipRead {
 export interface CanvasAssetImageRead {
   id: string;
   image_path: string;
+  thumbnail_path: string | null;
+  prompt: string;
   size: string | null;
+  style: string | null;
+  source: string;
   is_selected: boolean;
   created_at: string;
 }
@@ -1038,8 +1042,10 @@ export interface CanvasAssetRead {
   type: AssetType;
   name: string;
   description: string;
+  prompt: string;
   status: string;
   selected_image_path: string | null;
+  selected_thumbnail_path: string | null;
   images: CanvasAssetImageRead[];
   tasks: CanvasAssetTaskRead[];
 }
@@ -1048,6 +1054,7 @@ export interface CanvasAssetReferenceRead {
   asset_id: string;
   index: number;
   asset_tag: string;
+  image_path: string | null;
 }
 
 export interface CanvasStoryboardTaskRead {
@@ -1086,10 +1093,14 @@ export interface CanvasStoryboardRead {
   seq_num: number;
   summary: string;
   dialogue: string;
+  visual_description: string;
+  video_prompt: string;
+  video_param_json: string | null;
   image_state: string;
   voice_state: string;
   video_state: string;
   video_duration: number | null;
+  fused_image_path: string | null;
   asset_references: CanvasAssetReferenceRead[];
   video_tasks: CanvasStoryboardTaskRead[];
   videos: CanvasStoryboardVideoRead[];

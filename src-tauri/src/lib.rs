@@ -4,6 +4,7 @@ mod app_paths;
 mod commands;
 mod db;
 mod job_guard;
+mod media;
 mod project_log;
 mod sidecar;
 mod upscale_manager;

@@ -10,6 +10,7 @@ import { CreateProjectModal } from "./CreateProjectModal";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type ProjectManagementPageProps = {
+  selectedProjectId?: string | null;
   onGoHome: () => void;
   onSelectedProjectChange?: (project: ProjectInfo | null) => void;
 };
@@ -19,10 +20,11 @@ type ProjectManagementPageProps = {
  *
  * 集成侧边栏、工作区与弹窗的作品管理主界面。
  */
-export function ProjectManagementPage({ onGoHome, onSelectedProjectChange }: ProjectManagementPageProps) {
+export function ProjectManagementPage({ selectedProjectId: initialSelectedProjectId, onGoHome, onSelectedProjectChange }: ProjectManagementPageProps) {
   const { projects, load } = useProjects();
   const { toast } = useToast();
-  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState(initialSelectedProjectId ?? "");
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectInfo | null>(null);
   const [deleteFiles, setDeleteFiles] = useState(false);
@@ -31,8 +33,16 @@ export function ProjectManagementPage({ onGoHome, onSelectedProjectChange }: Pro
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
-    load();
+    load()
+      .then(() => setProjectsLoaded(true))
+      .catch(() => setProjectsLoaded(true));
   }, [load]);
+
+  useEffect(() => {
+    if (initialSelectedProjectId !== undefined) {
+      setSelectedProjectId(initialSelectedProjectId ?? "");
+    }
+  }, [initialSelectedProjectId]);
 
   const selectedProject = (() => {
     if (!selectedProjectId) return null;
@@ -43,8 +53,9 @@ export function ProjectManagementPage({ onGoHome, onSelectedProjectChange }: Pro
 
   // 向上同步选中作品（供 TitleBar Agent 按钮判断可用性）
   useEffect(() => {
+    if (selectedProjectId && !projectsLoaded) return;
     onSelectedProjectChange?.(selectedProject);
-  }, [selectedProject, onSelectedProjectChange]);
+  }, [projectsLoaded, selectedProject, onSelectedProjectChange, selectedProjectId]);
 
   const handleCreated = useCallback((project: ProjectInfo) => {
     setModalOpen(false);

@@ -3,7 +3,14 @@
  *
  * Tool 执行通过 Registry → invoke() 桥接到现有 Tauri 命令。
  */
-import { generateText, tool as aiTool, type Tool } from "ai";
+import {
+  generateText,
+  jsonSchema,
+  stepCountIs,
+  tool as aiTool,
+  type LanguageModel,
+  type Tool,
+} from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ChatMessage, AgentConfig, ToolSchema, ToolResult } from "../../types/agent";
@@ -27,11 +34,11 @@ async function executeTool(name: string, params: Record<string, unknown>): Promi
 }
 
 /** 将 ToolSchema + execute 构建为 AI SDK Tool */
-function toAiSdkTool(name: string, schema: ToolSchema): Tool {
+function toAiSdkTool(name: string, schema: ToolSchema): Tool<Record<string, unknown>, ToolResult> {
   return aiTool({
     description: schema.description,
-    parameters: schema.parameters as Record<string, unknown>,
-    execute: (args: unknown) => executeTool(name, args as Record<string, unknown>),
+    inputSchema: jsonSchema<Record<string, unknown>>(schema.parameters),
+    execute: (params: Record<string, unknown>) => executeTool(name, params),
   });
 }
 
@@ -68,13 +75,13 @@ export async function runAgent(config: AgentRunConfig): Promise<AgentRunResult> 
     system: systemPrompt,
     messages,
     tools,
-    maxSteps: MAX_AGENT_STEPS,
+    stopWhen: stepCountIs(MAX_AGENT_STEPS),
     onStepFinish: (step) => {
       if (step.toolCalls) {
         for (const tc of step.toolCalls) {
           toolCalls.push({
             name: tc.toolName,
-            params: tc.args as Record<string, unknown>,
+            params: tc.input as Record<string, unknown>,
             result: step.toolResults, // AI SDK 按 step 聚合所有结果
           });
         }
@@ -89,7 +96,7 @@ function prepareAgentInput(config: AgentRunConfig) {
   const { config: agentConfig } = config;
 
   // 创建 provider
-  let providerConfig: ReturnType<typeof createOpenAI> | ReturnType<typeof createAnthropic>;
+  let providerConfig: LanguageModel;
   if (agentConfig.provider === "anthropic") {
     providerConfig = createAnthropic({ apiKey: agentConfig.apiKey })(agentConfig.model);
   } else {

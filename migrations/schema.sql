@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS asset_images (
     size              TEXT,
     style             TEXT,
     image_path        TEXT NOT NULL,
+    thumbnail_path    TEXT,
     is_selected       INTEGER NOT NULL DEFAULT 0,
     source            TEXT NOT NULL DEFAULT 'generation',
     task_id           TEXT,

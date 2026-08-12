@@ -22,13 +22,19 @@ export interface ToolDef<Params = Record<string, unknown>> {
 
 // ── Registry ─────────────────────────────────────────
 
-const registry = new Map<string, ToolDef>();
+const registry = new Map<string, ToolDef<Record<string, unknown>>>();
 
-export function registerTool(def: ToolDef): void {
-  registry.set(def.name, def);
+export function registerTool<Params extends Record<string, unknown>>(def: ToolDef<Params>): void {
+  // Registry 按名称保存异构参数的工具；在注册边界统一擦除参数类型，
+  // 实际调用仍由各工具自己的 Zod schema 约束参数形状。
+  registry.set(def.name, {
+    ...def,
+    schema: def.schema as unknown as z.ZodType<Record<string, unknown>>,
+    execute: (params) => def.execute(params as Params),
+  });
 }
 
-export function getTool(name: string): ToolDef | undefined {
+export function getTool(name: string): ToolDef<Record<string, unknown>> | undefined {
   return registry.get(name);
 }
 

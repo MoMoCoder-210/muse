@@ -587,12 +587,35 @@ fn finalize_image_success(app: &AppHandle, snapshot: &UpscaleJob) {
                 .and_then(|n| n.to_str())
                 .unwrap_or("upscaled")
                 .to_string();
+            let thumbnail_path = match crate::media::generate_image_thumbnail(
+                app,
+                Path::new(&snapshot.output_path),
+            ) {
+                Ok(path) => Some(path.to_string_lossy().to_string()),
+                Err(error) => {
+                    log_upscale(
+                        app,
+                        "WARN",
+                        &format!(
+                            "图片超分缩略图生成失败，将保留原图记录 imageId={} error={}",
+                            image_id, error
+                        ),
+                    );
+                    None
+                }
+            };
             let _ = conn.execute(
-                "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, is_selected, source, file_name, created_at)
-                 VALUES (?1, ?2, '', '', '', ?3, 0, 'upscale', ?4, datetime('now'))",
-                rusqlite::params![&image_id, aid.as_str(), &snapshot.output_path, &file_name],
+                "INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, is_selected, source, file_name, created_at)
+                 VALUES (?1, ?2, '', '', '', ?3, ?4, 0, 'upscale', ?5, datetime('now'))",
+                rusqlite::params![
+                    &image_id,
+                    aid.as_str(),
+                    &snapshot.output_path,
+                    thumbnail_path.as_deref(),
+                    &file_name
+                ],
             );
-            // 更新 assets.generated_image_path（素材主缩略图）
+            // 更新 assets.generated_image_path（素材主图）
             let _ = conn.execute(
                 "UPDATE assets SET generated_image_path=?1, updated_at=datetime('now') WHERE id=?2",
                 rusqlite::params![&snapshot.output_path, aid.as_str()],

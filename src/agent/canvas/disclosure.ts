@@ -21,13 +21,13 @@ export function adaptCanvasDisclosure(disclosure: CanvasDisclosure, model: Proje
   let material = false;
   while (current.parentId) {
     path.push(current.parentId);
-    if (current.data.entityType === "asset" || current.data.entityType === "image" || current.data.entityType === "material-category") material = true;
+    if (current.data.entityType === "asset" || current.data.entityType === "material-category") material = true;
     const parent = hierarchy.byId.get(current.parentId);
     if (!parent) return null;
     if (parent.data.entityType === "clip") clipId = parent.data.entityId;
     current = parent;
   }
-  if (target.data.entityType === "asset" || target.data.entityType === "image") material = true;
+  if (target.data.entityType === "asset") material = true;
   const center = canvasCenterId(material ? "materials" : "shots", clipId);
   const expansions = new Set(path.reverse());
   expansions.add(center);

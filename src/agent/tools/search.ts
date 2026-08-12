@@ -4,7 +4,7 @@
  * Phase 1: 根据领域/意图/画布过滤候选概要（上限 8）
  * Phase 2: 从候选中选择 1-2 个加载完整 Schema
  */
-import type { ToolCandidate, ToolSchema, ToolCategory } from "../../types/agent";
+import type { ToolCandidate, ToolSchema } from "../../types/agent";
 import { buildCandidates, loadSchema } from "./registry";
 import { classifyIntent } from "../domain/intent";
 import { TOOL_CANDIDATE_LIMIT, TOOL_SCHEMA_LIMIT, TOOL_CONTEXT_BUDGET } from "../domain/types";

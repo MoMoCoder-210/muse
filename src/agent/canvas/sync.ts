@@ -1,6 +1,9 @@
 /**
- * Canonical read-only hierarchy plus per-episode three-center canvas projections.
- * No IPC or business mutation happens in this module.
+ * Canonical read-only hierarchy plus a deterministic three-center projection.
+ *
+ * The semantic hierarchy and the React Flow hierarchy are deliberately kept
+ * separate. React Flow receives flat absolute positions; business ownership
+ * and drag grouping remain in node data and the semantic hierarchy.
  */
 import { MarkerType, type Edge, type Node } from "reactflow";
 import type { AssetType } from "../../types/project";
@@ -8,17 +11,17 @@ import type { CanvasAssetRead, CanvasConcatOutputRead, CanvasStoryboardRead, Pro
 import { CANVAS_LAYOUT, createProductionRows } from "./layout";
 import type {
   AssetNodeData, CanvasCenterKind, CanvasCenterNodeData, CanvasFlowNodeData, CanvasNodeBase, ClipNodeData,
-  ImageNodeData, MaterialCategoryNodeData, ProjectNodeData, ReleaseOutputNodeData, ReleaseSummaryNodeData,
-  ReleaseTaskNodeData, ShotAnchorNodeData, ShotTrackNodeData, StoryboardAssetReference, StoryboardNodeData,
+  MaterialCategoryNodeData, ProjectNodeData, ReleaseOutputNodeData, ReleaseShotPreview, ReleaseSummaryNodeData,
+  ShotAnchorNodeData, ShotTrackNodeData, StoryboardAssetReference, StoryboardNodeData,
   TaskNodeData, VideoNodeData,
 } from "./node-data";
+import { isCanvasVideoReady, materialContentSourceHandle } from "./node-data";
 
 const encode = (value: string) => encodeURIComponent(value);
 export const canonicalProjectId = (id: string) => `project:${encode(id)}`;
 export const canonicalClipId = (id: string) => `clip:${encode(id)}`;
 export const canonicalAssetId = (id: string) => `asset:${encode(id)}`;
 export const canonicalStoryboardId = (id: string) => `storyboard:${encode(id)}`;
-export const canonicalImageId = (id: string) => `image:${encode(id)}`;
 export const canonicalVideoId = (id: string) => `video:${encode(id)}`;
 export const canonicalTaskId = (id: string) => `task:${encode(id)}`;
 export const canvasCenterId = (kind: CanvasCenterKind, clipId: string | null) => `center:${kind}:${clipId ? encode(clipId) : "shared"}`;
@@ -27,14 +30,24 @@ const sharedCategoryId = (projectId: string, type: AssetType) => materialCategor
 const shotTrackId = (clipId: string) => `shot-track:${encode(clipId)}`;
 const shotAnchorId = (storyboardId: string) => `shot-anchor:${encode(storyboardId)}`;
 const releaseSummaryId = (clipId: string) => `release-summary:${encode(clipId)}`;
-const releaseTaskId = (clipId: string) => `release-task:${encode(clipId)}`;
 const emptyReleaseId = (clipId: string) => `release-empty:${encode(clipId)}`;
 const outputNodeId = (outputId: string) => `output:${encode(outputId)}`;
 const MATERIAL_TYPES: AssetType[] = ["character", "scene", "item"];
 
-type HierarchyNode = { id: string; parentId: string | null; type: string; data: CanvasFlowNodeData; };
+type HierarchyNode = { id: string; parentId: string | null; type: string; data: CanvasFlowNodeData };
 export interface CanvasHierarchy { projectId: string; rootId: string; byId: Map<string, HierarchyNode>; childrenById: Map<string, string[]>; }
 export interface CanvasProjection { hierarchy: CanvasHierarchy; nodes: Node<CanvasFlowNodeData>[]; edges: Edge[]; }
+
+type CanvasPosition = { x: number; y: number };
+type MaterialCategoryLayout = { width: number; height: number; assetPositions: Map<string, CanvasPosition> };
+
+function canvasRoleForEntity(entityType: CanvasNodeBase["entityType"]): CanvasNodeBase["canvasRole"] {
+  if (entityType === "project" || entityType === "clip") return "context";
+  if (entityType === "center") return "center";
+  if (entityType === "material-category") return "category";
+  if (entityType === "shot-track" || entityType === "shot-anchor") return "track";
+  return "content";
+}
 
 function addNode(hierarchy: CanvasHierarchy, node: HierarchyNode): void {
   hierarchy.byId.set(node.id, node);
@@ -43,42 +56,65 @@ function addNode(hierarchy: CanvasHierarchy, node: HierarchyNode): void {
   children.push(node.id);
   hierarchy.childrenById.set(node.parentId, children);
 }
+
 function base<T extends CanvasNodeBase["entityType"]>(projectId: string, id: string, parentId: string | null, entityType: T, entityId: string, title: string, status?: string): Omit<CanvasNodeBase, "entityType"> & { entityType: T } {
-  return { canonicalId: id, parentCanonicalId: parentId, projectId, entityId, entityType, title, hasChildren: false, status };
+  return {
+    canonicalId: id,
+    parentCanonicalId: parentId,
+    canvasParentId: parentId,
+    canvasRole: canvasRoleForEntity(entityType),
+    projectId,
+    entityId,
+    entityType,
+    title,
+    hasChildren: false,
+    status,
+  };
 }
+
 function assetReference(asset: CanvasAssetRead, ownerClipId: string, assetTag: string): StoryboardAssetReference {
-  return { assetId: asset.id, type: asset.type, name: asset.name, assetTag, sourceScope: asset.clip_id === ownerClipId ? "owned" : asset.clip_id ? "clip" : "project-shared", sourceClipId: asset.clip_id };
+  return { assetId: asset.id, type: asset.type, name: asset.name, assetTag, imagePath: asset.selected_image_path, sourceScope: asset.clip_id === ownerClipId ? "owned" : asset.clip_id ? "clip" : "project-shared", sourceClipId: asset.clip_id };
 }
+
 function addAsset(hierarchy: CanvasHierarchy, asset: CanvasAssetRead, parentId: string): void {
   const id = canonicalAssetId(asset.id);
   addNode(hierarchy, { id, parentId, type: "AssetNode", data: {
     ...base(asset.project_id, id, parentId, "asset", asset.id, asset.name, asset.status), assetId: asset.id, type: asset.type, name: asset.name,
-    description: asset.description, imageCount: asset.images.length, selectedImagePath: asset.selected_image_path,
-    previewImages: asset.images.map((image) => ({ id: image.id, imagePath: image.image_path, size: image.size, isSelected: image.is_selected })),
+    description: asset.description, prompt: asset.prompt, imageCount: asset.images.length, selectedImagePath: asset.selected_image_path,
+    previewImages: asset.images.map((image) => ({ id: image.id, imagePath: image.image_path, thumbnailPath: image.thumbnail_path, prompt: image.prompt, size: image.size, style: image.style, source: image.source, createdAt: image.created_at, isSelected: image.is_selected })),
     taskPreviews: asset.tasks.map((task) => ({ id: task.id, taskType: task.task_type, status: task.status, error: task.error_message })),
   } satisfies AssetNodeData });
-  for (const image of asset.images) {
-    const imageId = canonicalImageId(image.id);
-    addNode(hierarchy, { id: imageId, parentId: id, type: "ImageNode", data: {
-      ...base(asset.project_id, imageId, id, "image", image.id, asset.name), assetId: asset.id, assetName: asset.name, imagePath: image.image_path, size: image.size, isSelected: image.is_selected,
-    } satisfies ImageNodeData });
-  }
-  for (const task of asset.tasks) {
-    const taskId = canonicalTaskId(task.id);
-    addNode(hierarchy, { id: taskId, parentId: id, type: "TaskNode", data: {
-      ...base(asset.project_id, taskId, id, "task", task.id, "素材任务", task.status), taskKind: "asset", targetName: `${asset.name} · ${task.task_type}`, error: task.error_message,
-    } satisfies TaskNodeData });
-  }
 }
+
+function videoReadiness(storyboard: CanvasStoryboardRead, video: CanvasStoryboardRead["videos"][number]): Pick<VideoNodeData, "isUpscaleOutput" | "isOutputReady"> {
+  const upscaleTask = video.source === "upscale"
+    ? storyboard.upscale_tasks.find((task) => task.video_id === video.id)
+    : undefined;
+  return {
+    isUpscaleOutput: video.source === "upscale",
+    isOutputReady: video.source !== "upscale" || upscaleTask?.status === "done",
+  };
+}
+
 function addStoryboard(hierarchy: CanvasHierarchy, storyboard: CanvasStoryboardRead, parentId: string, assetsById: Map<string, CanvasAssetRead>): void {
   const id = canonicalStoryboardId(storyboard.id);
   const references = storyboard.asset_references.map((reference) => {
     const asset = assetsById.get(reference.asset_id);
     return asset ? assetReference(asset, storyboard.clip_id, reference.asset_tag) : null;
   }).filter((reference): reference is StoryboardAssetReference => reference !== null);
+  const upscaleByVideoId = new Map(storyboard.upscale_tasks.map((task) => [task.video_id, task]));
+  const projectedVideos = storyboard.videos.filter((video) => video.source !== "upscale" || upscaleByVideoId.has(video.id));
   addNode(hierarchy, { id, parentId, type: "StoryboardNode", data: {
     ...base(storyboard.project_id, id, parentId, "storyboard", storyboard.id, storyboard.sbid, storyboard.video_state), storyboardId: storyboard.id,
-    sbid: storyboard.sbid, seqNum: storyboard.seq_num, summary: storyboard.summary, dialogue: storyboard.dialogue, duration: storyboard.video_duration, assetReferences: references,
+    sbid: storyboard.sbid, seqNum: storyboard.seq_num, summary: storyboard.summary, dialogue: storyboard.dialogue,
+    visualDescription: storyboard.visual_description, videoPrompt: storyboard.video_prompt, videoParamJson: storyboard.video_param_json,
+    fusedImagePath: storyboard.fused_image_path,
+    selectedVideoId: storyboard.selected_video_id, duration: storyboard.video_duration, assetReferences: references,
+    videoTasks: storyboard.video_tasks.map((task) => ({ id: task.id, status: task.status, error: task.error_message, createdAt: task.created_at })),
+    videos: projectedVideos.map((video) => {
+      const readiness = videoReadiness(storyboard, video);
+      return { id: video.id, filePath: video.file_path, fileName: video.file_name, source: video.source, taskId: video.task_id, duration: video.duration, createdAt: video.created_at, coverPath: storyboard.fused_image_path, ...readiness };
+    }),
   } satisfies StoryboardNodeData });
   for (const task of storyboard.video_tasks) {
     const taskId = canonicalTaskId(task.id);
@@ -86,19 +122,17 @@ function addStoryboard(hierarchy: CanvasHierarchy, storyboard: CanvasStoryboardR
       ...base(storyboard.project_id, taskId, id, "task", task.id, "视频生成", task.status), taskKind: "video-generation", targetName: `${storyboard.sbid} · 镜头 ${storyboard.seq_num}`, error: task.error_message,
     } satisfies TaskNodeData });
   }
-  const upscaleByVideoId = new Map(storyboard.upscale_tasks.map((task) => [task.video_id, task]));
-  for (const video of storyboard.videos) {
-    const upscale = upscaleByVideoId.get(video.id);
-    if (video.source === "upscale" && !upscale) continue;
+  for (const [batchIndex, video] of projectedVideos.entries()) {
     const videoId = canonicalVideoId(video.id);
     addNode(hierarchy, { id: videoId, parentId: id, type: "VideoNode", data: {
-      ...base(storyboard.project_id, videoId, id, "video", video.id, video.file_name || "镜头视频"), storyboardId: storyboard.id,
-      filePath: video.file_path, fileName: video.file_name, duration: video.duration, source: video.source, isUpscaleOutput: Boolean(upscale), isOutputReady: !upscale || upscale.status === "done",
+      ...base(storyboard.project_id, videoId, id, "video", video.id, ""), storyboardId: storyboard.id,
+      batchIndex: batchIndex + 1, isSelected: video.id === storyboard.selected_video_id, filePath: video.file_path, fileName: video.file_name, duration: video.duration, createdAt: video.created_at, source: video.source, coverPath: storyboard.fused_image_path,
+      isUpscaleOutput: video.source === "upscale", isOutputReady: video.source !== "upscale" || upscaleByVideoId.get(video.id)?.status === "done",
     } satisfies VideoNodeData });
   }
 }
 
-/** Semantic owner hierarchy used by expansion and disclosure, not the visual canvas layout. */
+/** Semantic owner hierarchy used by expansion and disclosure, not visual parents. */
 export function createCanvasHierarchy(model: ProjectCanvasReadModel): CanvasHierarchy {
   const rootId = canonicalProjectId(model.project.id);
   const hierarchy: CanvasHierarchy = { projectId: model.project.id, rootId, byId: new Map(), childrenById: new Map() };
@@ -117,7 +151,8 @@ export function createCanvasHierarchy(model: ProjectCanvasReadModel): CanvasHier
   const boardsByClip = new Map<string, CanvasStoryboardRead[]>();
   for (const storyboard of model.storyboards) {
     const list = boardsByClip.get(storyboard.clip_id) ?? [];
-    list.push(storyboard); boardsByClip.set(storyboard.clip_id, list);
+    list.push(storyboard);
+    boardsByClip.set(storyboard.clip_id, list);
   }
   for (const clip of model.clips) {
     const clipId = canonicalClipId(clip.id);
@@ -157,7 +192,6 @@ export function defaultCanvasExpandedIds(model: ProjectCanvasReadModel): Set<str
   return expanded;
 }
 
-/** Keeps the full production context visible while a queued or running Agent task is active. */
 export function agentExecutingCanvasExpandedIds(model: ProjectCanvasReadModel): Set<string> {
   const hasActiveTask = model.assets.some((asset) => asset.tasks.some((task) => task.status === "queued" || task.status === "running"))
     || model.storyboards.some((storyboard) => storyboard.video_tasks.some((task) => task.status === "queued" || task.status === "running")
@@ -165,106 +199,165 @@ export function agentExecutingCanvasExpandedIds(model: ProjectCanvasReadModel): 
   return hasActiveTask ? defaultCanvasExpandedIds(model) : new Set<string>();
 }
 
+function readModelVideoReady(storyboard: CanvasStoryboardRead, video: CanvasStoryboardRead["videos"][number]): boolean {
+  const readiness = videoReadiness(storyboard, video);
+  return isCanvasVideoReady(video.file_path, readiness.isUpscaleOutput, readiness.isOutputReady);
+}
+
 function readyStoryboardCount(boards: readonly CanvasStoryboardRead[]): number {
   return boards.filter((storyboard) => {
-    if (storyboard.selected_video_id) return storyboard.videos.some((video) => video.id === storyboard.selected_video_id);
-    return storyboard.videos.some((video) => video.source !== "upscale" || storyboard.upscale_tasks.some((task) => task.video_id === video.id && task.status === "done"));
+    if (storyboard.selected_video_id) {
+      const selectedVideo = storyboard.videos.find((video) => video.id === storyboard.selected_video_id);
+      return selectedVideo ? readModelVideoReady(storyboard, selectedVideo) : false;
+    }
+    return storyboard.videos.some((video) => readModelVideoReady(storyboard, video));
   }).length;
 }
-function asNode<T extends CanvasFlowNodeData>(id: string, type: string, position: { x: number; y: number }, data: T, style?: Node["style"], zIndex = 2): Node<CanvasFlowNodeData> {
-  return { id, type, position, data, style, zIndex };
-}
-function bezierEdge(id: string, source: string, target: string, external = false, sourceHandle = "source"): Edge {
+
+/** Create a flat React Flow node. `position` is always an absolute canvas coordinate. */
+function asNode<T extends CanvasFlowNodeData>(id: string, type: string, position: CanvasPosition, data: T, style?: Node["style"], zIndex = 2, groupId: string | null = null, dragHandle?: string): Node<CanvasFlowNodeData> {
   return {
-    id, source, target, sourceHandle, targetHandle: "target", type: "bezier",
+    id,
+    type,
+    position,
+    data: { ...data, canvasGroupId: groupId },
+    style,
+    zIndex,
+    dragHandle,
+  };
+}
+
+function visualPosition(nodes: readonly Node<CanvasFlowNodeData>[], groupId: string | null, localPosition: CanvasPosition): CanvasPosition {
+  if (!groupId) return { ...localPosition };
+  const group = nodes.find((node) => node.id === groupId);
+  return group
+    ? { x: group.position.x + localPosition.x, y: group.position.y + localPosition.y }
+    : { ...localPosition };
+}
+
+function bezierEdge(id: string, source: string, target: string, external = false, sourceHandle = "source", targetHandle = "target"): Edge {
+  return {
+    id, source, target, sourceHandle, targetHandle, type: "default",
     markerEnd: external ? { type: MarkerType.ArrowClosed, color: "rgba(136, 177, 206, .76)", width: 13, height: 13 } : undefined,
     style: external ? { stroke: "rgba(136, 177, 206, .66)", strokeWidth: 1.7 } : { stroke: "rgba(119, 151, 173, .48)", strokeWidth: 1.25 },
     className: external ? "cn-edge cn-edge--production" : "cn-edge cn-edge--local",
   };
 }
-const MATERIAL_CATEGORY_MIN_WIDTH = 280;
-const MATERIAL_CATEGORY_MIN_HEIGHT = 96;
-const MATERIAL_CATEGORY_GAP = 18;
-type CanvasPositionOverride = { x: number; y: number };
-type MaterialCategoryLayout = { width: number; height: number; assetPositions: Map<string, CanvasPositionOverride>; };
-function materialAssetSize(_asset: CanvasAssetRead, _expandedIds: ReadonlySet<string>): { width: number; height: number } {
-  return { width: 252, height: 152 };
-}
-function createMaterialCategoryLayout(assets: readonly CanvasAssetRead[], categoryOpen: boolean, expandedIds: ReadonlySet<string>, positionOverrides: Readonly<Record<string, CanvasPositionOverride>>): MaterialCategoryLayout {
-  if (!categoryOpen) return { width: MATERIAL_CATEGORY_MIN_WIDTH, height: 38, assetPositions: new Map() };
-  const assetPositions = new Map<string, CanvasPositionOverride>();
-  let cursorY = 48;
-  let width = MATERIAL_CATEGORY_MIN_WIDTH;
-  let height = MATERIAL_CATEGORY_MIN_HEIGHT;
+
+function createMaterialCategoryLayout(assets: readonly CanvasAssetRead[], categoryOpen: boolean): MaterialCategoryLayout {
+  if (!categoryOpen) return { width: 280, height: 38, assetPositions: new Map() };
+  const assetPositions = new Map<string, CanvasPosition>();
+  let cursorY = CANVAS_LAYOUT.materialAssetStartY;
+  let width = 280;
+  let height = 96;
   for (const asset of assets) {
     const id = canonicalAssetId(asset.id);
-    const size = materialAssetSize(asset, expandedIds);
-    const saved = positionOverrides[id];
-    const position = { x: Math.max(12, saved?.x ?? 12), y: Math.max(48, saved?.y ?? cursorY) };
+    const position = { x: CANVAS_LAYOUT.materialAssetInsetX, y: cursorY };
     assetPositions.set(id, position);
-    width = Math.max(width, position.x + size.width + 12);
-    height = Math.max(height, position.y + size.height + 12);
-    cursorY += size.height + 12;
+    width = Math.max(width, position.x + 252 + CANVAS_LAYOUT.materialAssetRightPadding);
+    height = Math.max(height, position.y + 152 + 12);
+    cursorY += 164;
   }
   return { width, height, assetPositions };
 }
 function materialLaneWidth(layouts: readonly MaterialCategoryLayout[]): number {
-  return layouts.reduce((width, layout, index) => width + layout.width + (index ? MATERIAL_CATEGORY_GAP : 0), 0);
+  return layouts.reduce((width, layout, index) => width + layout.width + (index ? CANVAS_LAYOUT.materialCategoryGap : 0), 0);
+}
+function materialSourcePositions(layouts: readonly MaterialCategoryLayout[]): number[] {
+  let categoryX = CANVAS_LAYOUT.materialCategoryInset;
+  return layouts.map((layout) => {
+    const sourceX = categoryX + layout.width / 2;
+    categoryX += layout.width + CANVAS_LAYOUT.materialCategoryGap;
+    return sourceX;
+  });
+}
+function shotDetailHeight(entityType: CanvasFlowNodeData["entityType"]): number {
+  return entityType === "video" ? CANVAS_LAYOUT.videoCardHeight : CANVAS_LAYOUT.taskCardHeight;
+}
+function shotRowHeight(boards: readonly CanvasStoryboardRead[], expandedIds: ReadonlySet<string>): number {
+  let height = 272;
+  for (const board of boards) {
+    if (!expandedIds.has(canonicalStoryboardId(board.id))) continue;
+    const videoCount = board.videos.filter((video) => video.source !== "upscale" || board.upscale_tasks.some((task) => task.video_id === video.id)).length;
+    const taskCount = board.video_tasks.length;
+    const detailCount = taskCount + videoCount;
+    const detailHeight = taskCount * CANVAS_LAYOUT.taskCardHeight
+      + videoCount * CANVAS_LAYOUT.videoCardHeight
+      + detailCount * CANVAS_LAYOUT.shotDetailGap;
+    height = Math.max(height, 270 + detailHeight + 18);
+  }
+  return height;
 }
 
-/** Build independent material, shot, and release centers for every clip. */
-export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: ReadonlySet<string>, positionOverrides: Readonly<Record<string, CanvasPositionOverride>> = {}): CanvasProjection {
+function releaseCenterHeight(outputCount: number, centerOpen: boolean, historyOpen: boolean): number {
+  if (!centerOpen) return 62;
+  const baseHeight = 226;
+  const historyCount = historyOpen ? Math.max(0, outputCount - 1) : 0;
+  if (historyCount === 0) return baseHeight;
+  const lastHistoryY = CANVAS_LAYOUT.centerContentTop
+    + CANVAS_LAYOUT.releaseHistoryTop
+    + (historyCount - 1) * (CANVAS_LAYOUT.releaseHistoryHeight + CANVAS_LAYOUT.releaseHistoryGap);
+  return Math.max(
+    baseHeight,
+    lastHistoryY + CANVAS_LAYOUT.releaseHistoryHeight + CANVAS_LAYOUT.releaseContentBottomPadding,
+  );
+}
+
+/** Build the stable three-center production canvas. */
+export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: ReadonlySet<string>): CanvasProjection {
   const hierarchy = createCanvasHierarchy(model);
   const nodes: Node<CanvasFlowNodeData>[] = [];
   const edges: Edge[] = [];
   const boardsByClip = new Map<string, CanvasStoryboardRead[]>();
   const outputsByClip = new Map<string, CanvasConcatOutputRead[]>();
-  for (const storyboard of model.storyboards) { const list = boardsByClip.get(storyboard.clip_id) ?? []; list.push(storyboard); boardsByClip.set(storyboard.clip_id, list); }
-  for (const output of model.concat_outputs ?? []) { const list = outputsByClip.get(output.clip_id) ?? []; list.push(output); outputsByClip.set(output.clip_id, list); }
+  for (const storyboard of model.storyboards) {
+    const list = boardsByClip.get(storyboard.clip_id) ?? [];
+    list.push(storyboard);
+    boardsByClip.set(storyboard.clip_id, list);
+  }
+  for (const output of model.concat_outputs ?? []) {
+    const list = outputsByClip.get(output.clip_id) ?? [];
+    list.push(output);
+    outputsByClip.set(output.clip_id, list);
+  }
   for (const list of boardsByClip.values()) list.sort((left, right) => left.seq_num - right.seq_num || left.id.localeCompare(right.id));
   for (const list of outputsByClip.values()) list.sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id));
 
   const sharedAssets = model.assets.filter((asset) => asset.clip_id === null);
-  const sharedLayouts = MATERIAL_TYPES.map((type) => createMaterialCategoryLayout(
-    sharedAssets.filter((asset) => asset.type === type), expandedIds.has(sharedCategoryId(model.project.id, type)), expandedIds, positionOverrides,
-  ));
+  const sharedLayouts = MATERIAL_TYPES.map((type) => createMaterialCategoryLayout(sharedAssets.filter((asset) => asset.type === type), expandedIds.has(sharedCategoryId(model.project.id, type))));
   const clipLayouts = new Map<string, MaterialCategoryLayout[]>();
   for (const clip of model.clips) {
     const owned = model.assets.filter((asset) => asset.clip_id === clip.id);
-    clipLayouts.set(clip.id, MATERIAL_TYPES.map((type) => createMaterialCategoryLayout(
-      owned.filter((asset) => asset.type === type), expandedIds.has(materialCategoryId(clip.id, type, model.project.id)), expandedIds, positionOverrides,
-    )));
+    clipLayouts.set(clip.id, MATERIAL_TYPES.map((type) => createMaterialCategoryLayout(owned.filter((asset) => asset.type === type), expandedIds.has(materialCategoryId(clip.id, type, model.project.id)))));
   }
 
   const materialLaneWidths = model.clips.map((clip) => materialLaneWidth(clipLayouts.get(clip.id) ?? []));
   if (sharedAssets.length > 0) materialLaneWidths.push(materialLaneWidth(sharedLayouts));
-  const materialWidth = Math.max(CANVAS_LAYOUT.materialWidth, Math.max(...materialLaneWidths, 0) + 36);
+  const materialWidth = Math.max(CANVAS_LAYOUT.materialWidth, Math.max(...materialLaneWidths, 0) + CANVAS_LAYOUT.materialCategoryInset * 2);
   const maxStoryboardCount = Math.max(0, ...[...boardsByClip.values()].map((boards) => boards.length));
-  const shotsWidth = Math.max(CANVAS_LAYOUT.shotsWidth, 403 + Math.max(0, maxStoryboardCount - 1) * 282);
+  const shotsWidth = Math.max(CANVAS_LAYOUT.shotsWidth, CANVAS_LAYOUT.shotsSidePadding + CANVAS_LAYOUT.shotCardWidth + Math.max(0, maxStoryboardCount - 1) * CANVAS_LAYOUT.shotColumnStep + CANVAS_LAYOUT.shotsSidePadding);
   const shotsX = CANVAS_LAYOUT.materialX + materialWidth + 40;
   const releaseX = shotsX + shotsWidth + 40;
   const centerOpen = (kind: CanvasCenterKind, clipId: string | null) => expandedIds.has(canvasCenterId(kind, clipId));
-
   const rowHeights = new Map<string, number>();
   for (const clip of model.clips) {
     const layouts = clipLayouts.get(clip.id) ?? [];
-    const materialHeight = centerOpen("materials", clip.id) ? Math.max(120, ...layouts.map((layout) => layout.height + 58)) : 62;
+    const materialHeight = centerOpen("materials", clip.id) ? Math.max(120, ...layouts.map((layout) => layout.height + CANVAS_LAYOUT.centerContentTop)) : 62;
     const boards = boardsByClip.get(clip.id) ?? [];
-    const hasBoardDetails = boards.some((board) => expandedIds.has(canonicalStoryboardId(board.id)));
-    const shotsHeight = centerOpen("shots", clip.id) ? hasBoardDetails ? 374 : 272 : 62;
+    const shotsHeight = centerOpen("shots", clip.id) ? shotRowHeight(boards, expandedIds) : 62;
     const outputs = outputsByClip.get(clip.id) ?? [];
     const hasOutputHistory = outputs.length > 1 && expandedIds.has(outputNodeId(outputs[0].id));
-    const releaseHeight = centerOpen("release", clip.id) ? hasOutputHistory ? 278 : 174 : 62;
+    const releaseHeight = releaseCenterHeight(outputs.length, centerOpen("release", clip.id), hasOutputHistory);
     rowHeights.set(clip.id, Math.max(materialHeight, shotsHeight, releaseHeight));
   }
   const rows = createProductionRows(model.clips, rowHeights);
   const clipBottom = [...rows.values()].reduce<number>((bottom, row) => Math.max(bottom, row.y + row.height), CANVAS_LAYOUT.top);
-  const sharedHeight = sharedAssets.length > 0 ? Math.max(120, ...sharedLayouts.map((layout) => layout.height + 58)) : 0;
+  const sharedHeight = sharedAssets.length > 0 ? Math.max(120, ...sharedLayouts.map((layout) => layout.height + CANVAS_LAYOUT.centerContentTop)) : 0;
   const sharedY = model.clips.length > 0 ? clipBottom + CANVAS_LAYOUT.rowGap : CANVAS_LAYOUT.top;
 
-  const centerData = (kind: CanvasCenterKind, clipId: string | null, title: string, itemCount: number, width: number, height: number, parentId: string | null): CanvasCenterNodeData => {
+  const centerData = (kind: CanvasCenterKind, clipId: string | null, title: string, itemCount: number, width: number, height: number, semanticParentId: string | null, materialSourcePositions: readonly number[] = []): CanvasCenterNodeData => {
     const id = canvasCenterId(kind, clipId);
-    return { ...base(model.project.id, id, parentId, "center", clipId ? `${clipId}:${kind}` : kind, title), centerKind: kind, clipId, itemCount, width, height };
+    return { ...base(model.project.id, id, semanticParentId, "center", clipId ? `${clipId}:${kind}` : kind, title), centerKind: kind, clipId, itemCount, width, height, baseWidth: width, baseHeight: height, materialSourcePositions: kind === "materials" ? materialSourcePositions : undefined };
   };
 
   for (const clip of model.clips) {
@@ -280,18 +373,18 @@ export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: Readonly
     const owned = model.assets.filter((asset) => asset.clip_id === clip.id);
     const boards = boardsByClip.get(clip.id) ?? [];
     const outputs = outputsByClip.get(clip.id) ?? [];
-
     nodes.push(
       asNode(clipData.canonicalId, "ClipNode", { x: CANVAS_LAYOUT.clipX, y: row.y + 6 }, clipData),
-      asNode(materialCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: row.y }, centerData("materials", clip.id, "素材中心", owned.length, materialWidth, row.height, clipParentId), { width: materialWidth, height: row.height }, 0),
-      asNode(shotsCenter, "CanvasCenterNode", { x: shotsX, y: row.y }, centerData("shots", clip.id, "镜头中心", boards.length, shotsWidth, row.height, clipParentId), { width: shotsWidth, height: row.height }, 0),
-      asNode(releaseCenter, "CanvasCenterNode", { x: releaseX, y: row.y }, centerData("release", clip.id, "成片中心", outputs.length, CANVAS_LAYOUT.releaseWidth, row.height, clipParentId), { width: CANVAS_LAYOUT.releaseWidth, height: row.height }, 0),
+      asNode(materialCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: row.y }, centerData("materials", clip.id, "素材中心", owned.length, materialWidth, row.height, clipParentId, materialSourcePositions(clipLayouts.get(clip.id) ?? [])), { width: materialWidth, height: row.height }, 0, null, ".cn-center__header"),
+      asNode(shotsCenter, "CanvasCenterNode", { x: shotsX, y: row.y }, centerData("shots", clip.id, "镜头中心", boards.length, shotsWidth, row.height, clipParentId), { width: shotsWidth, height: row.height }, 0, null, ".cn-center__header"),
+      asNode(releaseCenter, "CanvasCenterNode", { x: releaseX, y: row.y }, centerData("release", clip.id, "成片中心", outputs.length, CANVAS_LAYOUT.releaseWidth, row.height, clipParentId), { width: CANVAS_LAYOUT.releaseWidth, height: row.height }, 0, null, ".cn-center__header"),
     );
+    edges.push(bezierEdge(`production:${clip.id}:materials`, clipData.canonicalId, materialCenter, true));
     edges.push(bezierEdge(`production:${clip.id}:shots`, materialCenter, shotsCenter, true));
     edges.push(bezierEdge(`production:${clip.id}:release`, shotsCenter, releaseCenter, true));
 
     if (centerOpen("materials", clip.id)) {
-      let categoryX = CANVAS_LAYOUT.materialX + 18;
+      let categoryX = CANVAS_LAYOUT.materialCategoryInset;
       const layouts = clipLayouts.get(clip.id) ?? [];
       for (const [index, type] of MATERIAL_TYPES.entries()) {
         const categoryId = materialCategoryId(clip.id, type, model.project.id);
@@ -299,60 +392,84 @@ export function buildCanvas(model: ProjectCanvasReadModel, expandedIds: Readonly
         const categoryOpen = expandedIds.has(categoryId);
         const layout = layouts[index];
         const data: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, clipParentId, "material-category", categoryId, type), clipId: clip.id, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
-        nodes.push(asNode(categoryId, "MaterialCategoryNode", { x: categoryX, y: row.y + 58 }, data, { width: layout.width, height: layout.height }, 1));
-        edges.push(bezierEdge(`material-entry:${clip.id}:${type}`, materialCenter, categoryId, false, "content-source"));
-        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, categoryX, row.y + 58, expandedIds, layout);
-        categoryX += layout.width + MATERIAL_CATEGORY_GAP;
+        const categoryPosition = { x: categoryX, y: CANVAS_LAYOUT.centerContentTop };
+        nodes.push(asNode(categoryId, "MaterialCategoryNode", visualPosition(nodes, materialCenter, categoryPosition), data, { width: layout.width, height: layout.height }, 1, materialCenter, ".cn-category__header"));
+        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, layout, index);
+        categoryX += layout.width + CANVAS_LAYOUT.materialCategoryGap;
       }
     }
-    if (centerOpen("shots", clip.id)) addShotTrack(nodes, edges, hierarchy, model, clip.id, boards, row.y + 58, expandedIds, shotsCenter, shotsX);
-    if (centerOpen("release", clip.id)) addReleaseChain(nodes, edges, model, clip.id, outputs, boards, row.y + 58, expandedIds, releaseCenter, releaseX);
+    if (centerOpen("shots", clip.id)) addShotTrack(nodes, edges, hierarchy, model, clip.id, boards, expandedIds, shotsCenter);
+    if (centerOpen("release", clip.id)) addReleaseChain(nodes, edges, model, clip.id, outputs, boards, expandedIds, releaseCenter);
   }
 
   if (sharedAssets.length > 0) {
     const sharedCenter = canvasCenterId("materials", null);
-    nodes.push(asNode(sharedCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: sharedY }, centerData("materials", null, "共享素材", sharedAssets.length, materialWidth, sharedHeight, canonicalProjectId(model.project.id)), { width: materialWidth, height: sharedHeight }, 0));
+    nodes.push(asNode(sharedCenter, "CanvasCenterNode", { x: CANVAS_LAYOUT.materialX, y: sharedY }, centerData("materials", null, "共享素材", sharedAssets.length, materialWidth, sharedHeight, canonicalProjectId(model.project.id), materialSourcePositions(sharedLayouts)), { width: materialWidth, height: sharedHeight }, 0, null, ".cn-center__header"));
     if (centerOpen("materials", null)) {
-      let categoryX = CANVAS_LAYOUT.materialX + 18;
+      let categoryX = CANVAS_LAYOUT.materialCategoryInset;
       for (const [index, type] of MATERIAL_TYPES.entries()) {
         const categoryId = sharedCategoryId(model.project.id, type);
         const categoryAssets = sharedAssets.filter((asset) => asset.type === type);
         const categoryOpen = expandedIds.has(categoryId);
         const layout = sharedLayouts[index];
         const categoryData: MaterialCategoryNodeData = { ...base(model.project.id, categoryId, canonicalProjectId(model.project.id), "material-category", categoryId, "项目共享 · " + type), clipId: null, category: type, itemCount: categoryAssets.length, expansionId: categoryId, hasChildren: categoryAssets.length > 0 };
-        nodes.push(asNode(categoryId, "MaterialCategoryNode", { x: categoryX, y: sharedY + 58 }, categoryData, { width: layout.width, height: layout.height }, 1));
-        edges.push(bezierEdge(`material-entry:shared:${type}`, sharedCenter, categoryId, false, "content-source"));
-        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, categoryX, sharedY + 58, expandedIds, layout);
-        categoryX += layout.width + MATERIAL_CATEGORY_GAP;
+        const categoryPosition = { x: categoryX, y: CANVAS_LAYOUT.centerContentTop };
+        nodes.push(asNode(categoryId, "MaterialCategoryNode", visualPosition(nodes, sharedCenter, categoryPosition), categoryData, { width: layout.width, height: layout.height }, 1, sharedCenter, ".cn-category__header"));
+        if (categoryOpen) addMaterialAssets(nodes, edges, hierarchy, categoryId, categoryAssets, layout, index);
+        categoryX += layout.width + CANVAS_LAYOUT.materialCategoryGap;
       }
     }
   }
+  if (import.meta.env.DEV) validateCanvasBindings(nodes);
   return { hierarchy, nodes, edges };
 }
 
-function addMaterialAssets(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, categoryId: string, assets: readonly CanvasAssetRead[], categoryX: number, categoryY: number, _expandedIds: ReadonlySet<string>, layout: MaterialCategoryLayout): void {
+function validateCanvasBindings(nodes: readonly Node<CanvasFlowNodeData>[]): void {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const problems: string[] = [];
+  for (const node of nodes) {
+    const nativeParentId = node.parentId || node.parentNode;
+    const groupId = node.data.canvasGroupId;
+    if (nativeParentId) problems.push(`${node.id} still has a native React Flow parent`);
+    if (groupId && !byId.has(groupId)) problems.push(`${node.id} -> missing canvas group ${groupId}`);
+    if (!Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`${node.id} has invalid absolute position`);
+  }
+  if (problems.length) console.warn("[Agent canvas] invalid flat projection bindings", problems);
+}
+
+function addMaterialAssets(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, categoryId: string, assets: readonly CanvasAssetRead[], layout: MaterialCategoryLayout, categoryIndex: number): void {
+  const categoryNode = nodes.find((node) => node.id === categoryId);
+  const groupId = categoryNode?.data.canvasGroupId ?? null;
   for (const asset of assets) {
     const semantic = hierarchy.byId.get(canonicalAssetId(asset.id));
-    const position = layout.assetPositions.get(semantic?.id ?? "");
-    if (!semantic || semantic.data.entityType !== "asset" || !position) continue;
-    nodes.push(asNode(semantic.id, "AssetNode", { x: categoryX + position.x, y: categoryY + position.y }, semantic.data, { width: 252 }));
-    edges.push(bezierEdge(`material-detail:${categoryId}:${semantic.id}`, categoryId, semantic.id, false, "asset-source"));
+    const localPosition = layout.assetPositions.get(semantic?.id ?? "");
+    if (!semantic || semantic.data.entityType !== "asset" || !localPosition) continue;
+    nodes.push(asNode(semantic.id, "AssetNode", visualPosition(nodes, categoryId, localPosition), semantic.data, { width: 252, height: 152 }, 2, groupId));
+    edges.push(bezierEdge(`material-detail:${categoryId}:${semantic.id}`, groupId ?? categoryId, semantic.id, false, groupId ? materialContentSourceHandle(categoryIndex) : "source"));
   }
 }
-function addShotTrack(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, model: ProjectCanvasReadModel, clipId: string, boards: CanvasStoryboardRead[], contentY: number, expandedIds: ReadonlySet<string>, centerId: string, shotsX: number): void {
+
+function addShotTrack(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarchy: CanvasHierarchy, model: ProjectCanvasReadModel, clipId: string, boards: CanvasStoryboardRead[], expandedIds: ReadonlySet<string>, centerId: string): void {
   const trackId = shotTrackId(clipId);
-  const trackWidth = Math.max(CANVAS_LAYOUT.shotTrackWidth, 185 + Math.max(0, boards.length - 1) * 282);
+  const trackWidth = Math.max(CANVAS_LAYOUT.shotTrackWidth, 185 + Math.max(0, boards.length - 1) * CANVAS_LAYOUT.shotColumnStep);
   const trackData: ShotTrackNodeData = { ...base(model.project.id, trackId, canonicalClipId(clipId), "shot-track", clipId, "镜头轨"), clipId, shotCount: boards.length, width: trackWidth };
-  nodes.push(asNode(trackId, "ShotTrackNode", { x: shotsX + CANVAS_LAYOUT.shotTrackX, y: contentY + 12 }, trackData, { width: trackWidth }, 1));
+  nodes.push(asNode(trackId, "ShotTrackNode", visualPosition(nodes, centerId, { x: CANVAS_LAYOUT.shotTrackX, y: CANVAS_LAYOUT.centerContentTop + 12 }), trackData, { width: trackWidth, height: 24 }, 1, centerId));
+  let previousAnchorId: string | null = null;
   boards.forEach((board, index) => {
     const anchorId = shotAnchorId(board.id);
     const anchorData: ShotAnchorNodeData = { ...base(model.project.id, anchorId, canonicalStoryboardId(board.id), "shot-anchor", board.id, `镜头 ${board.seq_num}`, board.video_state), clipId, storyboardId: board.id, seqNum: board.seq_num };
-    const x = shotsX + 261 + index * 282;
-    nodes.push(asNode(anchorId, "ShotAnchorNode", { x, y: contentY }, anchorData, undefined, 3));
+    const x = CANVAS_LAYOUT.shotAnchorX + index * CANVAS_LAYOUT.shotColumnStep;
+    const contentY = CANVAS_LAYOUT.centerContentTop;
+    nodes.push(asNode(anchorId, "ShotAnchorNode", visualPosition(nodes, centerId, { x, y: contentY }), anchorData, undefined, 3, centerId));
+    if (previousAnchorId) {
+      edges.push(bezierEdge(`shot-track-link:${previousAnchorId}:${anchorId}`, previousAnchorId, anchorId, true, "track-source", "track-target"));
+    }
+    previousAnchorId = anchorId;
     if (index === 0) edges.push(bezierEdge(`track-entry:${clipId}`, centerId, anchorId, false, "content-source"));
     const boardNode = hierarchy.byId.get(canonicalStoryboardId(board.id));
     if (!boardNode || boardNode.data.entityType !== "storyboard") return;
-    nodes.push(asNode(boardNode.id, "StoryboardNode", { x: shotsX + 145 + index * 282, y: contentY + 46 }, boardNode.data));
+    const boardLocalPosition = { x: CANVAS_LAYOUT.shotsSidePadding + index * CANVAS_LAYOUT.shotColumnStep, y: contentY + 46 };
+    nodes.push(asNode(boardNode.id, "StoryboardNode", visualPosition(nodes, centerId, boardLocalPosition), boardNode.data, undefined, 2, centerId));
     edges.push(bezierEdge(`shot-hang:${board.id}`, anchorId, boardNode.id));
     if (!expandedIds.has(boardNode.id)) return;
     const details = hierarchy.childrenById.get(boardNode.id) ?? [];
@@ -360,36 +477,53 @@ function addShotTrack(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], hierarch
     for (const detailId of details) {
       const detail = hierarchy.byId.get(detailId);
       if (!detail) continue;
-      nodes.push(asNode(detail.id, detail.type, { x: shotsX + 145 + index * 282, y: detailY }, detail.data));
+      nodes.push(asNode(detail.id, detail.type, visualPosition(nodes, centerId, { x: boardLocalPosition.x, y: detailY }), detail.data, undefined, 2, centerId));
       edges.push(bezierEdge(`shot-detail:${board.id}:${detail.id}`, boardNode.id, detail.id));
-      const isReadyVideo = detail.data.entityType === "video" && detail.data.filePath && (!detail.data.isUpscaleOutput || detail.data.isOutputReady);
-      detailY += (isReadyVideo ? 134 : 58) + 8;
+      detailY += shotDetailHeight(detail.data.entityType) + CANVAS_LAYOUT.shotDetailGap;
     }
   });
 }
-function addReleaseChain(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], model: ProjectCanvasReadModel, clipId: string, outputs: CanvasConcatOutputRead[], boards: CanvasStoryboardRead[], contentY: number, expandedIds: ReadonlySet<string>, centerId: string, releaseX: number): void {
+
+function addReleaseChain(nodes: Node<CanvasFlowNodeData>[], edges: Edge[], model: ProjectCanvasReadModel, clipId: string, outputs: CanvasConcatOutputRead[], boards: CanvasStoryboardRead[], expandedIds: ReadonlySet<string>, centerId: string): void {
+  const shotPreviews: ReleaseShotPreview[] = boards.map((board) => {
+    const selectedVideo = board.selected_video_id ? board.videos.find((video) => video.id === board.selected_video_id) : undefined;
+    const video = selectedVideo ?? board.videos.find((candidate) => readModelVideoReady(board, candidate)) ?? board.videos[0];
+    const batchIndex = video ? board.videos.findIndex((candidate) => candidate.id === video.id) + 1 : null;
+    return {
+      storyboardId: board.id,
+      seqNum: board.seq_num,
+      sbid: board.sbid,
+      summary: board.summary || board.dialogue,
+      videoPath: video?.file_path || null,
+      videoDuration: video?.duration ?? board.video_duration,
+      batchIndex,
+      isReady: video ? readModelVideoReady(board, video) : false,
+    };
+  });
+  const durationValues = shotPreviews.map((shot) => shot.videoDuration).filter((duration): duration is number => duration !== null && Number.isFinite(duration));
+  const totalDuration = durationValues.length > 0 ? durationValues.reduce((total, duration) => total + duration, 0) : null;
   const readyShots = readyStoryboardCount(boards);
   const summaryId = releaseSummaryId(clipId);
-  const taskId = releaseTaskId(clipId);
-  const summary: ReleaseSummaryNodeData = { ...base(model.project.id, summaryId, canonicalClipId(clipId), "release-summary", clipId, "镜头就绪汇总"), clipId, readyShots, totalShots: boards.length };
-  const task: ReleaseTaskNodeData = { ...base(model.project.id, taskId, canonicalClipId(clipId), "release-task", clipId, readyShots === boards.length && boards.length > 0 ? "等待合成" : "等待镜头"), clipId, readyShots, totalShots: boards.length, status: readyShots === boards.length && boards.length > 0 ? "ready" : "pending" };
-  nodes.push(asNode(summaryId, "ReleaseSummaryNode", { x: releaseX + 136, y: contentY + 17 }, summary));
-  nodes.push(asNode(taskId, "ReleaseTaskNode", { x: releaseX + 252, y: contentY + 17 }, task));
+  const contentY = CANVAS_LAYOUT.centerContentTop;
+  const summary: ReleaseSummaryNodeData = {
+    ...base(model.project.id, summaryId, canonicalClipId(clipId), "release-summary", clipId, "手动编排"),
+    clipId, readyShots, totalShots: boards.length, shots: shotPreviews, totalDuration,
+  };
+  nodes.push(asNode(summaryId, "ReleaseSummaryNode", visualPosition(nodes, centerId, { x: CANVAS_LAYOUT.releaseContentX, y: contentY + 17 }), summary, undefined, 2, centerId));
   const current = outputs[0];
   const releaseId = current ? outputNodeId(current.id) : emptyReleaseId(clipId);
   const output: ReleaseOutputNodeData = current ? {
-    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", current.id, current.file_name || "当前成片"), clipId, fileName: current.file_name, filePath: current.output_path, duration: current.duration, segmentCount: current.segment_count, source: current.source, isEmpty: false,
+    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", current.id, current.file_name || "当前成片"), hasChildren: outputs.length > 1, clipId, fileName: current.file_name, filePath: current.output_path, duration: current.duration, segmentCount: current.segment_count, source: current.source, createdAt: current.created_at, audioIncluded: current.audio_included, isEmpty: false, isHistory: false,
   } : {
-    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", clipId, "尚无成片"), clipId, fileName: null, filePath: null, duration: null, segmentCount: 0, source: null, isEmpty: true,
+    ...base(model.project.id, releaseId, canonicalClipId(clipId), "release-output", clipId, "尚无成片"), clipId, fileName: null, filePath: null, duration: null, segmentCount: 0, source: null, createdAt: null, audioIncluded: false, isEmpty: true, isHistory: false,
   };
-  nodes.push(asNode(releaseId, "ReleaseOutputNode", { x: releaseX + 364, y: contentY }, output));
+  nodes.push(asNode(releaseId, "ReleaseOutputNode", visualPosition(nodes, centerId, { x: CANVAS_LAYOUT.releaseOutputX, y: contentY }), output, undefined, 2, centerId));
   edges.push(bezierEdge(`release:${clipId}:summary`, centerId, summaryId, false, "content-source"));
-  edges.push(bezierEdge(`release:${clipId}:task`, summaryId, taskId));
-  edges.push(bezierEdge(`release:${clipId}:output`, taskId, releaseId));
+  edges.push(bezierEdge(`release:${clipId}:output`, summaryId, releaseId));
   if (!current || !expandedIds.has(releaseId)) return;
   outputs.slice(1).forEach((history, index) => {
     const id = outputNodeId(history.id);
-    const historyData: ReleaseOutputNodeData = { ...base(model.project.id, id, releaseId, "release-output", history.id, history.file_name || "历史成片"), clipId, fileName: history.file_name, filePath: history.output_path, duration: history.duration, segmentCount: history.segment_count, source: history.source, isEmpty: false };
-    nodes.push(asNode(id, "ReleaseOutputNode", { x: releaseX + 388, y: contentY + 110 + index * 58 }, historyData));
+    const historyData: ReleaseOutputNodeData = { ...base(model.project.id, id, releaseId, "release-output", history.id, history.file_name || "历史成片"), clipId, fileName: history.file_name, filePath: history.output_path, duration: history.duration, segmentCount: history.segment_count, source: history.source, createdAt: history.created_at, audioIncluded: history.audio_included, isEmpty: false, isHistory: true };
+    nodes.push(asNode(id, "ReleaseOutputNode", visualPosition(nodes, centerId, { x: CANVAS_LAYOUT.releaseHistoryX, y: contentY + CANVAS_LAYOUT.releaseHistoryTop + index * (CANVAS_LAYOUT.releaseHistoryHeight + CANVAS_LAYOUT.releaseHistoryGap) }), historyData, undefined, 2, centerId));
   });
 }

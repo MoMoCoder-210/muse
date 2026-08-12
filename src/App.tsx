@@ -54,7 +54,10 @@ export default function App() {
   const handleStartupReady = useCallback(() => setStartupReady(true), []);
 
   const handleEnterAgent = useCallback(() => setIsAgentMode(true), []);
-  const handleExitAgent = useCallback(() => setIsAgentMode(false), []);
+  const handleExitAgent = useCallback(() => {
+    setIsAgentMode(false);
+    if (selectedProject) setView("projects");
+  }, [selectedProject]);
 
   const handleGoHome = useCallback(() => {
     setView("home");
@@ -93,6 +96,7 @@ export default function App() {
           />
         ) : (
           <ProjectManagementPage
+            selectedProjectId={selectedProject?.id ?? null}
             onGoHome={handleGoHome}
             onSelectedProjectChange={setSelectedProject}
           />

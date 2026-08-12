@@ -94,6 +94,7 @@
   align-items: center;
   gap: 3px;
   overflow-x: auto;
+  overscroll-behavior: contain;
   padding: 3px;
   border-radius: var(--radius-xl);
   background: var(--segmented-bg);
