@@ -225,10 +225,12 @@ export function markTaskSuccess(
   db: DatabaseType,
   taskId: string,
   outputJson: string
-): void {
-  db.prepare(
-    "UPDATE tasks SET status = 'success', output_json = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+): boolean {
+  const result = db.prepare(
+    `UPDATE tasks SET status = 'success', output_json = ?, finished_at = datetime('now'), updated_at = datetime('now')
+     WHERE id = ? AND status = 'running' AND cancel_requested_at IS NULL`
   ).run(outputJson, taskId);
+  return result.changes === 1;
 }
 
 /**
@@ -239,10 +241,12 @@ export function markTaskFailed(
   db: DatabaseType,
   taskId: string,
   errorMessage: string
-): void {
-  db.prepare(
-    "UPDATE tasks SET status = 'failed', error_message = ?, retry_count = retry_count + 1, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+): boolean {
+  const result = db.prepare(
+    `UPDATE tasks SET status = 'failed', error_message = ?, retry_count = retry_count + 1, finished_at = datetime('now'), updated_at = datetime('now')
+     WHERE id = ? AND status IN ('running', 'waiting_remote') AND cancel_requested_at IS NULL`
   ).run(errorMessage, taskId);
+  return result.changes === 1;
 }
 
 /**
@@ -288,7 +292,7 @@ export function transitionEntityStatus(
     switch (newStatus) {
       case "running":
         db.prepare(
-          `UPDATE clips SET status = 'running', updated_at = ${now} WHERE id = ?`
+          `UPDATE clips SET status = 'running', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
         ).run(cid);
         db.prepare(
           `UPDATE clip_scripts SET status = 'running', updated_at = ${now} WHERE clip_id = ?`
@@ -296,7 +300,7 @@ export function transitionEntityStatus(
         break;
       case "running-pending":
         db.prepare(
-          `UPDATE clips SET status = 'pending', updated_at = ${now} WHERE id = ?`
+          `UPDATE clips SET status = 'pending', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
         ).run(cid);
         db.prepare(
           `UPDATE clip_scripts SET status = 'pending', updated_at = ${now} WHERE clip_id = ?`
@@ -304,7 +308,7 @@ export function transitionEntityStatus(
         break;
       case "success":
         db.prepare(
-          `UPDATE clips SET status = 'script_ready', updated_at = ${now} WHERE id = ?`
+          `UPDATE clips SET status = 'script_ready', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
         ).run(cid);
         db.prepare(
           `UPDATE clip_scripts SET status = 'success', updated_at = ${now} WHERE clip_id = ?`
@@ -312,7 +316,7 @@ export function transitionEntityStatus(
         break;
       case "failed":
         db.prepare(
-          `UPDATE clips SET status = 'failed', updated_at = ${now} WHERE id = ?`
+          `UPDATE clips SET status = 'failed', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
         ).run(cid);
         db.prepare(
           `UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = ${now} WHERE clip_id = ?`

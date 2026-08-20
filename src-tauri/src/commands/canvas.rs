@@ -47,8 +47,8 @@ pub struct CanvasClip {
 pub struct CanvasAsset {
     pub id: String,
     pub project_id: String,
-    /// NULL 或遗留空字符串都规范为 None，表示项目共享素材。
-    pub clip_id: Option<String>,
+    /// 素材可在多个分集中复用，关系由 clip_assets 聚合而来。
+    pub clip_ids: Vec<String>,
     pub r#type: String,
     pub name: String,
     pub description: String,
@@ -100,8 +100,6 @@ pub struct CanvasStoryboard {
     pub voice_state: String,
     pub video_state: String,
     pub video_duration: Option<f64>,
-    /// 镜头封面图路径；视频批次卡片使用该轻量图片，不加载原视频首帧。
-    pub fused_image_path: Option<String>,
     /// 仅来自本镜头 video_param_json.mention_map，且只保留本项目的 canonical asset。
     pub asset_references: Vec<CanvasAssetReference>,
     pub video_tasks: Vec<CanvasStoryboardTask>,
@@ -135,6 +133,7 @@ pub struct CanvasStoryboardVideo {
     pub task_id: Option<String>,
     pub duration: Option<f64>,
     pub created_at: String,
+    pub cover_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,6 +161,7 @@ pub struct CanvasConcatOutput {
     pub audio_included: bool,
     pub source: String,
     pub created_at: String,
+    pub cover_path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -181,10 +181,7 @@ struct RawStoryboard {
     visual_description: String,
     video_prompt: String,
     video_param_json: Option<String>,
-    character_ids_json: String,
-    scene_ids_json: String,
-    item_ids_json: String,
-    fused_image_path: Option<String>,
+    asset_ids: Vec<String>,
 }
 
 /// 一次性读取画布所需的、项目范围内的全部只读实体。
@@ -249,31 +246,28 @@ pub fn get_project_canvas_read_model(
     let mut assets = {
         let mut stmt = conn
             .prepare(
-                "SELECT a.id, a.project_id, a.clip_id, a.type, a.name, a.description, a.prompt, a.status,
+                "SELECT a.id, a.project_id,
+                        COALESCE((SELECT json_group_array(ca.clip_id) FROM clip_assets ca
+                                  JOIN clips c ON c.id = ca.clip_id
+                                  WHERE ca.asset_id = a.id AND c.deleted_at IS NULL), '[]'),
+                        a.type, a.name, a.description, a.prompt, a.status,
                         (SELECT ai.image_path FROM asset_images ai
                          WHERE ai.id = a.selected_image_id LIMIT 1),
                         (SELECT ai.thumbnail_path FROM asset_images ai
                          WHERE ai.id = a.selected_image_id LIMIT 1)
                  FROM assets a
                  WHERE a.project_id = ?1
-                   AND (
-                     a.clip_id IS NULL OR trim(a.clip_id) = ''
-                     OR EXISTS (
-                       SELECT 1 FROM clips c
-                       WHERE c.id = a.clip_id AND c.project_id = ?1 AND c.deleted_at IS NULL
-                     )
-                   )
-                 ORDER BY CASE WHEN a.clip_id IS NULL OR trim(a.clip_id) = '' THEN 0 ELSE 1 END,
-                          a.clip_id ASC, a.type ASC, a.name ASC, a.id ASC",
+                 ORDER BY a.type ASC, a.name ASC, a.id ASC",
             )
             .map_err(|e| e.to_string())?;
         let assets = stmt
             .query_map(rusqlite::params![&project_id], |row| {
-                let clip_id: Option<String> = row.get(2)?;
+                let clip_ids_json: String = row.get(2)?;
+                let clip_ids = serde_json::from_str(&clip_ids_json).unwrap_or_default();
                 Ok(CanvasAsset {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
-                    clip_id: clip_id.filter(|id| !id.trim().is_empty()),
+                    clip_ids,
                     r#type: row.get(3)?,
                     name: row.get(4)?,
                     description: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
@@ -308,7 +302,9 @@ pub fn get_project_canvas_read_model(
                     prompt: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
                     size: row.get(4)?,
                     style: row.get(5)?,
-                    source: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "generation".to_string()),
+                    source: row
+                        .get::<_, Option<String>>(6)?
+                        .unwrap_or_else(|| "generation".to_string()),
                     is_selected: row.get::<_, i64>(7)? != 0,
                     created_at: row.get(8)?,
                 })
@@ -348,8 +344,9 @@ pub fn get_project_canvas_read_model(
                 "SELECT s.id, s.project_id, s.clip_id, s.sbid, s.seq_num, s.summary, s.dialogue,
                         s.visual_description, s.video_prompt,
                         s.image_state, s.voice_state, s.video_state, s.video_duration, s.selected_video_id,
-                        s.video_param_json, s.character_ids_json, s.scene_ids_json, s.item_ids_json,
-                        s.fused_image_path
+                        s.video_param_json,
+                        COALESCE((SELECT json_group_array(sa.asset_id) FROM storyboard_assets sa
+                                  WHERE sa.storyboard_id = s.id), '[]')
                  FROM storyboards s
                  JOIN clips c ON c.id = s.clip_id
                  WHERE s.project_id = ?1 AND c.project_id = ?1 AND c.deleted_at IS NULL
@@ -374,10 +371,7 @@ pub fn get_project_canvas_read_model(
                     video_duration: row.get(12)?,
                     selected_video_id: row.get(13)?,
                     video_param_json: row.get(14)?,
-                    character_ids_json: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
-                    scene_ids_json: row.get::<_, Option<String>>(16)?.unwrap_or_default(),
-                    item_ids_json: row.get::<_, Option<String>>(17)?.unwrap_or_default(),
-                    fused_image_path: row.get(18)?,
+                    asset_ids: serde_json::from_str(&row.get::<_, String>(15)?).unwrap_or_default(),
                 })
             })
             .map_err(|e| e.to_string())?
@@ -414,7 +408,7 @@ pub fn get_project_canvas_read_model(
 
         let mut video_stmt = conn
             .prepare(
-                "SELECT id, file_path, file_name, source, task_id, duration, created_at
+                "SELECT id, file_path, file_name, source, task_id, duration, created_at, cover_path
                  FROM storyboard_videos WHERE storyboard_id = ?1
                  ORDER BY created_at ASC, id ASC",
             )
@@ -429,6 +423,7 @@ pub fn get_project_canvas_read_model(
                     task_id: row.get(4)?,
                     duration: row.get(5)?,
                     created_at: row.get(6)?,
+                    cover_path: row.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -475,7 +470,6 @@ pub fn get_project_canvas_read_model(
             voice_state: storyboard.voice_state,
             video_state: storyboard.video_state,
             video_duration: storyboard.video_duration,
-            fused_image_path: storyboard.fused_image_path,
             asset_references: references,
             video_tasks,
             videos,
@@ -487,7 +481,7 @@ pub fn get_project_canvas_read_model(
         let mut stmt = conn
             .prepare(
                 "SELECT o.id, o.project_id, o.clip_id, o.output_path, o.file_name, o.duration,
-                        o.segment_count, o.audio_included, o.source, o.created_at
+                        o.segment_count, o.audio_included, o.source, o.created_at, o.cover_path
                  FROM concat_outputs o
                  JOIN clips c ON c.id = o.clip_id
                  WHERE o.project_id = ?1 AND c.project_id = ?1 AND c.deleted_at IS NULL
@@ -507,6 +501,7 @@ pub fn get_project_canvas_read_model(
                     audio_included: row.get::<_, i64>(7)? != 0,
                     source: row.get(8)?,
                     created_at: row.get(9)?,
+                    cover_path: row.get(10)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -515,7 +510,13 @@ pub fn get_project_canvas_read_model(
         outputs
     };
 
-    Ok(ProjectCanvasReadModel { project, clips, assets, storyboards, concat_outputs })
+    Ok(ProjectCanvasReadModel {
+        project,
+        clips,
+        assets,
+        storyboards,
+        concat_outputs,
+    })
 }
 
 /// 读取镜头的全部绑定素材，并叠加提示词 mention 的稳定编号/标签。
@@ -525,36 +526,50 @@ fn canonical_storyboard_references(
     assets: &[CanvasAsset],
     canonical_asset_ids: &std::collections::HashSet<String>,
 ) -> Vec<CanvasAssetReference> {
-    let assets_by_id: HashMap<&str, &CanvasAsset> =
-        assets.iter().map(|asset| (asset.id.as_str(), asset)).collect();
+    let assets_by_id: HashMap<&str, &CanvasAsset> = assets
+        .iter()
+        .map(|asset| (asset.id.as_str(), asset))
+        .collect();
     let mut references = Vec::new();
-    append_bound_references(
-        &storyboard.character_ids_json,
-        &mut references,
-        &assets_by_id,
-        canonical_asset_ids,
-    );
-    append_bound_references(
-        &storyboard.scene_ids_json,
-        &mut references,
-        &assets_by_id,
-        canonical_asset_ids,
-    );
-    append_bound_references(
-        &storyboard.item_ids_json,
-        &mut references,
-        &assets_by_id,
-        canonical_asset_ids,
-    );
+    for asset_id in &storyboard.asset_ids {
+        if !canonical_asset_ids.contains(asset_id)
+            || references
+                .iter()
+                .any(|reference: &CanvasAssetReference| reference.asset_id == *asset_id)
+        {
+            continue;
+        }
+        let Some(asset) = assets_by_id.get(asset_id.as_str()) else {
+            continue;
+        };
+        references.push(CanvasAssetReference {
+            asset_id: asset_id.clone(),
+            index: 0,
+            asset_tag: String::new(),
+            image_path: asset.selected_image_path.clone(),
+        });
+    }
 
     if let Some(raw) = storyboard.video_param_json.as_deref() {
         if let Ok(payload) = serde_json::from_str::<serde_json::Value>(raw) {
-            if let Some(entries) = payload.get("mention_map").and_then(serde_json::Value::as_array) {
+            if let Some(entries) = payload
+                .get("mention_map")
+                .and_then(serde_json::Value::as_array)
+            {
                 for entry in entries {
-                    let Some(asset_id) = entry.get("assetId").and_then(serde_json::Value::as_str) else { continue };
-                    let Some(index) = entry.get("n").and_then(serde_json::Value::as_i64) else { continue };
-                    let Some(asset) = assets_by_id.get(asset_id) else { continue };
-                    if !(1..=i32::MAX as i64).contains(&index) || !canonical_asset_ids.contains(asset_id) {
+                    let Some(asset_id) = entry.get("assetId").and_then(serde_json::Value::as_str)
+                    else {
+                        continue;
+                    };
+                    let Some(index) = entry.get("n").and_then(serde_json::Value::as_i64) else {
+                        continue;
+                    };
+                    let Some(asset) = assets_by_id.get(asset_id) else {
+                        continue;
+                    };
+                    if !(1..=i32::MAX as i64).contains(&index)
+                        || !canonical_asset_ids.contains(asset_id)
+                    {
                         continue;
                     }
                     let name = entry
@@ -567,7 +582,13 @@ fn canonical_storyboard_references(
                         .filter(|tag| !tag.is_empty())
                         .map(str::to_owned)
                         .unwrap_or_else(|| format!("{}(@图片{})", name, index));
-                    if let Some(reference) = references.iter_mut().find(|reference: &&mut CanvasAssetReference| reference.asset_id == asset_id) {
+                    if let Some(reference) =
+                        references
+                            .iter_mut()
+                            .find(|reference: &&mut CanvasAssetReference| {
+                                reference.asset_id == asset_id
+                            })
+                    {
                         reference.index = index as i32;
                         reference.asset_tag = asset_tag;
                         reference.image_path = asset.selected_image_path.clone();
@@ -586,29 +607,14 @@ fn canonical_storyboard_references(
 
     references.sort_by(|left, right| {
         let left_index = if left.index > 0 { left.index } else { i32::MAX };
-        let right_index = if right.index > 0 { right.index } else { i32::MAX };
-        left_index.cmp(&right_index).then_with(|| left.asset_id.cmp(&right.asset_id))
+        let right_index = if right.index > 0 {
+            right.index
+        } else {
+            i32::MAX
+        };
+        left_index
+            .cmp(&right_index)
+            .then_with(|| left.asset_id.cmp(&right.asset_id))
     });
     references
-}
-
-fn append_bound_references(
-    raw: &str,
-    references: &mut Vec<CanvasAssetReference>,
-    assets_by_id: &HashMap<&str, &CanvasAsset>,
-    canonical_asset_ids: &std::collections::HashSet<String>,
-) {
-    let Ok(ids) = serde_json::from_str::<Vec<String>>(raw) else { return };
-    for asset_id in ids {
-        if !canonical_asset_ids.contains(&asset_id) || references.iter().any(|reference| reference.asset_id == asset_id) {
-            continue;
-        }
-        let Some(asset) = assets_by_id.get(asset_id.as_str()) else { continue };
-        references.push(CanvasAssetReference {
-            asset_id,
-            index: 0,
-            asset_tag: String::new(),
-            image_path: asset.selected_image_path.clone(),
-        });
-    }
 }

@@ -284,7 +284,7 @@ export class TaskRunner {
 
     // 素材生图任务：向前端推送实时进度，避免前端仅依赖轮询
     const assetInput = taskType === "generate_asset_image"
-      ? (ctx.taskInput as { clipId?: string; assetType?: string; name?: string } | undefined)
+      ? (ctx.taskInput as { clipId?: string; assetType?: string; name?: string; assetId?: string } | undefined)
       : undefined;
     const emitAssetProgress = (status: "running" | "success" | "failed") => {
       if (assetInput?.clipId && assetInput?.assetType && assetInput?.name) {
@@ -293,6 +293,7 @@ export class TaskRunner {
           clipId: assetInput.clipId,
           assetType: assetInput.assetType,
           name: assetInput.name,
+          assetId: assetInput.assetId,
           status,
         });
       }
@@ -341,7 +342,10 @@ export class TaskRunner {
         taskAbort,
       );
       log("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
-      markTaskSuccess(this.db, task.id, outputJson);
+      if (!markTaskSuccess(this.db, task.id, outputJson)) {
+        log("任务调度", "WARN", `任务完成时已被取消或失效，丢弃回写：id=${task.id}`);
+        return;
+      }
       transitionEntityStatus(this.db, task, "success");
       this.emit({ type: "task_success", taskId: task.id, outputJson });
       emitAssetProgress("success");
@@ -366,9 +370,14 @@ export class TaskRunner {
       if (this.isRetryable(err) && task.retry_count < task.max_retry) {
         log("任务调度", "WARN", `任务回退待重试：id=${task.id} retry=${task.retry_count + 1}/${task.max_retry}`);
         try {
-          this.db.prepare(
-            "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now') WHERE id = ?"
+          const retried = this.db.prepare(
+            `UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, error_message = ?, updated_at = datetime('now')
+             WHERE id = ? AND status = 'running' AND cancel_requested_at IS NULL`
           ).run(errorMessage, task.id);
+          if (retried.changes !== 1) {
+            log("任务调度", "WARN", `任务已取消或失效，不再重试：id=${task.id}`);
+            return;
+          }
           transitionEntityStatus(this.db, task, "running-pending");
           this.emit({ type: "task_failed", taskId: task.id, errorMessage: `${errorMessage}（将重试）` });
         } catch (e) {
@@ -376,7 +385,10 @@ export class TaskRunner {
         }
       } else {
         try {
-          markTaskFailed(this.db, task.id, errorMessage);
+          if (!markTaskFailed(this.db, task.id, errorMessage)) {
+            log("任务调度", "WARN", `任务失败时已取消或失效，跳过状态回写：id=${task.id}`);
+            return;
+          }
           recoverEntityStatusOnFinalFail(this.db, task);
           this.emit({ type: "task_failed", taskId: task.id, errorMessage });
           emitAssetProgress("failed");

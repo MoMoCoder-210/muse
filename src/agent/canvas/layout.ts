@@ -31,7 +31,6 @@ export const CANVAS_LAYOUT = {
   releaseHistoryX: 292,
   releaseOutputHeight: 164,
   releaseHistoryTop: 180,
-  releaseHistoryHeight: 76,
   releaseHistoryGap: 12,
   releaseContentBottomPadding: 12,
   videoCardHeight: 154,

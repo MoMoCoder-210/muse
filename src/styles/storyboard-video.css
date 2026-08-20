@@ -461,7 +461,7 @@
   z-index: 8;
   width: 100px;
   padding: 4px 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.8px;
   text-align: center;

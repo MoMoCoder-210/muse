@@ -30,7 +30,7 @@ export function ProjectManagementPage({ selectedProjectId: initialSelectedProjec
   const [deleteFiles, setDeleteFiles] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [projectOverrides, setProjectOverrides] = useState<Record<string, ProjectInfo>>({});
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => !initialSelectedProjectId);
 
   useEffect(() => {
     load()
@@ -40,9 +40,17 @@ export function ProjectManagementPage({ selectedProjectId: initialSelectedProjec
 
   useEffect(() => {
     if (initialSelectedProjectId !== undefined) {
-      setSelectedProjectId(initialSelectedProjectId ?? "");
+      const nextSelectedProjectId = initialSelectedProjectId ?? "";
+      setSelectedProjectId(nextSelectedProjectId);
+      setSidebarOpen(!nextSelectedProjectId);
     }
   }, [initialSelectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setSidebarOpen(true);
+    }
+  }, [selectedProjectId]);
 
   const selectedProject = (() => {
     if (!selectedProjectId) return null;
@@ -70,6 +78,7 @@ export function ProjectManagementPage({ selectedProjectId: initialSelectedProjec
   const handleDeleted = useCallback((projectId: string) => {
     if (selectedProjectId === projectId) {
       setSelectedProjectId("");
+      setSidebarOpen(true);
     }
     setProjectOverrides((prev) => {
       const next = { ...prev };
@@ -98,22 +107,23 @@ export function ProjectManagementPage({ selectedProjectId: initialSelectedProjec
 
   return (
     <section className={`projects-screen${sidebarOpen ? " projects-screen--sidebar-open" : ""}`}>
-      {/* 侧边栏收起时的窄把手 — 点击展开 */}
-      {!sidebarOpen && (
-        <div
-          className="sidebar-grabber"
-          onClick={() => setSidebarOpen(true)}
-          title="展开作品列表"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M6 4L10 8L6 12"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+      {selectedProjectId && (
+        <div className={`sidebar-edge-hotzone${sidebarOpen ? " sidebar-edge-hotzone--open" : ""}`}>
+          <button
+            type="button"
+            className="sidebar-grabber"
+            onClick={() => setSidebarOpen((open) => !open)}
+            title={sidebarOpen ? "收起作品列表" : "展开作品列表"}
+            aria-label={sidebarOpen ? "收起作品列表" : "展开作品列表"}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              {sidebarOpen ? (
+                <path d="M5 5L11 11M11 5L5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              ) : (
+                <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+          </button>
         </div>
       )}
 

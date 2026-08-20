@@ -1,6 +1,5 @@
 export const APP_NAME = "Muse";
-// 默认作品根目录留空，由后端在创建作品时回退到应用数据目录下的默认路径，
-// 避免硬编码平台相关绝对路径（如 D:\projects）在非目标环境下失效。
+// 留空时由后端统一回退到 ~/.muse/projects；不再使用磁盘相关的硬编码路径。
 export const DEFAULT_PROJECT_ROOT = "";
 
 export const CREATE_MODES = {

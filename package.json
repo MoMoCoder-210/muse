@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "kill:orphan-upscale": "node scripts/kill-orphan-upscale.mjs",
+    "backfill:video-covers": "node scripts/backfill-video-covers.mjs",
     "tauri:dev": "npm run kill:orphan-upscale && npm run worker:build && tauri dev",
     "tauri:build": "npm run kill:orphan-upscale && npm run fetch-node && npm run worker:build && tauri build",
     "fetch-node": "node scripts/fetch-node.mjs",

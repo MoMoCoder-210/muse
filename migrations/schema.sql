@@ -103,8 +103,6 @@ CREATE TABLE IF NOT EXISTS clip_scripts (
     optimized_text           TEXT,
     script_summary           TEXT,
     raw_model_output         TEXT,
-    -- 模型抽取的候选资源 JSON（人物 / 场景 / 道具）
-    extracted_resources_json TEXT,
     -- RS | TS | ZH
     mode                     TEXT,
     -- asset | storyboard | voice | video | export
@@ -127,14 +125,12 @@ CREATE INDEX IF NOT EXISTS idx_clip_scripts_clip
 CREATE TABLE IF NOT EXISTS assets (
     id                         TEXT PRIMARY KEY,
     project_id                 TEXT NOT NULL REFERENCES projects(id),
-    clip_id                    TEXT REFERENCES clips(id),
     -- character | scene | item
     type                       TEXT NOT NULL,
     name                       TEXT NOT NULL,
     description                TEXT NOT NULL DEFAULT '',
     prompt                     TEXT NOT NULL DEFAULT '',
     reference_image_path       TEXT,
-    generated_image_path       TEXT,
     selected_image_id          TEXT,
     voice_binding_json         TEXT,
     -- model | manual | imported
@@ -148,12 +144,32 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE INDEX IF NOT EXISTS idx_assets_project_type_name
     ON assets(project_id, type, name);
 
-CREATE INDEX IF NOT EXISTS idx_assets_clip
-    ON assets(clip_id);
+
+-- ============================================================================
+-- 5.1 clip_assets — 分集素材池（支持同一素材被多个分集复用）
+-- ============================================================================
+-- 当前分集可用的素材以本表为唯一事实来源。
+CREATE TABLE IF NOT EXISTS clip_assets (
+    id         TEXT PRIMARY KEY,
+    clip_id    TEXT NOT NULL REFERENCES clips(id),
+    asset_id   TEXT NOT NULL REFERENCES assets(id),
+    -- generated | reused | manual | imported
+    source     TEXT NOT NULL DEFAULT 'generated',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clip_assets_unique
+    ON clip_assets(clip_id, asset_id);
+
+CREATE INDEX IF NOT EXISTS idx_clip_assets_clip
+    ON clip_assets(clip_id);
+
+CREATE INDEX IF NOT EXISTS idx_clip_assets_asset
+    ON clip_assets(asset_id);
 
 
 -- ============================================================================
--- 5.1 asset_images — 素材生成图片（一个素材可生成多张）
+-- 5.2 asset_images — 素材生成图片（一个素材可生成多张）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS asset_images (
@@ -213,9 +229,6 @@ CREATE TABLE IF NOT EXISTS storyboards (
     visual_description TEXT NOT NULL DEFAULT '',
     image_prompt       TEXT NOT NULL DEFAULT '',
     video_prompt       TEXT NOT NULL DEFAULT '',
-    character_ids_json TEXT NOT NULL DEFAULT '[]',
-    scene_ids_json     TEXT NOT NULL DEFAULT '[]',
-    item_ids_json      TEXT NOT NULL DEFAULT '[]',
     image_param_json   TEXT,
     video_param_json   TEXT,
     voice_param_json   TEXT,
@@ -223,7 +236,6 @@ CREATE TABLE IF NOT EXISTS storyboards (
     image_state        TEXT NOT NULL DEFAULT 'pending',
     voice_state        TEXT NOT NULL DEFAULT 'pending',
     video_state        TEXT NOT NULL DEFAULT 'pending',
-    fused_image_path   TEXT,
     voice_path         TEXT,
     voice_duration     REAL,
     video_duration     REAL,
@@ -252,6 +264,7 @@ CREATE TABLE IF NOT EXISTS storyboard_videos (
     source          TEXT NOT NULL DEFAULT 'manual',
     task_id         TEXT REFERENCES tasks(id),
     duration        REAL,
+    cover_path      TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -266,28 +279,36 @@ CREATE INDEX IF NOT EXISTS idx_sv_storyboard
 -- task_type='image'：素材图片超分（asset 系列字段定位源，插入时临时关外键）。
 -- 视频：断点续跑（抽帧→ncnn→合帧）；图片：单阶段 ncnn 单图。
 CREATE TABLE IF NOT EXISTS upscale_jobs (
-    id              TEXT PRIMARY KEY,
-    storyboard_id   TEXT NOT NULL REFERENCES storyboards(id),
-    video_id        TEXT NOT NULL REFERENCES storyboard_videos(id),
-    input_path      TEXT NOT NULL,
-    output_path     TEXT NOT NULL,
-    model           TEXT NOT NULL DEFAULT 'anime',
-    scale           INTEGER NOT NULL DEFAULT 4,
-    -- running | done | failed | cancelled
-    status          TEXT NOT NULL DEFAULT 'running',
-    error_message   TEXT,
-    -- task_type: 'video'（默认，兼容旧数据）| 'image'（素材图片超分）
-    task_type       TEXT NOT NULL DEFAULT 'video',
-    -- 素材图片超分定位字段（仅 task_type='image' 时有值）
-    asset_clip_id   TEXT NOT NULL DEFAULT '',
-    asset_type_name TEXT NOT NULL DEFAULT '',
-    asset_image_id  TEXT NOT NULL DEFAULT '',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    id                    TEXT PRIMARY KEY,
+    -- video 任务目标；图片任务必须为 NULL。
+    storyboard_id         TEXT REFERENCES storyboards(id),
+    video_id              TEXT REFERENCES storyboard_videos(id),
+    -- image 任务的真实来源；视频任务必须为 NULL。
+    source_clip_id        TEXT REFERENCES clips(id),
+    source_asset_id       TEXT REFERENCES assets(id),
+    source_asset_image_id TEXT REFERENCES asset_images(id),
+    input_path            TEXT NOT NULL,
+    output_path           TEXT NOT NULL,
+    model                 TEXT NOT NULL DEFAULT 'anime',
+    scale                 INTEGER NOT NULL DEFAULT 4,
+    -- queued | running | done | failed | cancelled
+    status                TEXT NOT NULL DEFAULT 'queued',
+    error_message         TEXT,
+    -- video | image | legacy（无法安全回填的历史失败记录）
+    task_type             TEXT NOT NULL DEFAULT 'video',
+    attempt_count         INTEGER NOT NULL DEFAULT 0,
+    cancelled_at          TEXT,
+    cancel_reason         TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((task_type = 'video' AND storyboard_id IS NOT NULL AND video_id IS NOT NULL AND source_clip_id IS NULL AND source_asset_id IS NULL AND source_asset_image_id IS NULL) OR (task_type = 'image' AND storyboard_id IS NULL AND video_id IS NULL AND source_clip_id IS NOT NULL AND source_asset_id IS NOT NULL AND source_asset_image_id IS NOT NULL) OR (task_type = 'legacy' AND status = 'failed'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_upscale_jobs_status
     ON upscale_jobs(status);
+
+CREATE INDEX IF NOT EXISTS idx_upscale_jobs_source_image
+    ON upscale_jobs(source_asset_image_id);
 
 
 -- ============================================================================
@@ -333,11 +354,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     output_json    TEXT,
     remote_task_id TEXT,
     error_message  TEXT,
-    retry_count    INTEGER NOT NULL DEFAULT 0,
-    max_retry      INTEGER NOT NULL DEFAULT 3,
-    started_at     TEXT,
-    finished_at    TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    retry_count         INTEGER NOT NULL DEFAULT 0,
+    max_retry           INTEGER NOT NULL DEFAULT 3,
+    -- 取消是持久化状态，Worker 必须在每次写回前检查。
+    cancel_requested_at TEXT,
+    cancelled_at        TEXT,
+    cancel_reason       TEXT,
+    started_at          TEXT,
+    finished_at         TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -403,6 +428,7 @@ CREATE TABLE IF NOT EXISTS concat_outputs (
     duration        REAL NOT NULL DEFAULT 0,
     segment_count   INTEGER NOT NULL DEFAULT 0,
     audio_included  INTEGER NOT NULL DEFAULT 0,
+    cover_path      TEXT,
     -- concat | upscale（成片 vs 超分产物）
     source          TEXT NOT NULL DEFAULT 'concat',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -417,7 +443,8 @@ CREATE INDEX IF NOT EXISTS idx_concat_outputs_clip
 CREATE TABLE IF NOT EXISTS worker_leases (
     lease_key    TEXT PRIMARY KEY,
     worker_id    TEXT NOT NULL,
-    heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
+    heartbeat_at TEXT NOT NULL DEFAULT (datetime('now')),
+    pid          INTEGER NOT NULL DEFAULT 0
 );
 
 -- ============================================================================

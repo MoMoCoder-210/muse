@@ -541,7 +541,9 @@ export function StoryboardPanel({ project }: Props) {
 
                   {sbList.map((sb, i) => {
                     const selVid = videosMap[sb.id]?.find((v: StoryboardVideoInfo) => v.id === sb.selected_video_id);
-                    const videoSrc = selVid ? convertFileSrc(selVid.file_path) : null;
+                    const coverSrc = selVid
+                      ? convertFileSrc(selVid.cover_path || selVid.file_path)
+                      : null;
                     const sec = Math.round(selVid?.duration ?? sb.video_duration ?? sb.voice_duration ?? 0);
                     const storyboardTasks = videoTaskStates[sb.id] ?? [];
                     // 仅任务表中真实存在的 pending/running 批次才显示生成状态；
@@ -558,8 +560,8 @@ export function StoryboardPanel({ project }: Props) {
                             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveIdx(i); } }}
                           >
                             <div className="sb-strip-thumb">
-                              {videoSrc ? (
-                                <video src={videoSrc} muted preload="metadata" />
+                              {coverSrc ? (
+                                <img src={coverSrc} alt="" loading="lazy" decoding="async" />
                               ) : (
                                 <svg viewBox="0 0 80 60" fill="none" className="sb-strip-placeholder">
                                   <rect width="80" height="60" rx="3" fill="var(--bg-input)" />
@@ -765,6 +767,7 @@ function DetailView({
           source: "generated",
           task_id: task.taskId,
           duration: null,
+          cover_path: null,
           taskStatus: task.status,
         })),
     ];
@@ -1609,8 +1612,10 @@ function DetailView({
                         <span className="sd-video-task-orb" aria-hidden />
                       )}
                     </div>
+                  ) : v.file_path ? (
+                    <img src={convertFileSrc(v.cover_path || v.file_path)} alt="" loading="lazy" decoding="async" className="sd-video-thumb-vid" />
                   ) : (
-                    <video src={convertFileSrc(v.file_path)} muted preload="metadata" className="sd-video-thumb-vid" />
+                    <div className="sd-video-task-thumb" aria-label="暂无封面">暂无封面</div>
                   )}
                 </div>
                 {!isUpscalingBatch && <span className="sd-video-thumb-label">{batchLabel}</span>}
@@ -1698,7 +1703,7 @@ function DetailView({
                     <span className="sd-detail-asset-icon">{cat.icon}</span>
                     <div className="sd-detail-asset-chips">
                       {linkedList.map((a) => {
-                        const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
+                        const img = (a.selected_thumbnail_path ?? a.selected_image_path) ? convertFileSrc(a.selected_thumbnail_path ?? a.selected_image_path!) : null;
                         return (
                           <span
                             key={a.asset_id}
@@ -1856,7 +1861,7 @@ function DetailView({
 
               <div className="sd-picker-body">
                 {linkedList.map((a) => {
-                  const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
+                  const img = (a.selected_thumbnail_path ?? a.selected_image_path) ? convertFileSrc(a.selected_thumbnail_path ?? a.selected_image_path!) : null;
                   return (
                     <div key={a.asset_id} className="sd-picker-item sd-picker-item--linked">
                       <div className="sd-picker-item-img">
@@ -1873,7 +1878,7 @@ function DetailView({
                 {freeList.length > 0 && (
                   <div className="sd-picker-section">
                     {freeList.map((a) => {
-                      const img = a.selected_image_path ? convertFileSrc(a.selected_image_path) : null;
+                      const img = (a.selected_thumbnail_path ?? a.selected_image_path) ? convertFileSrc(a.selected_thumbnail_path ?? a.selected_image_path!) : null;
                       const sel = pickerSelected.has(a.asset_id);
                       return (
                         <button key={a.asset_id} className={`sd-picker-item${sel ? " on" : ""}`} disabled={busy} onClick={() => togglePick(a.asset_id)}>

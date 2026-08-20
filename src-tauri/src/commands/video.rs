@@ -53,6 +53,7 @@ pub struct ConcatSegment {
     pub file_path: String,
     pub file_name: String,
     pub duration: Option<f64>,
+    pub cover_path: Option<String>,
 }
 
 /// 查询指定分集「已选中镜头视频」的有序列表（按 seq_num 升序）
@@ -64,7 +65,7 @@ pub fn list_clip_concat_videos(
     let conn = util::open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(
-            "SELECT sb.seq_num, c.title, sb.id, sv.file_path, sv.file_name, sv.duration
+            "SELECT sb.seq_num, c.title, sb.id, sv.file_path, sv.file_name, sv.duration, sv.cover_path
              FROM storyboards sb
              JOIN clips c ON c.id = sb.clip_id
              LEFT JOIN storyboard_videos sv ON sv.id = sb.selected_video_id
@@ -82,6 +83,7 @@ pub fn list_clip_concat_videos(
                 file_path: row.get::<_, String>(3)?,
                 file_name: row.get::<_, String>(4).unwrap_or_default(),
                 duration: row.get(5)?,
+                cover_path: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -384,7 +386,7 @@ pub fn concat_clip_videos(
     }
     filter.push_str(&concat);
 
-    // 输出路径：<workspace>/output/<name>.mp4
+    // 输出路径：<workspace>/exports/final/<展示名>_<uuid>.mp4
     let conn = util::open_app_conn(&app)?;
     let (project_id, _clip_title): (String, String) = conn
         .query_row(
@@ -400,7 +402,7 @@ pub fn concat_clip_videos(
         .map_err(|e| format!("分集不存在：{}", e))?;
 
     let workspace = util::get_project_workspace_path(&app, &project_id)?;
-    let out_dir = Path::new(&workspace).join("output");
+    let out_dir = Path::new(&workspace).join("exports").join("final");
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("创建输出目录失败：{}", e))?;
 
     let base = input
@@ -409,7 +411,8 @@ pub fn concat_clip_videos(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "final".to_string());
     let safe = sanitize_name(&base);
-    let out_path = out_dir.join(format!("{}.mp4", safe));
+    let file_name = format!("{}_{}.mp4", safe, &uuid::Uuid::new_v4().to_string()[..8]);
+    let out_path = out_dir.join(&file_name);
     let out_str = out_path.to_string_lossy().to_string();
 
     // 组装 ffmpeg 命令
@@ -516,6 +519,7 @@ pub fn concat_clip_videos(
                 ),
             );
         }
+        let _ = std::fs::remove_file(&out_path);
 
         return Err("视频拼接失败".to_string());
     }
@@ -545,7 +549,7 @@ pub fn concat_clip_videos(
 
     Ok(ConcatResult {
         output_path: out_str,
-        file_name: format!("{}.mp4", safe),
+        file_name,
         duration: total_duration,
         segment_count: n,
         audio_included: any_audio,
@@ -635,11 +639,18 @@ fn default_concat_source() -> String {
     "concat".to_string()
 }
 
+/// 成片持久化结果：数据库记录 ID 与可选封面路径。
+#[derive(Debug, Serialize)]
+pub struct SaveConcatOutputResult {
+    pub id: String,
+    pub cover_path: Option<String>,
+}
+
 #[tauri::command]
 pub fn save_concat_output(
     input: SaveConcatOutputInput,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<SaveConcatOutputResult, String> {
     let conn = util::open_app_conn(&app)?;
     let (project_id,): (String,) = conn
         .query_row(
@@ -649,10 +660,26 @@ pub fn save_concat_output(
         )
         .map_err(|e| format!("查询分集失败：{}", e))?;
 
+    // 成片本身已成功生成；封面是可选派生数据，失败时保留主记录并允许前端回退到视频首帧。
+    let cover_path = match crate::media::generate_video_cover(&app, Path::new(&input.output_path)) {
+        Ok(path) => Some(path.to_string_lossy().to_string()),
+        Err(error) => {
+            if let Ok(app_data_dir) = crate::app_paths::resolve_app_data_dir(&app) {
+                let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+                crate::project_log::append_log(
+                    &log_path,
+                    "视频拼接",
+                    "WARN",
+                    &format!("成片封面生成失败，继续保存主记录：{}", error),
+                );
+            }
+            None
+        }
+    };
     let id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO concat_outputs (id, project_id, clip_id, output_path, file_name, duration, segment_count, audio_included, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    let insert_result = conn.execute(
+        "INSERT INTO concat_outputs (id, project_id, clip_id, output_path, file_name, duration, segment_count, audio_included, cover_path, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             &id,
             &project_id,
@@ -662,12 +689,20 @@ pub fn save_concat_output(
             input.duration,
             input.segment_count as i64,
             input.audio_included as i64,
+            &cover_path,
             &input.source,
         ],
-    )
-    .map_err(|e| format!("保存拼接记录失败：{}", e))?;
+    );
+    if let Err(error) = insert_result {
+        if let Some(path) = &cover_path {
+            let _ = std::fs::remove_file(path);
+        }
+        // 该输出尚未有数据库记录，删除它避免留下无法管理的孤儿成片。
+        let _ = std::fs::remove_file(&input.output_path);
+        return Err(format!("保存拼接记录失败：{}", error));
+    }
 
-    // 日志为尽力型操作，失败不应影响主流程
+    // 日志为尽力型操作，失败不应影响主流程。
     if let Ok(app_data_dir) = crate::app_paths::resolve_app_data_dir(&app) {
         let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
         crate::project_log::append_log(
@@ -675,13 +710,17 @@ pub fn save_concat_output(
             "视频拼接",
             "INFO",
             &format!(
-                "已保存成片记录 id={} clipId={} 时长={:.1}s 分集数={}",
-                id, input.clip_id, input.duration, input.segment_count
+                "已保存成片记录 id={} clipId={} 时长={:.1}s 分集数={} cover={}",
+                id,
+                input.clip_id,
+                input.duration,
+                input.segment_count,
+                cover_path.is_some()
             ),
         );
     }
 
-    Ok(id)
+    Ok(SaveConcatOutputResult { id, cover_path })
 }
 
 /// 删除一条拼接成片（数据库记录，可选同时删除磁盘文件）
@@ -703,24 +742,31 @@ pub fn delete_concat_output(
 ) -> Result<crate::commands::clip::DeleteClipsResult, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 在删记录前读取所属作品工作区；提交后仅清理该工作区内的输出文件。
-    let file_candidate = if input.delete_file {
-        let (file_path, workspace_path): (String, String) = conn
+    let file_candidates = if input.delete_file {
+        let (file_path, cover_path, workspace_path): (String, Option<String>, String) = conn
             .query_row(
-                "SELECT co.output_path, p.workspace_path
+                "SELECT co.output_path, co.cover_path, p.workspace_path
                  FROM concat_outputs co
                  JOIN projects p ON p.id = co.project_id
                  WHERE co.id = ?1",
                 rusqlite::params![&input.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|_| "成片记录不存在".to_string())?;
-        Some(crate::commands::clip::ClipFileCandidate {
-            workspace_path: std::path::PathBuf::from(workspace_path),
+        let workspace_path = std::path::PathBuf::from(workspace_path);
+        let mut candidates = vec![crate::commands::clip::ClipFileCandidate {
+            workspace_path: workspace_path.clone(),
             file_path: std::path::PathBuf::from(file_path),
-        })
+        }];
+        if let Some(cover_path) = cover_path {
+            candidates.push(crate::commands::clip::ClipFileCandidate {
+                workspace_path,
+                file_path: std::path::PathBuf::from(cover_path),
+            });
+        }
+        candidates
     } else {
-        None
+        Vec::new()
     };
 
     let affected = conn
@@ -733,13 +779,14 @@ pub fn delete_concat_output(
         return Err("成片记录不存在".to_string());
     }
 
-    let result = match file_candidate {
-        Some(candidate) => crate::commands::clip::delete_managed_files(vec![candidate]),
-        None => crate::commands::clip::DeleteClipsResult {
+    let result = if file_candidates.is_empty() {
+        crate::commands::clip::DeleteClipsResult {
             deleted_file_count: 0,
             skipped_file_count: 0,
             failed_file_count: 0,
-        },
+        }
+    } else {
+        crate::commands::clip::delete_managed_files(file_candidates)
     };
 
     if let Ok(app_data_dir) = crate::app_paths::resolve_app_data_dir(&app) {
@@ -772,6 +819,7 @@ pub struct ConcatOutputRow {
     pub segment_count: usize,
     pub audio_included: bool,
     pub source: String,
+    pub cover_path: Option<String>,
     pub created_at: String,
 }
 
@@ -783,7 +831,7 @@ pub fn list_concat_outputs(
     let conn = util::open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, output_path, file_name, duration, segment_count, audio_included, source, created_at
+            "SELECT id, output_path, file_name, duration, segment_count, audio_included, source, cover_path, created_at
              FROM concat_outputs WHERE clip_id = ?1 ORDER BY created_at DESC",
         )
         .map_err(|e| e.to_string())?;
@@ -797,7 +845,8 @@ pub fn list_concat_outputs(
                 segment_count: row.get::<_, i64>(4)? as usize,
                 audio_included: row.get::<_, i64>(5)? != 0,
                 source: row.get(6)?,
-                created_at: row.get(7)?,
+                cover_path: row.get(7)?,
+                created_at: row.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -913,6 +962,8 @@ pub struct UpscaleVideoInput {
     pub input_path: String,
     /// 输出文件绝对路径（超分结果，.mp4）
     pub output_path: String,
+    /// 项目工作区绝对路径；临时帧仅写入 `.work/upscale/<job_id>`。
+    pub workspace_path: String,
     /// 超分模型：anime / x4plus（默认 anime，适配动漫风格）
     #[serde(default = "default_upscale_model")]
     pub model: String,
@@ -1055,11 +1106,13 @@ fn extract_frames(
             let _ = extract_child.kill();
             let _ = extract_child.wait();
             // 不清理目录：保留已完成帧供续跑/自动重试
-            log::error!("[超分] ffmpeg 抽帧超时（{}s），已终止", EXTRACT_TIMEOUT_SECS);
+            log::error!(
+                "[超分] ffmpeg 抽帧超时（{}s），已终止",
+                EXTRACT_TIMEOUT_SECS
+            );
             return Err(format!(
                 "{}ffmpeg 抽帧超时（{}s）",
-                UPSCALE_TIMEOUT_PREFIX,
-                EXTRACT_TIMEOUT_SECS
+                UPSCALE_TIMEOUT_PREFIX, EXTRACT_TIMEOUT_SECS
             ));
         }
         match extract_child
@@ -1196,7 +1249,10 @@ fn run_ncnn_batch(
                 stderr_buf.push('\n');
             }
             if fatal {
-                log::error!("[超分] realesrgan stderr 错误（GPU 设备丢失）:\n{}", stderr_buf);
+                log::error!(
+                    "[超分] realesrgan stderr 错误（GPU 设备丢失）:\n{}",
+                    stderr_buf
+                );
                 let _ = $child.kill();
                 let _ = $child.wait();
                 Err(format!(
@@ -1231,8 +1287,7 @@ fn run_ncnn_batch(
             );
             return Err(format!(
                 "{}realesrgan 超时（{}s无进展，可能显卡驱动重置）",
-                UPSCALE_TIMEOUT_PREFIX,
-                NCNN_FRAME_TIMEOUT_SECS
+                UPSCALE_TIMEOUT_PREFIX, NCNN_FRAME_TIMEOUT_SECS
             ));
         }
         match ncnn_child.try_wait() {
@@ -1292,7 +1347,13 @@ fn run_ncnn_batch(
         out_count,
         upscale_start.elapsed().as_secs_f64()
     );
-    log_stage("INFO", &format!("AI 超分完成: model={} scale={}x 帧数={}", model_name, scale, out_count));
+    log_stage(
+        "INFO",
+        &format!(
+            "AI 超分完成: model={} scale={}x 帧数={}",
+            model_name, scale, out_count
+        ),
+    );
     Ok(out_count)
 }
 
@@ -1341,7 +1402,8 @@ pub(crate) fn run_upscale_blocking(
     };
     // x4plus / x4plus-anime 是原生 4x 模型：ncnn 只支持 -s 4（非 4x 会 tile 拼接错乱），
     // 且模型设计上限 1080p 输入（4x 输出约 4K，更高分辨率会超出模型训练分布/显存）。
-    let is_fixed_4x_model = input.model.as_str() == "x4plus" || input.model.as_str() == "x4plus-anime";
+    let is_fixed_4x_model =
+        input.model.as_str() == "x4plus" || input.model.as_str() == "x4plus-anime";
     let scale = if is_fixed_4x_model { 4 } else { scale };
 
     // ── 探测源视频：时长、帧率、分辨率、是否含音频 ──
@@ -1388,26 +1450,30 @@ pub(crate) fn run_upscale_blocking(
                 &log_path,
                 "视频超分",
                 level,
-                &format!("{} 输入={} 输出={}", message, input.input_path, input.output_path),
+                &format!(
+                    "{} 输入={} 输出={}",
+                    message, input.input_path, input.output_path
+                ),
             );
         }
     };
 
-    // ── 临时目录：抽帧 / 超分输出（续跑时复用同一 job_id 的目录） ──
-    let work_dir = Path::new(&input.output_path)
-        .parent()
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| "输出路径缺少父目录".to_string())?;
-    let frame_dir = work_dir.join(format!("_upscale_{}_frames", job_id));
-    let out_dir = work_dir.join(format!("_upscale_{}_out", job_id));
+    // ── 临时目录：只写入 <workspace>/.work/upscale/<job_id>/{frames,out} ──
+    let work_dir = Path::new(&input.workspace_path)
+        .join(".work")
+        .join("upscale")
+        .join(&job_id);
+    let frame_dir = work_dir.join("frames");
+    let out_dir = work_dir.join("out");
     std::fs::create_dir_all(&frame_dir).map_err(|e| format!("创建帧目录失败：{}", e))?;
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("创建输出帧目录失败：{}", e))?;
 
     // 清理临时目录：取消时总是清理（用户主动放弃，不应再续跑）；
     // 其他错误按 keep_on_error 决定（续跑失败保留目录以便下次再续跑，新任务失败则清理）。
-    let cleanup = |frame_dir: &Path, out_dir: &Path| {
-        let _ = std::fs::remove_dir_all(frame_dir);
-        let _ = std::fs::remove_dir_all(out_dir);
+    let cleanup = |frame_dir: &Path, _out_dir: &Path| {
+        if let Some(job_dir) = frame_dir.parent() {
+            let _ = std::fs::remove_dir_all(job_dir);
+        }
     };
     let cleanup_on_error = |frame_dir: &Path, out_dir: &Path| {
         if !keep_on_error {
@@ -1504,15 +1570,13 @@ pub(crate) fn run_upscale_blocking(
     }
     let has_gap = continuous_to as usize != existing_nos.len();
     let existing_out = existing_nos.len();
-    let models_dir = app_paths::ncnn_models_dir(&app).ok_or_else(|| "未找到超分模型目录".to_string())?;
+    let models_dir =
+        app_paths::ncnn_models_dir(&app).ok_or_else(|| "未找到超分模型目录".to_string())?;
 
     if existing_out >= frame_count && !has_gap {
         // 断点续跑：已有完整超分帧，跳过 ncnn
         outcome.reused_out = true;
-        log::info!(
-            "[超分] 复用已有超分帧目录: {} 帧，跳过 ncnn",
-            existing_out
-        );
+        log::info!("[超分] 复用已有超分帧目录: {} 帧，跳过 ncnn", existing_out);
         emit_progress(92.0, "重组视频…");
     } else if existing_out == 0 {
         // 新任务（out_dir 为空）：直接全量超分
@@ -1521,11 +1585,25 @@ pub(crate) fn run_upscale_blocking(
             frame_dir.display(),
             out_dir.display()
         );
-        log_stage("INFO", &format!("开始 AI 超分（新任务，共 {} 帧）", frame_count));
+        log_stage(
+            "INFO",
+            &format!("开始 AI 超分（新任务，共 {} 帧）", frame_count),
+        );
         let out_count = run_ncnn_batch(
-            &ncnn_exe, &frame_dir, &out_dir, model_name, scale, &models_dir,
-            &frame_dir, &out_dir, frame_count, 0, keep_on_error, &cancel,
-            &emit_progress, &log_stage,
+            &ncnn_exe,
+            &frame_dir,
+            &out_dir,
+            model_name,
+            scale,
+            &models_dir,
+            &frame_dir,
+            &out_dir,
+            frame_count,
+            0,
+            keep_on_error,
+            &cancel,
+            &emit_progress,
+            &log_stage,
         )?;
         if out_count != frame_count {
             log::error!("[超分] ncnn 输出帧数不完整: {}/{}", out_count, frame_count);
@@ -1544,7 +1622,10 @@ pub(crate) fn run_upscale_blocking(
         );
         log_stage(
             "WARN",
-            &format!("输出帧编号断裂（共 {} 帧，连续到 {}），全部重跑", existing_out, continuous_to),
+            &format!(
+                "输出帧编号断裂（共 {} 帧，连续到 {}），全部重跑",
+                existing_out, continuous_to
+            ),
         );
         if let Ok(entries) = std::fs::read_dir(&out_dir) {
             for entry in entries.flatten() {
@@ -1552,9 +1633,20 @@ pub(crate) fn run_upscale_blocking(
             }
         }
         let out_count = run_ncnn_batch(
-            &ncnn_exe, &frame_dir, &out_dir, model_name, scale, &models_dir,
-            &frame_dir, &out_dir, frame_count, 0, keep_on_error, &cancel,
-            &emit_progress, &log_stage,
+            &ncnn_exe,
+            &frame_dir,
+            &out_dir,
+            model_name,
+            scale,
+            &models_dir,
+            &frame_dir,
+            &out_dir,
+            frame_count,
+            0,
+            keep_on_error,
+            &cancel,
+            &emit_progress,
+            &log_stage,
         )?;
         if out_count != frame_count {
             log::error!("[超分] ncnn 输出帧数不完整: {}/{}", out_count, frame_count);
@@ -1588,7 +1680,10 @@ pub(crate) fn run_upscale_blocking(
         );
         log_stage(
             "INFO",
-            &format!("断点续跑: 已有超分帧 {} 帧，仅补算缺失 {} 帧", continuous_to, missing_count),
+            &format!(
+                "断点续跑: 已有超分帧 {} 帧，仅补算缺失 {} 帧",
+                continuous_to, missing_count
+            ),
         );
 
         // 临时输入目录：系统 temp（不污染项目目录）
@@ -1610,16 +1705,15 @@ pub(crate) fn run_upscale_blocking(
             }
         }
         if copied != missing_count {
-            log::error!(
-                "[超分] 续跑缺失帧复制不完整: {}/{}",
-                copied,
-                missing_count
-            );
+            log::error!("[超分] 续跑缺失帧复制不完整: {}/{}", copied, missing_count);
             let _ = std::fs::remove_dir_all(&temp_root);
             if !keep_on_error {
                 cleanup(&frame_dir, &out_dir);
             }
-            return Err(format!("续跑缺失帧复制不完整：{}/{}", copied, missing_count));
+            return Err(format!(
+                "续跑缺失帧复制不完整：{}/{}",
+                copied, missing_count
+            ));
         }
 
         let upscale_start = std::time::Instant::now();
@@ -1628,9 +1722,20 @@ pub(crate) fn run_upscale_blocking(
         // 注意：run_ncnn_batch 取消/失败时会清掉 frame_dir/out_dir（取消=放弃），
         // 这里统一把系统 temp 输入目录也清掉，避免残留。
         let ncnn_result = run_ncnn_batch(
-            &ncnn_exe, &temp_in_dir, &out_dir, model_name, scale, &models_dir,
-            &frame_dir, &out_dir, frame_count, 0, keep_on_error, &cancel,
-            &emit_progress, &log_stage,
+            &ncnn_exe,
+            &temp_in_dir,
+            &out_dir,
+            model_name,
+            scale,
+            &models_dir,
+            &frame_dir,
+            &out_dir,
+            frame_count,
+            0,
+            keep_on_error,
+            &cancel,
+            &emit_progress,
+            &log_stage,
         );
         if let Err(e) = ncnn_result {
             let _ = std::fs::remove_dir_all(&temp_root);
@@ -1654,7 +1759,10 @@ pub(crate) fn run_upscale_blocking(
             if !keep_on_error {
                 cleanup(&frame_dir, &out_dir);
             }
-            return Err(format!("续跑后输出帧总数不完整：{}/{}", final_count, frame_count));
+            return Err(format!(
+                "续跑后输出帧总数不完整：{}/{}",
+                final_count, frame_count
+            ));
         }
         log::info!(
             "[超分] ncnn 断点续跑完成: model={} scale={}x 帧数={} 耗时={:.1}s",
@@ -1665,7 +1773,10 @@ pub(crate) fn run_upscale_blocking(
         );
         log_stage(
             "INFO",
-            &format!("AI 超分完成（断点续跑补算）: model={} scale={}x 帧数={}", model_name, scale, frame_count),
+            &format!(
+                "AI 超分完成（断点续跑补算）: model={} scale={}x 帧数={}",
+                model_name, scale, frame_count
+            ),
         );
         emit_progress(92.0, "重组视频…");
     }
@@ -1676,116 +1787,113 @@ pub(crate) fn run_upscale_blocking(
             .map(|m| m.len() > 0)
             .unwrap_or(false);
     if output_exists {
-        log::info!(
-            "[超分] 输出文件已存在，跳过重组: {}",
-            input.output_path
-        );
+        log::info!("[超分] 输出文件已存在，跳过重组: {}", input.output_path);
         emit_progress(100.0, "完成");
     } else {
-    log::info!(
-        "[超分] 开始重组: 帧率={}fps 含音频={} 输出={}",
-        fps,
-        has_audio,
-        input.output_path
-    );
-    let reassemble_start = std::time::Instant::now();
-    let out_pat = out_dir.join("frame%08d.jpg");
-    let out_pat_str = out_pat.to_string_lossy().to_string();
-    let mut reassemble_cmd = Command::new(&ffmpeg);
-    reassemble_cmd
-        .arg("-y")
-        .arg("-i")
-        .arg(&out_pat_str)
-        .arg("-i")
-        .arg(&input.input_path)
-        .arg("-map")
-        .arg("0:v:0")
-        .arg("-r")
-        .arg(fps.to_string())
-        .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg("slow")
-        .arg("-crf")
-        .arg("18")
-        .arg("-pix_fmt")
-        .arg("yuv420p")
-        .arg("-movflags")
-        .arg("+faststart");
-    if has_audio {
+        log::info!(
+            "[超分] 开始重组: 帧率={}fps 含音频={} 输出={}",
+            fps,
+            has_audio,
+            input.output_path
+        );
+        let reassemble_start = std::time::Instant::now();
+        let out_pat = out_dir.join("frame%08d.jpg");
+        let out_pat_str = out_pat.to_string_lossy().to_string();
+        let mut reassemble_cmd = Command::new(&ffmpeg);
         reassemble_cmd
+            .arg("-y")
+            .arg("-i")
+            .arg(&out_pat_str)
+            .arg("-i")
+            .arg(&input.input_path)
             .arg("-map")
-            .arg("1:a:0")
-            .arg("-c:a")
-            .arg("aac")
-            .arg("-b:a")
-            .arg("192k");
-    }
-    reassemble_cmd.arg(&input.output_path);
-    reassemble_cmd.stderr(Stdio::piped());
-    #[cfg(target_os = "windows")]
-    reassemble_cmd.creation_flags(0x08000000);
+            .arg("0:v:0")
+            .arg("-r")
+            .arg(fps.to_string())
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-preset")
+            .arg("slow")
+            .arg("-crf")
+            .arg("18")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-movflags")
+            .arg("+faststart");
+        if has_audio {
+            reassemble_cmd
+                .arg("-map")
+                .arg("1:a:0")
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k");
+        }
+        reassemble_cmd.arg(&input.output_path);
+        reassemble_cmd.stderr(Stdio::piped());
+        #[cfg(target_os = "windows")]
+        reassemble_cmd.creation_flags(0x08000000);
 
-    let mut child2 = reassemble_cmd
-        .spawn()
-        .map_err(|e| format!("启动 ffmpeg 重组失败：{}", e))?;
-    crate::job_guard::assign_child(&child2);
-    let stderr2 = child2
-        .stderr
-        .take()
-        .ok_or_else(|| "无法获取 ffmpeg 重组输出".to_string())?;
-    let log2: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let log2_for_thread = log2.clone();
-    let on_progress2 = on_progress.clone();
-    thread::spawn(move || {
-        let reader = BufReader::new(stderr2);
-        for line in reader.lines().flatten() {
-            if let Ok(mut v) = log2_for_thread.lock() {
-                if v.len() >= 200 {
-                    v.remove(0);
+        let mut child2 = reassemble_cmd
+            .spawn()
+            .map_err(|e| format!("启动 ffmpeg 重组失败：{}", e))?;
+        crate::job_guard::assign_child(&child2);
+        let stderr2 = child2
+            .stderr
+            .take()
+            .ok_or_else(|| "无法获取 ffmpeg 重组输出".to_string())?;
+        let log2: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log2_for_thread = log2.clone();
+        let on_progress2 = on_progress.clone();
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr2);
+            for line in reader.lines().flatten() {
+                if let Ok(mut v) = log2_for_thread.lock() {
+                    if v.len() >= 200 {
+                        v.remove(0);
+                    }
+                    v.push(line.clone());
                 }
-                v.push(line.clone());
-            }
-            if let Some(t) = parse_time(&line) {
-                if total_duration > 0.0 {
-                    let pct = (t / total_duration * 100.0).min(100.0);
-                    let mapped = 92.0 + pct * 0.08;
-                    on_progress2(mapped.min(100.0), "重组视频…");
+                if let Some(t) = parse_time(&line) {
+                    if total_duration > 0.0 {
+                        let pct = (t / total_duration * 100.0).min(100.0);
+                        let mapped = 92.0 + pct * 0.08;
+                        on_progress2(mapped.min(100.0), "重组视频…");
+                    }
                 }
             }
-        }
-    });
+        });
 
-    // 轮询等待，支持取消（取消时终止子进程，stderr 线程随之读到 EOF 退出）
-    let status2 = loop {
-        if is_canceled() {
-            let _ = child2.kill();
-            let _ = child2.wait();
-            cleanup(&frame_dir, &out_dir);
-            // 重组可能已写出部分文件，取消时删除不完整产物
-            let _ = std::fs::remove_file(&input.output_path);
-            return Err(UPSCALE_CANCELED.to_string());
+        // 轮询等待，支持取消（取消时终止子进程，stderr 线程随之读到 EOF 退出）
+        let status2 = loop {
+            if is_canceled() {
+                let _ = child2.kill();
+                let _ = child2.wait();
+                cleanup(&frame_dir, &out_dir);
+                // 重组可能已写出部分文件，取消时删除不完整产物
+                let _ = std::fs::remove_file(&input.output_path);
+                return Err(UPSCALE_CANCELED.to_string());
+            }
+            match child2
+                .try_wait()
+                .map_err(|e| format!("等待 ffmpeg 重组失败：{}", e))?
+            {
+                Some(status) => break status,
+                None => thread::sleep(std::time::Duration::from_millis(150)),
+            }
+        };
+        if !status2.success() {
+            let detail = log2.lock().map(|v| v.join("\n")).unwrap_or_default();
+            cleanup_on_error(&frame_dir, &out_dir);
+            return Err(format!("ffmpeg 重组失败：{}", detail.trim()));
         }
-        match child2
-            .try_wait()
-            .map_err(|e| format!("等待 ffmpeg 重组失败：{}", e))?
-        {
-            Some(status) => break status,
-            None => thread::sleep(std::time::Duration::from_millis(150)),
-        }
-    };
-    if !status2.success() {
-        let detail = log2.lock().map(|v| v.join("\n")).unwrap_or_default();
-        cleanup_on_error(&frame_dir, &out_dir);
-        return Err(format!("ffmpeg 重组失败：{}", detail.trim()));
-    }
-    log::info!(
-        "[超分] 重组完成: 耗时={:.1}s",
-        reassemble_start.elapsed().as_secs_f64()
-    );
+        log::info!(
+            "[超分] 重组完成: 耗时={:.1}s",
+            reassemble_start.elapsed().as_secs_f64()
+        );
 
-    emit_progress(100.0, "完成");
+        emit_progress(100.0, "完成");
     }
 
     // 统一清理临时目录（新任务或续跑复用后均清理）
@@ -1855,9 +1963,8 @@ pub(crate) fn run_image_upscale_blocking(
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     on_progress: std::sync::Arc<dyn Fn(f64, &str) + Send + Sync>,
 ) -> Result<(), String> {
-    let ncnn_exe =
-        crate::app_paths::ncnn_realesrgan_exe(&app)
-            .ok_or_else(|| "未找到 realesrgan.exe，超分不可用".to_string())?;
+    let ncnn_exe = crate::app_paths::ncnn_realesrgan_exe(&app)
+        .ok_or_else(|| "未找到 realesrgan.exe，超分不可用".to_string())?;
     if !ncnn_exe.exists() {
         return Err(format!("未找到 realesrgan.exe（{}）", ncnn_exe.display()));
     }
@@ -1869,7 +1976,11 @@ pub(crate) fn run_image_upscale_blocking(
         "x4plus-anime" => "realesrgan-x4plus-anime",
         _ => "realesr-animevideov3",
     };
-    let scale = if model == "x4plus" || model == "x4plus-anime" { 4 } else { scale };
+    let scale = if model == "x4plus" || model == "x4plus-anime" {
+        4
+    } else {
+        scale
+    };
 
     log::info!(
         "[超分-图片] 开始 input={} output={} model={} scale={}",
@@ -1950,7 +2061,10 @@ pub(crate) fn run_image_upscale_blocking(
                 stderr_line_count += 1;
             }
             if fatal {
-                log::error!("[超分-图片] realesrgan stderr 错误（GPU 设备丢失）:\n{}", stderr_buf);
+                log::error!(
+                    "[超分-图片] realesrgan stderr 错误（GPU 设备丢失）:\n{}",
+                    stderr_buf
+                );
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!(
@@ -1987,10 +2101,7 @@ pub(crate) fn run_image_upscale_blocking(
     };
 
     if !status.success() {
-        log::error!(
-            "[超分-图片] realesrgan 失败，返回码: {:?}",
-            status.code()
-        );
+        log::error!("[超分-图片] realesrgan 失败，返回码: {:?}", status.code());
         return Err(format!("realesrgan 超分失败（{}）", model_name));
     }
 
@@ -2006,7 +2117,6 @@ pub(crate) fn run_image_upscale_blocking(
 }
 
 // ── 镜头视频超分（在镜头管理页对单个分镜批次视频超分） ──────────────────
-
 
 /// 清理上次超分异常退出残留的孤儿子进程（realesrgan / ffmpeg）。
 ///
@@ -2044,7 +2154,13 @@ pub fn cleanup_orphan_upscale_processes() {
             }
             // 校验进程路径位于项目 upscaler/ 或 ffmpeg/ 目录，避免误杀系统同名进程
             let mut wmic_cmd = std::process::Command::new("wmic");
-            wmic_cmd.args(["process", "where", &format!("ProcessId={pid}"), "get", "ExecutablePath"]);
+            wmic_cmd.args([
+                "process",
+                "where",
+                &format!("ProcessId={pid}"),
+                "get",
+                "ExecutablePath",
+            ]);
             #[cfg(target_os = "windows")]
             wmic_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             let cmd = wmic_cmd.output();
@@ -2120,6 +2236,31 @@ pub(crate) fn cleanup_orphan_upscale_dirs(
             }
         } else {
             cleanup_orphan_upscale_dirs(&path, active_job_ids, depth + 1);
+        }
+    }
+}
+
+/// 仅清理当前项目 `.work/upscale` 下不属于可恢复任务的 job 目录。
+/// 目录名即 job id；不会递归扫描或触碰 `.work` 的其他内容。
+pub(crate) fn cleanup_project_upscale_dirs(
+    workspace_path: &std::path::Path,
+    active_job_ids: &std::collections::HashSet<String>,
+) {
+    let root = workspace_path.join(".work").join("upscale");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let job_id = entry.file_name().to_string_lossy().to_string();
+        if active_job_ids.contains(&job_id) {
+            continue;
+        }
+        if std::fs::remove_dir_all(&path).is_ok() {
+            log::info!("[超分] 已清理项目残留工作目录：{:?}", path);
         }
     }
 }

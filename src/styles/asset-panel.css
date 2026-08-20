@@ -1612,7 +1612,7 @@
   padding: 4px 0;
   background: linear-gradient(135deg, #7c5ce7, #a78bfa);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.8px;
   text-align: center;
@@ -1633,7 +1633,7 @@
   padding: 4px 0;
   background: linear-gradient(135deg, #0071e3, #0a84ff);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.8px;
   text-align: center;

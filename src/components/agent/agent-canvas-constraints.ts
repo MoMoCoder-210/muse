@@ -30,8 +30,7 @@ export function canvasNodeSize(node: Node<CanvasFlowNodeData>): { width: number;
       case "task": return { width: 168, height: 58 };
       case "shot-track": return { width: node.data.width, height: 24 };
       case "shot-anchor": return { width: 26, height: 26 };
-      case "release-summary":
-      case "release-task": return { width: 106, height: 58 };
+      case "release-summary": return { width: 106, height: 58 };
       case "release-output": return { width: 246, height: CANVAS_LAYOUT.releaseOutputHeight };
       default: return { width: 214, height: 62 };
     }

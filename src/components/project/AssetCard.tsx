@@ -9,6 +9,8 @@ export type AssetCardData = {
   type: AssetType;
   index: number;
   resource: AssetResource;
+  /** 素材唯一 ID（assets.id），用于后端精确定位 */
+  assetId?: string;
 };
 
 type AssetCardProps = {
@@ -138,6 +140,7 @@ export function buildAssetCards(
     type,
     index,
     resource,
+    assetId: resource.id,
   }));
 }
 

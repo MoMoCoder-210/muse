@@ -30,7 +30,7 @@ export function debugCanvas(event: string, details: Record<string, unknown> = {}
   const entry = { id, event, time: new Date().toISOString(), details };
   entries.push(entry);
   if (entries.length > 500) entries.shift();
-  console.log(`[AgentCanvas ${String(id).padStart(4, "0")}] ${event}`, { time: entry.time, ...details });
+  console.debug(`[AgentCanvas ${String(id).padStart(4, "0")}] ${event}`, { time: entry.time, ...details });
 }
 
 export function summarizeCanvasNode(node: Node<CanvasFlowNodeData>): Record<string, unknown> {

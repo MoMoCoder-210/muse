@@ -116,15 +116,17 @@ pub fn create_project(
     let style_mode = input.style_mode.unwrap_or_else(|| "国漫".to_string());
     let workspace = util::resolve_workspace_path(&input.workspace_path, &input.name, &project_id);
 
-    // 仅预创建实际会被写入的目录，其余按需自动创建
+    // v2 固定项目结构：素材、音频、视频、导出和临时工作目录各自独立。
     let dirs = [
         "assets/characters",
         "assets/scenes",
         "assets/items",
         "audio/voices",
-        "video",
+        "videos/imports",
         "videos/storyboards",
-        "output",
+        "exports/final",
+        "exports/upscaled",
+        ".work/upscale",
     ];
     for dir in &dirs {
         std::fs::create_dir_all(workspace.join(dir))
@@ -163,8 +165,8 @@ pub fn create_project(
     let manifest = serde_json::json!({
         "projectId": &project_id,
         "projectName": &input.name,
-        "workspaceVersion": 1,
-        "schemaVersion": 1,
+        "workspaceVersion": 2,
+        "schemaVersion": 2,
         "createdAt": &now,
         "updatedAt": &now,
         "defaultInputMode": &input_mode,
@@ -335,6 +337,34 @@ pub fn delete_project(
         }
     }
 
+    // 超分执行器独立于 Worker，必须在清理其来源记录前收到持久化取消。
+    let project_clip_ids: Vec<String> = {
+        let mut statement = conn
+            .prepare("SELECT id FROM clips WHERE project_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map(rusqlite::params![&project_id], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        let ids = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        ids
+    };
+    let project_asset_ids: Vec<String> = {
+        let mut statement = conn
+            .prepare("SELECT id FROM assets WHERE project_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map(rusqlite::params![&project_id], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        let ids = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        ids
+    };
+    crate::upscale_manager::cancel_upscale_jobs_for_clips(&app, &project_clip_ids)?;
+    crate::upscale_manager::cancel_upscale_jobs_for_assets(&app, &project_asset_ids)?;
+
     // ── 按外键依赖顺序删除关联记录 ──────────────────────────────
     // 依赖关系图（箭头表示 "被引用"，箭头尾端是子表/引用方）：
     //   task_locks ──► tasks ──► projects
@@ -388,7 +418,9 @@ pub fn delete_project(
 
         // 2.5. 超分任务（外键引用 storyboard_videos.id + storyboards.id，必须在视频与镜头之前删除）
         tx.execute(
-            "DELETE FROM upscale_jobs WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)",
+            "DELETE FROM upscale_jobs
+             WHERE storyboard_id IN (SELECT id FROM storyboards WHERE project_id = ?1)
+                OR source_asset_id IN (SELECT id FROM assets WHERE project_id = ?1)",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;
@@ -424,6 +456,15 @@ pub fn delete_project(
         // 7. asset_images（依赖 assets.id）
         tx.execute(
             "DELETE FROM asset_images WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?1)",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 7.5. clip_assets（依赖 clips.id 与 assets.id，必须在二者之前删除）
+        tx.execute(
+            "DELETE FROM clip_assets
+             WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?1)
+                OR asset_id IN (SELECT id FROM assets WHERE project_id = ?1)",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;

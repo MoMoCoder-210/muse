@@ -1,4 +1,4 @@
-/** Read-only production-canvas node renderers. All expansion remains UI-owned. */
+/** Production-canvas node renderers. Expansion remains UI-owned. */
 import { createContext, memo, type CSSProperties, type MouseEvent, type ReactNode, useContext } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Handle, NodeToolbar, Position, type NodeProps } from "reactflow";
@@ -101,7 +101,7 @@ export const VideoNode = memo(function VideoNode({ data }: NodeProps<VideoNodeDa
   return <div onClick={handleVideoClick} className={`cn-card cn-card--media cn-card--video cn-card--video--${kind === "超分" ? "upscale" : "generate"}${data.isSelected ? " cn-card--video-selected" : ""}`} style={{ "--cn-accent": data.isSelected ? "#8fc4ea" : "#7895ad" } as CSSProperties} aria-label={`${kind}视频，${duration}`}>
     <Handle id="target" type="target" position={Position.Left} className="cn-handle cn-handle--left" />
     <div className="cn-video-card__media">
-      {data.coverPath ? <img src={mediaSrc(data.coverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : <div className="cn-video-card__processing">{ready ? "暂无封面" : status}</div>}
+      {data.coverPath ? <img src={mediaSrc(data.coverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : ready ? <video src={mediaSrc(data.filePath)} preload="metadata" muted playsInline /> : <div className="cn-video-card__processing">{status}</div>}
       <div className="cn-video-card__overlay"><span className="cn-video-card__batch">B{data.batchIndex}</span><span className={`cn-video-card__kind cn-video-card__kind--${kind === "超分" ? "upscale" : "generate"}`}>{kind}</span>{data.isSelected && <span className="cn-video-card__selected">当前绑定</span>}</div>
     </div>
     <div className="cn-video-card__body"><div className="cn-video-card__fact"><span>时长</span><strong>{duration}</strong></div><div className="cn-video-card__fact"><span>生成时间</span><strong title={data.createdAt}>{formatVideoCreatedAt(data.createdAt)}</strong></div></div>
@@ -120,7 +120,7 @@ export const ReleaseSummaryNode = memo(function ReleaseSummaryNode({ data }: Nod
   return <CardShell canonicalId={data.canonicalId} hasChildren={false} color="#86b4a0" className="cn-card--release-summary" icon={<ClapperIcon />} title="手动编排" subtitle={`${data.readyShots}/${data.totalShots} 镜头就绪`} badge={data.totalShots ? `${data.totalShots} 段` : "暂无镜头"}>
     <div className="cn-release-shot-strip" aria-label="手动编排的镜头顺序">
       {visibleShots.map((shot) => <span key={shot.storyboardId} className={`cn-release-shot${shot.isReady ? " cn-release-shot--ready" : ""}`} title={`${String(shot.seqNum).padStart(2, "0")} · ${shot.sbid || "镜头"}${shot.summary ? ` · ${shot.summary}` : ""}`}>
-        {shot.videoPath ? <video src={mediaSrc(shot.videoPath)} muted preload="metadata" playsInline /> : <strong>{String(shot.seqNum).padStart(2, "0")}</strong>}
+        {shot.videoCoverPath ? <img src={mediaSrc(shot.videoCoverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : shot.videoPath ? <video src={mediaSrc(shot.videoPath)} preload="metadata" muted playsInline /> : <strong>{String(shot.seqNum).padStart(2, "0")}</strong>}
         <em>{String(shot.seqNum).padStart(2, "0")}</em>
       </span>)}
       {data.shots.length === 0 && <span className="cn-release-shot-strip__empty">等待手动编排</span>}
@@ -130,11 +130,10 @@ export const ReleaseSummaryNode = memo(function ReleaseSummaryNode({ data }: Nod
   </CardShell>;
 });
 export const ReleaseOutputNode = memo(function ReleaseOutputNode({ data }: NodeProps<ReleaseOutputNodeData>) {
-  const subtitle = data.isEmpty ? "手动编排后点击合成" : `${data.segmentCount} 段 · ${formatReleaseDuration(data.duration)}`;
-  const className = `cn-card--release-output${data.isEmpty ? " cn-card--release-empty" : ""}${data.isHistory ? " cn-card--release-history" : ""}`;
-  return <CardShell canonicalId={data.canonicalId} hasChildren={data.hasChildren} color={data.isEmpty ? "#89949d" : "#88b69d"} className={className} icon={<FilmIcon />} title={data.isEmpty ? "尚无成片" : data.fileName || "当前成片"} subtitle={subtitle} badge={data.isEmpty ? "等待" : data.isHistory ? "历史" : "成片"} thumbnail={data.filePath ? <video src={mediaSrc(data.filePath)} muted preload="metadata" playsInline /> : undefined}>
-    {!data.isEmpty && <div className="cn-release-output-facts"><span>{data.audioIncluded ? "含音频" : "无音频"}</span><span>{outputSourceLabel(data.source)}</span></div>}
-    {!data.isEmpty && data.createdAt && <div className="cn-release-output-created">生成于 {formatVideoCreatedAt(data.createdAt)}</div>}
+  const subtitle = data.isEmpty ? "手动编排后点击合成" : `${data.segmentCount} 段`;
+  const className = `cn-card--release-output${data.isEmpty ? " cn-card--release-empty" : ""}`;
+  return <CardShell canonicalId={data.canonicalId} hasChildren={data.hasChildren} color={data.isEmpty ? "#89949d" : "#88b69d"} className={className} icon={<FilmIcon />} title={data.isEmpty ? "尚无成片" : data.fileName || "当前成片"} subtitle={subtitle} badge={data.isEmpty ? "等待" : data.isHistory ? "历史" : "成片"} thumbnail={data.coverPath ? <img src={mediaSrc(data.coverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : data.filePath ? <video src={mediaSrc(data.filePath)} preload="metadata" muted playsInline /> : undefined}>
+    {!data.isEmpty && <div className="cn-release-output-facts"><div className="cn-video-card__fact"><span>时长</span><strong>{formatVideoDuration(data.duration)}</strong></div><div className="cn-video-card__fact"><span>生成时间</span><strong title={data.createdAt ?? undefined}>{data.createdAt ? formatVideoCreatedAt(data.createdAt) : "时间未知"}</strong></div></div>}
   </CardShell>;
 });
 
@@ -160,8 +159,9 @@ function formatReleaseDuration(value: number | null): string {
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
-function outputSourceLabel(source: string | null): string {
-  return source === "upscale" ? "超分输出" : "手动合成";
+function formatVideoDuration(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "时长待定";
+  return `${Math.max(0, Math.round(value))} 秒`;
 }
 function ChevronIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m8 10 4 4 4-4" /></svg>; }
 function ClipIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 15h6"/></svg>; }

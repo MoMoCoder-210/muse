@@ -582,13 +582,12 @@ impl SidecarManager {
         // 启动时新 Worker 误判"已有其他 Worker 持有租约"而拒绝启动（前端 Worker 异常）。
         // 应用能走到这里说明旧实例已退出（Job Object 已终止旧 Worker），故启动前直接
         // 清理租约表，确保新 Worker 一定能取得租约。
-        self.log(
-            "子进程",
-            "INFO",
-            "启动前清理 Worker 单例租约",
-        );
+        self.log("子进程", "INFO", "启动前清理 Worker 单例租约");
         if let Ok(conn) = crate::commands::util::open_app_conn(&self.app) {
-            let _ = conn.execute("DELETE FROM worker_leases WHERE lease_key = 'muse:worker'", []);
+            let _ = conn.execute(
+                "DELETE FROM worker_leases WHERE lease_key = 'muse:worker'",
+                [],
+            );
         }
 
         let mut child = cmd.spawn().map_err(|e| {

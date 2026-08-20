@@ -19,6 +19,8 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     size?: string;
     n?: number;
     style?: string;
+    /** 素材唯一 ID，用于精确定位；旧任务缺失时回退按 name 定位 */
+    assetId?: string;
   };
 
   if (!input?.projectId || !input?.clipId || !input?.assetType || !input?.name || !input?.prompt) {
@@ -31,6 +33,17 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
   }
 
   const { db, emit } = ctx;
+  const assertActiveOwner = () => {
+    const owner = db.prepare(`
+      SELECT t.id
+      FROM tasks t
+      JOIN clips c ON c.id = t.clip_id
+      WHERE t.id = ? AND t.project_id = ? AND t.clip_id = ?
+        AND t.status = 'running' AND t.cancel_requested_at IS NULL AND c.deleted_at IS NULL
+    `).get(ctx.taskId, input.projectId, input.clipId);
+    if (!owner) throw new Error("素材生图任务已取消、被替换或分集已删除");
+  };
+  assertActiveOwner();
 
   // 查询工作区路径
   const projectRow = db.prepare(
@@ -48,6 +61,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
   await mkdir(saveDir, { recursive: true });
 
   const assetId = ensureAssetRow(db, input);
+  ensureClipAssetLink(db, input.clipId, assetId, "generated");
   const count = Math.max(input.n ?? 1, 1);
 
   // 检查素材是否已有绑定图片（已选中）
@@ -95,14 +109,17 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
 
       // 创建 asset_images 记录（无已绑定时首张自动选中）
       const shouldSelect = !hasExistingBinding && i === 0;
-      db.prepare(
-        `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, file_name, is_selected, source, task_id, ark_upload_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'generation', ?, 'pending')`
-      ).run(
-        imageId, assetId, input.prompt,
-        input.size ?? null, input.style ?? null,
-        savePath, thumbnailPath, imageFileName, shouldSelect ? 1 : 0, ctx.taskId
-      );
+      db.transaction(() => {
+        assertActiveOwner();
+        db.prepare(
+          `INSERT INTO asset_images (id, asset_id, prompt, size, style, image_path, thumbnail_path, file_name, is_selected, source, task_id, ark_upload_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'generation', ?, 'pending')`
+        ).run(
+          imageId, assetId, input.prompt,
+          input.size ?? null, input.style ?? null,
+          savePath, thumbnailPath, imageFileName, shouldSelect ? 1 : 0, ctx.taskId
+        );
+      })();
       imagePersisted = true;
 
       generatedPaths.push({ path: savePath, imageId });
@@ -114,6 +131,7 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
         clipId: input.clipId,
         assetType: input.assetType,
         name: input.name,
+        assetId: input.assetId,
         imageId,
         status: "ready",
       });
@@ -131,23 +149,21 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
     }
   }
 
-  // 更新 assets 表（仅无已绑定时回写第一张）
-  if (!hasExistingBinding && generatedPaths.length > 0) {
-    const firstImage = generatedPaths[0];
-    db.prepare(
-      `UPDATE assets
-       SET generated_image_path = ?,
-           selected_image_id = ?,
-           status = 'image_ready',
-           updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(firstImage.path, firstImage.imageId, assetId);
-  } else {
-    // 有已绑定图片时只更新状态
-    db.prepare(
-      `UPDATE assets SET status = 'image_ready', updated_at = datetime('now') WHERE id = ?`
-    ).run(assetId);
-  }
+  db.transaction(() => {
+    assertActiveOwner();
+    if (!hasExistingBinding && generatedPaths.length > 0) {
+      const firstImage = generatedPaths[0];
+      db.prepare(
+        `UPDATE assets
+         SET selected_image_id = ?, status = 'image_ready', updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(firstImage.imageId, assetId);
+    } else {
+      db.prepare(
+        `UPDATE assets SET status = 'image_ready', updated_at = datetime('now') WHERE id = ?`
+      ).run(assetId);
+    }
+  })();
 
   l("素材生图", `成功 assetId=${assetId} 已生成=${generatedPaths.length}/${count}张`);
   emit({ type: "task_success", taskId: ctx.taskId });
@@ -157,25 +173,49 @@ export async function generateAssetImageHandler(ctx: TaskContext): Promise<strin
 
 /**
  * 确保 assets 表中存在对应记录。
+ *
+ * 优先使用唯一 assetId 精确定位（同名素材互不干扰），
+ * 旧任务缺失 assetId 时回退按 (project_id, clip_id, type, name) 定位。
  */
 function ensureAssetRow(
   db: DatabaseType,
-  input: { projectId: string; clipId: string; assetType: string; name: string; prompt: string }
+  input: { projectId: string; clipId: string; assetType: string; name: string; prompt: string; assetId?: string }
 ): string {
-  const existing = db.prepare(
-    "SELECT id FROM assets WHERE project_id = ? AND clip_id = ? AND type = ? AND name = ?"
-  ).get(input.projectId, input.clipId, input.assetType, input.name) as { id: string } | undefined;
-
-  if (existing) {
-    return existing.id;
+  if (input.assetId) {
+    const byId = db.prepare(`
+      SELECT a.id FROM assets a
+      JOIN clip_assets ca ON ca.asset_id = a.id
+      JOIN clips c ON c.id = ca.clip_id
+      WHERE a.id = ? AND a.project_id = ? AND ca.clip_id = ? AND c.deleted_at IS NULL
+    `).get(input.assetId, input.projectId, input.clipId) as { id: string } | undefined;
+    if (!byId) {
+      throw new Error("素材已删除、不属于当前分集或任务已失效");
+    }
+    return byId.id;
   }
 
-  const id = randomUUID();
+  const existing = db.prepare(
+    `SELECT a.id FROM assets a
+     JOIN clip_assets ca ON ca.asset_id = a.id
+     WHERE ca.clip_id = ? AND a.project_id = ? AND a.type = ? AND a.name = ?`
+  ).get(input.clipId, input.projectId, input.assetType, input.name) as { id: string } | undefined;
+
+  if (!existing) {
+    throw new Error("素材不存在或已删除，拒绝创建新的素材记录");
+  }
+  return existing.id;
+}
+
+function ensureClipAssetLink(
+  db: DatabaseType,
+  clipId: string,
+  assetId: string,
+  source: "generated" | "reused" | "manual" | "imported",
+): void {
   db.prepare(
-    `INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, status, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'image_pending', 'model')`
-  ).run(id, input.projectId, input.clipId, input.assetType, input.name, "", input.prompt);
-  return id;
+    `INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source)
+     VALUES (?, ?, ?, ?)`
+  ).run(randomUUID(), clipId, assetId, source);
 }
 
 /** 简单文件名清洗 */

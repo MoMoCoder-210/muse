@@ -152,13 +152,17 @@ export interface FileDeletionResult {
 export type DeleteClipsResult = FileDeletionResult;
 
 /**
- * 批量软删除分集，支持单条（传长度1数组）或多条。
- * `deleteFiles` 默认关闭；开启时仅删除数据库记录引用的作品工作区内文件。
+ * 批量软删除分集。派生数据与文件会保留，以便通过 restoreClips 完整恢复。
  */
 export async function deleteClips(clipIds: string[], deleteFiles = false): Promise<DeleteClipsResult> {
   return invoke<DeleteClipsResult>("delete_clips", {
     input: { clip_ids: clipIds, delete_files: deleteFiles },
   });
+}
+
+/** 恢复此前软删除的分集；不会自动重新投递已取消的异步任务。 */
+export async function restoreClips(clipIds: string[]): Promise<number> {
+  return invoke<number>("restore_clips", { input: { clip_ids: clipIds } });
 }
 
 /**
@@ -336,6 +340,7 @@ export async function generateAssetImage(input: {
   size?: string;
   n?: number;
   style?: string;
+  asset_id?: string;
 }): Promise<{ task_id: string }> {
   return invoke<{ task_id: string }>("generate_asset_image", { input });
 }
@@ -366,7 +371,7 @@ export async function addAssetToClip(input: {
 }
 
 /**
- * 更新素材的提示词与描述（按 clip_id + type + name 匹配）。
+ * 更新素材的提示词与描述（优先按 asset_id 匹配，缺失时回退 clip_id + type + name）。
  */
 export async function updateAssetInClip(input: {
   clip_id: string;
@@ -375,6 +380,7 @@ export async function updateAssetInClip(input: {
   description: string;
   prompt: string;
   voice_binding?: string;
+  asset_id?: string;
 }): Promise<void> {
   return invoke<void>("update_asset_in_clip", { input });
 }
@@ -423,6 +429,7 @@ export async function getAssetImageInfo(input: {
   clip_id: string;
   asset_type: string;
   name: string;
+  asset_id?: string;
 }): Promise<{
   generated_image_path: string | null;
   selected_image_id: string | null;
@@ -440,7 +447,13 @@ export async function getAssetImageInfo(input: {
  */
 export async function batchGetAssetSelectedImages(input: {
   clip_id: string;
-}): Promise<{ asset_type: string; name: string; selected_image_path: string | null }[]> {
+}): Promise<{
+  asset_id: string;
+  asset_type: string;
+  name: string;
+  selected_image_path: string | null;
+  selected_thumbnail_path: string | null;
+}[]> {
   return invoke("batch_get_asset_selected_images", { input });
 }
 
@@ -449,7 +462,7 @@ export async function batchGetAssetSelectedImages(input: {
  */
 export async function batchGetAssetGenerating(input: {
   clip_id: string;
-}): Promise<{ asset_type: string; name: string }[]> {
+}): Promise<{ asset_id: string; asset_type: string; name: string }[]> {
   return invoke("batch_get_asset_generating", { input });
 }
 
@@ -462,6 +475,7 @@ export async function importLocalAssetImage(input: {
   asset_type: string;
   name: string;
   local_file_path: string;
+  asset_id?: string;
 }): Promise<{ image_id: string; image_path: string; is_selected: boolean }> {
   return invoke("import_local_asset_image", { input });
 }
@@ -482,6 +496,7 @@ export async function listProjectAssetImages(input: {
   description: string;
   prompt: string;
   selected_image_path: string;
+  selected_thumbnail_path: string | null;
   selected_image_id: string;
 }[]> {
   return invoke("list_project_asset_images", input);
@@ -496,6 +511,7 @@ export async function copyAssetImageFrom(input: {
   target_clip_id: string;
   target_asset_type: string;
   target_name: string;
+  target_asset_id?: string;
 }): Promise<{ image_id: string; image_path: string; is_selected: boolean }> {
   return invoke("copy_asset_image_from", { input });
 }
@@ -508,9 +524,11 @@ export async function listAssetImages(input: {
   clip_id: string;
   asset_type: string;
   name: string;
+  asset_id?: string;
 }): Promise<{
   id: string;
   image_path: string;
+  thumbnail_path: string | null;
   size: string | null;
   style: string | null;
   is_selected: boolean;
@@ -529,9 +547,11 @@ export async function listAssetImageTasks(input: {
   clip_id: string;
   asset_type: string;
   name: string;
+  asset_id?: string;
 }): Promise<{
   id: string;
   image_path: string | null;
+  thumbnail_path: string | null;
   size: string | null;
   style: string | null;
   is_selected: boolean;
@@ -551,6 +571,7 @@ export async function selectAssetImage(input: {
   asset_type: string;
   name: string;
   image_id: string;
+  asset_id?: string;
 }): Promise<void> {
   return invoke("select_asset_image", { input });
 }
@@ -565,6 +586,7 @@ export async function deleteAssetImage(input: {
   name: string;
   image_id: string;
   delete_file: boolean;
+  asset_id?: string;
 }): Promise<FileDeletionResult> {
   return invoke<FileDeletionResult>("delete_asset_image", { input });
 }
@@ -579,6 +601,7 @@ export async function deleteAssetFromClip(input: {
   asset_type: string;
   name: string;
   delete_files?: boolean;
+  asset_id?: string;
 }): Promise<ManagedFileDeletionResult> {
   return invoke<ManagedFileDeletionResult>("delete_asset_from_clip", { input });
 }
@@ -729,6 +752,8 @@ export interface StoryboardVideoInfo {
   /** 生成该视频的任务；手动上传视频为 null。 */
   task_id: string | null;
   duration: number | null;
+  /** FFmpeg 抽取的首帧封面路径。 */
+  cover_path: string | null;
 }
 
 /** 镜头视频的未完成或失败任务，可在组件重挂载后恢复批次状态。 */
@@ -778,6 +803,7 @@ export interface ConcatSegment {
   file_path: string;
   file_name: string;
   duration: number | null;
+  cover_path: string | null;
 }
 
 /** 拼接结果 */
@@ -789,6 +815,8 @@ export interface ConcatResult {
   duration: number;
   segment_count: number;
   audio_included: boolean;
+  /** 封面字段由 FFmpeg 抽取首帧生成。 */
+  cover_path?: string | null;
   /** 记录来源：concat（拼接成片）| upscale（超分产物） */
   source?: string;
 }
@@ -815,8 +843,12 @@ export interface SaveConcatOutputInput {
   /** 记录来源：concat（拼接成片）| upscale（超分产物） */
   source?: string;
 }
-export async function saveConcatOutput(input: SaveConcatOutputInput): Promise<string> {
-  return invoke<string>("save_concat_output", { input });
+export interface SaveConcatOutputResult {
+  id: string;
+  cover_path: string | null;
+}
+export async function saveConcatOutput(input: SaveConcatOutputInput): Promise<SaveConcatOutputResult> {
+  return invoke<SaveConcatOutputResult>("save_concat_output", { input });
 }
 
 /** 删除一条拼接成片（数据库记录，可选同时删除文件） */
@@ -833,6 +865,7 @@ export interface ConcatOutputRow {
   segment_count: number;
   audio_included: boolean;
   source: string;
+  cover_path: string | null;
   created_at: string;
 }
 
@@ -1037,8 +1070,8 @@ export interface CanvasAssetTaskRead {
 export interface CanvasAssetRead {
   id: string;
   project_id: string;
-  /** null means project-shared; Rust normalizes legacy empty owners to null. */
-  clip_id: string | null;
+  /** The clips currently linked through clip_assets; an empty array is project-shared. */
+  clip_ids: string[];
   type: AssetType;
   name: string;
   description: string;
@@ -1072,6 +1105,7 @@ export interface CanvasStoryboardVideoRead {
   task_id: string | null;
   duration: number | null;
   created_at: string;
+  cover_path: string | null;
 }
 
 export interface CanvasUpscaleTaskRead {
@@ -1100,7 +1134,6 @@ export interface CanvasStoryboardRead {
   voice_state: string;
   video_state: string;
   video_duration: number | null;
-  fused_image_path: string | null;
   asset_references: CanvasAssetReferenceRead[];
   video_tasks: CanvasStoryboardTaskRead[];
   videos: CanvasStoryboardVideoRead[];
@@ -1118,6 +1151,7 @@ export interface CanvasConcatOutputRead {
   audio_included: boolean;
   source: string;
   created_at: string;
+  cover_path: string | null;
 }
 
 export interface ProjectCanvasReadModel {

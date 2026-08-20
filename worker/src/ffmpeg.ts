@@ -3,6 +3,10 @@
  */
 
 import { spawn } from "child_process";
+import { dirname, join, basename } from "path";
+import { mkdirSync } from "fs";
+import { rename, rm, stat } from "fs/promises";
+import { randomUUID } from "crypto";
 import { l, lw } from "./utils/utils.js";
 
 // ===== 类型定义 =====
@@ -47,6 +51,39 @@ export interface FFmpegInfo {
 const PROBE_TIMEOUT_MS = 10_000;
 /** FFmpeg 命令默认超时（10 分钟） */
 const EXEC_TIMEOUT_MS = 10 * 60_000;
+
+/** 在 Windows 上保留旧文件，确保新媒体替换失败时可以恢复。 */
+async function replaceMediaFile(temporaryPath: string, destinationPath: string): Promise<void> {
+  if (process.platform !== "win32") {
+    await rename(temporaryPath, destinationPath);
+    return;
+  }
+
+  let hadExisting = false;
+  try {
+    await stat(destinationPath);
+    hadExisting = true;
+  } catch {
+    // 目标文件不存在，直接落位临时文件。
+  }
+
+  const backupPath = join(dirname(destinationPath), `.media-backup-${randomUUID()}.tmp`);
+  if (hadExisting) await rename(destinationPath, backupPath);
+  try {
+    await rename(temporaryPath, destinationPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    if (hadExisting) {
+      try {
+        await rename(backupPath, destinationPath);
+      } catch (restoreError) {
+        throw new Error(`替换媒体文件失败且无法恢复旧文件：${String(error)}；${String(restoreError)}`);
+      }
+    }
+    throw error;
+  }
+  if (hadExisting) await rm(backupPath, { force: true }).catch(() => undefined);
+}
 
 // ===== FFmpegHelper 类 =====
 
@@ -136,6 +173,38 @@ export class FFmpegHelper {
 
     if (result.exitCode !== 0) {
       throw new Error(`FFmpeg 生成图片缩略图失败（exit=${result.exitCode}）：${result.stderr || inputPath}`);
+    }
+  }
+
+  /** 从视频抽取首帧，生成统一的轻量 JPEG 封面。 */
+  async createVideoCover(inputPath: string, outputPath?: string, signal?: AbortSignal): Promise<string> {
+    const coverPath = outputPath ?? join(dirname(inputPath), "covers", `${basename(inputPath)}.jpg`);
+    mkdirSync(dirname(coverPath), { recursive: true });
+    const temporaryPath = join(dirname(coverPath), `.${basename(coverPath)}.tmp-${randomUUID()}.jpg`);
+    try {
+      const result = await this.execFFmpeg([
+        "-y",
+        "-loglevel", "error",
+        "-i", inputPath,
+        "-vf", "scale=320:320:force_original_aspect_ratio=decrease",
+        "-frames:v", "1",
+        "-q:v", "4",
+        "-an",
+        "-map_metadata", "-1",
+        temporaryPath,
+      ], signal, 120_000);
+      if (result.exitCode !== 0) {
+        throw new Error(`FFmpeg 生成视频封面失败（exit=${result.exitCode}）：${result.stderr || inputPath}`);
+      }
+      const metadata = await stat(temporaryPath);
+      if (metadata.size === 0) {
+        throw new Error("FFmpeg 未生成有效的视频封面文件");
+      }
+      await replaceMediaFile(temporaryPath, coverPath);
+      return coverPath;
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
     }
   }
 

@@ -16,6 +16,10 @@
     var(--shadow-glass);
 }
 
+.projects-screen .project-sidebar {
+  background: var(--glass-bg-strong);
+}
+
 /* ── 侧边栏布局 ─────────────────────────────────────── */
 .project-sidebar {
   display: grid;
@@ -26,35 +30,58 @@
   min-width: 0;
 }
 
-/* ── 收起把手 ──────────────────────────────────────── */
-.sidebar-grabber {
+/* ── 左边缘悬浮热区与把手 ─────────────────────────── */
+.sidebar-edge-hotzone {
   position: absolute;
-  left: 0;
   top: 0;
   bottom: 0;
-  width: 18px;
+  left: 0;
+  z-index: var(--z-picker);
+  display: flex;
+  align-items: center;
+  width: 28px;
+  pointer-events: auto;
+  transition: left 300ms cubic-bezier(0.22, 0, 0, 1);
+}
+.sidebar-edge-hotzone--open {
+  /* 胶囊中心压在抽屉右边缘上，形成连贯的边缘控制柄。 */
+  left: calc(12px + var(--sidebar-width) - 11px);
+}
+.sidebar-grabber {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-dropdown);
+  box-sizing: border-box;
+  width: 22px;
+  height: 58px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 11px;
+  background: var(--glass-bg-strong);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  color: var(--text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 200ms ease;
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  transition: opacity 200ms ease, background 200ms ease, border-color 200ms ease, color 150ms ease;
 }
-.sidebar-grabber:hover {
+.sidebar-edge-hotzone:hover .sidebar-grabber,
+.sidebar-edge-hotzone--open .sidebar-grabber {
   opacity: 1;
-  background: var(--bg-hover-subtle);
 }
-.sidebar-grabber svg {
-  color: var(--text-tertiary);
-  transition: color 150ms ease;
-}
-.sidebar-grabber:hover svg {
+.sidebar-edge-hotzone:hover .sidebar-grabber {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border-strong);
   color: var(--text-secondary);
 }
-.projects-screen:not(.projects-screen--sidebar-open) .sidebar-grabber {
-  opacity: 1;
+.sidebar-edge-hotzone--open .sidebar-grabber {
+  background: var(--glass-bg-strong);
+}
+.sidebar-grabber:hover {
+  background: var(--glass-bg-strong) !important;
+  border-color: var(--glass-border-strong);
+  color: var(--text-primary);
 }
 
 /* ── 头部 — 品牌区域 ────────────────────────────────── */

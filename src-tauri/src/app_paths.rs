@@ -16,21 +16,21 @@ pub fn resolve_app_data_dir<R: Runtime, M: Manager<R>>(_app: &M) -> Result<PathB
     Ok(dir)
 }
 
-/// 获取应用数据库文件路径
+/// 获取应用数据库文件路径。
+///
+/// `muse.sqlite` 是 v2 唯一数据库；旧 `app.sqlite` 不会被读取或迁移。
 pub fn app_db_path<R: Runtime, M: Manager<R>>(app: &M) -> Result<PathBuf, String> {
-    Ok(resolve_app_data_dir(app)?.join("app.sqlite"))
+    Ok(resolve_app_data_dir(app)?.join("muse.sqlite"))
 }
 
-/// 获取默认作品根目录
+/// 获取默认作品根目录。
+///
+/// 所有新项目固定落在用户目录的 `.muse/projects`，不再根据磁盘存在性选择 `D:\\projects`。
 pub fn default_projects_root() -> PathBuf {
-    let drive_d = Path::new(r"D:\");
-    if drive_d.exists() {
-        return drive_d.join("projects");
-    }
-
-    dirs::document_dir()
-        .or_else(dirs::home_dir)
+    dirs::home_dir()
+        .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."))
+        .join(".muse")
         .join("projects")
 }
 

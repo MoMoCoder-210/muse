@@ -96,18 +96,16 @@ pub fn run() {
             // worker 启动；放到后台既保证续跑尽快开始，又能清掉占用资源文件的旧进程）。
             upscale_manager::setup_manager(app.handle());
 
-            // ── 清理上次超分异常退出残留的临时目录（`_upscale_*`） ──
-            // 仅删除不属于活跃任务（queued/running）的孤儿目录；断点续跑任务
-            // 的 frames/out 目录会被跳过保留。放后台执行，不阻塞启动。
+            // ── 清理上次异常退出残留的项目超分工作目录 ──
+            // 只扫描数据库登记的 `<workspace>/.work/upscale/<job_id>`；queued/running
+            // 任务保留以便断点续跑，其余 job 目录整体删除，不触碰用户的其他工作文件。
             {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let active = upscale_manager::active_job_ids(&app);
-                    let root = app_paths::default_projects_root();
-                    commands::video::cleanup_orphan_upscale_dirs(&root, &active, 0);
-                    // 清理系统临时目录中的续跑中转目录（muse_upscale_{job}）
-                    // 仅清理不属于活跃任务的残留；正在续跑的任务其中转目录可能
-                    // 已被 worker 复用，跳过活跃 job 避免误删。
+                    for workspace in upscale_manager::project_workspace_paths(&app) {
+                        commands::video::cleanup_project_upscale_dirs(&workspace, &active);
+                    }
                     if let Ok(temp_root) = std::env::temp_dir().canonicalize() {
                         commands::video::cleanup_orphan_upscale_dirs(&temp_root, &active, 0);
                     }
@@ -196,6 +194,10 @@ pub fn run() {
                     return Err(Box::new(std::io::Error::other(e)));
                 }
             };
+
+            // 数据库结构已同步后，才允许超分管理器读取、恢复并执行持久化任务。
+            // 否则首次安装或 schema 重建期间可能使用旧表结构恢复任务。
+            upscale_manager::start_manager(app.handle());
 
             // ── 第2步：FFmpeg 检测 ──
             let ffmpeg_path_str = app_paths::ffmpeg_path(app.handle())
@@ -414,6 +416,7 @@ pub fn run() {
             commands::stop_worker,
             commands::delete_project,
             commands::delete_clips,
+            commands::restore_clips,
             commands::delete_assets,
             commands::update_clip,
             commands::split_clip,

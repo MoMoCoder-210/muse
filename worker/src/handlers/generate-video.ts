@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { mkdir, readFile } from "fs/promises";
+import { mkdir, readFile, rm } from "fs/promises";
 import { join, extname } from "path";
 import { tmpdir } from "os";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -267,12 +267,27 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
     signal: ctx.signal,
   });
 
+  let coverPath: string | null = null;
+  try {
+    coverPath = await ctx.ffmpeg.createVideoCover(result.filePath);
+  } catch (error) {
+    lw("视频生成", `封面生成失败，继续保存视频记录：${error instanceof Error ? error.message : String(error)}`);
+  }
   const videoId = randomUUID();
   const tx = ctx.db.transaction(() => {
+    const owner = ctx.db.prepare(`
+      SELECT t.id
+      FROM tasks t
+      JOIN clips c ON c.id = t.clip_id
+      JOIN storyboards s ON s.id = ? AND s.clip_id = c.id AND s.project_id = t.project_id
+      WHERE t.id = ? AND t.project_id = ? AND t.clip_id = ?
+        AND t.status = 'running' AND t.cancel_requested_at IS NULL AND c.deleted_at IS NULL
+    `).get(input.storyboardId, ctx.taskId, input.projectId, input.clipId);
+    if (!owner) throw new Error("视频任务已取消、被替换或分集已删除");
     ctx.db.prepare(`
-      INSERT INTO storyboard_videos (id, storyboard_id, file_path, file_name, source, task_id, duration)
-      VALUES (?, ?, ?, ?, 'generated', ?, ?)
-    `).run(videoId, input.storyboardId, result.filePath, fileName, ctx.taskId, params.duration ?? null);
+      INSERT INTO storyboard_videos (id, storyboard_id, file_path, file_name, source, task_id, duration, cover_path)
+      VALUES (?, ?, ?, ?, 'generated', ?, ?, ?)
+    `).run(videoId, input.storyboardId, result.filePath, fileName, ctx.taskId, params.duration ?? null, coverPath);
     ctx.db.prepare(`
       UPDATE storyboards
       SET video_state = 'ready',
@@ -281,7 +296,13 @@ export async function generateVideoHandler(ctx: TaskContext): Promise<string> {
       WHERE id = ?
     `).run(videoId, input.storyboardId);
   });
-  tx();
+  try {
+    tx();
+  } catch (error) {
+    await rm(result.filePath, { force: true }).catch(() => undefined);
+    if (coverPath) await rm(coverPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 
-  return JSON.stringify({ storyboardId: input.storyboardId, videoId, filePath: result.filePath, model: result.model });
+  return JSON.stringify({ storyboardId: input.storyboardId, videoId, filePath: result.filePath, coverPath, model: result.model });
 }

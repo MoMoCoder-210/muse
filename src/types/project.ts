@@ -119,24 +119,21 @@ export type VoiceBinding =
 export type AssetResource = {
   type: AssetType;
   name: string;
-  description: string;
-  prompt: string;
+  /** 素材描述，来自 assets 表。 */
+  description?: string;
+  /** 素材提示词，来自 assets 表。 */
+  prompt?: string;
+  /** assets.id，用于精确定位素材。 */
+  id?: string;
   tags?: string[];
   /** 人物素材可绑定声音（公共音色 / 本地上传），场景与道具无此字段 */
   voiceBinding?: VoiceBinding;
-};
-
-export type ParsedAssets = {
-  characters: AssetResource[];
-  scenes: AssetResource[];
-  items: AssetResource[];
 };
 
 export type ClipScriptInfo = {
   id: string;
   clip_id: string;
   script_summary: string;
-  extracted_resources_json: string;
   status: "pending" | "running" | "success" | "failed";
 };
 
@@ -219,8 +216,12 @@ export type StoryboardAssetInfo = {
   name: string;
   description: string;
   prompt: string;
+  /** 运行时权威声音绑定，JSON 字符串；前端解析后覆盖旧 resources JSON 投影。 */
+  voice_binding_json: string | null;
   /** 素材选定的图片路径（可能为 null） */
   selected_image_path: string | null;
+  /** 素材选定图片的缩略图路径（缺失时前端回退原图） */
+  selected_thumbnail_path: string | null;
   /** 指定 storyboard 查询时由后端按该镜头 mention_map 注入；未引用为 null。 */
   index?: number | null;
   /** 完整引用文本：素材名(@图片N)，用于精确匹配为一个胶囊。 */

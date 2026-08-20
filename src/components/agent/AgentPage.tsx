@@ -1,4 +1,4 @@
-/** Agent canvas page: read-only project hierarchy plus the existing demo chat. */
+/** Agent canvas page: project hierarchy plus the existing demo chat. */
 import { useState, useRef, useEffect, useCallback, type PointerEvent as ReactPointerEvent } from "react";
 import type { Edge, Node, NodeChange, ReactFlowInstance, Viewport } from "reactflow";
 import { ControlButton, Controls, ReactFlow, applyNodeChanges, useEdgesState, useNodesState } from "reactflow";
@@ -58,9 +58,9 @@ function findBlankSubcanvasAtPoint(clientX: number, clientY: number): HTMLElemen
   return header && pointInRect(clientX, clientY, header.getBoundingClientRect()) ? null : subcanvas;
 }
 
-type Props = { project: ProjectInfo | null; onSelectProject: (project: ProjectInfo) => void };
+type Props = { project: ProjectInfo | null; onSelectProject: (project: ProjectInfo) => void; onGoHome: () => void };
 
-export function AgentPage({ project, onSelectProject }: Props) {
+export function AgentPage({ project, onSelectProject, onGoHome }: Props) {
   const [nodes, setNodes] = useNodesState<CanvasFlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [canvasLoading, setCanvasLoading] = useState(Boolean(project));
@@ -72,8 +72,9 @@ export function AgentPage({ project, onSelectProject }: Props) {
   const projectRef = useRef<ProjectInfo | null>(project);
   const readModelRef = useRef<ProjectCanvasReadModel | null>(null);
   const expandedByProjectRef = useRef<Record<string, string[]>>({});
-  const [initialLayoutCache] = useState<CanvasLayoutCache>(() => readCanvasLayoutCache());
-  const layoutCacheRef = useRef<CanvasLayoutCache>(initialLayoutCache);
+  const [initialLayoutRead] = useState(() => readCanvasLayoutCache());
+  const layoutCacheRef = useRef<CanvasLayoutCache>(initialLayoutRead.cache);
+  const pendingLayoutFormatProjectIdsRef = useRef(new Set(initialLayoutRead.projectsNeedingFormat));
   const selectedNodeIdRef = useRef<string | null>(null);
   const canvasGenerationRef = useRef(0);
   const canvasRequestTokenRef = useRef(0);
@@ -236,16 +237,45 @@ export function AgentPage({ project, onSelectProject }: Props) {
       if (requestToken !== canvasRequestTokenRef.current || canvasGenerationRef.current !== generation || projectRef.current?.id !== projectId || draggingCanvasRef.current || dragCommitPendingRef.current) return false;
       const projection = buildCanvas(model, expandedIdsFor(model));
       if (projection.nodes.length === 0 && canvasNodesRef.current.length > 0) return false;
+      const previousCache = layoutCacheRef.current;
+      const currentLayout = previousCache.projects[projectId];
+      const shouldFormatLayout = !currentLayout || pendingLayoutFormatProjectIdsRef.current.has(projectId);
+      const cacheForRender = shouldFormatLayout
+        ? {
+            ...previousCache,
+            projects: {
+              ...previousCache.projects,
+              [projectId]: {
+                ...(currentLayout ?? createCanvasProjectLayout()),
+                positions: {},
+                viewport: undefined,
+                mode: "formatted" as const,
+                updatedAt: Date.now(),
+              },
+            },
+          }
+        : previousCache;
+      if (shouldFormatLayout) {
+        layoutCacheRef.current = cacheForRender;
+        debugCanvas("layout:format-missing-fields", { projectId, hadExistingLayout: Boolean(currentLayout) });
+      }
       const applied = await applyCanvas(
         projection.nodes,
         projection.edges,
         loadedProjectIdRef.current !== projectId,
         centerNodeId,
-        !fitViewAfterRefresh,
-        fitViewAfterRefresh,
+        !fitViewAfterRefresh && !shouldFormatLayout,
+        fitViewAfterRefresh || shouldFormatLayout,
         requestToken,
       );
-      if (!applied) return false;
+      if (!applied) {
+        if (shouldFormatLayout && layoutCacheRef.current === cacheForRender) layoutCacheRef.current = previousCache;
+        return false;
+      }
+      if (shouldFormatLayout) {
+        pendingLayoutFormatProjectIdsRef.current.delete(projectId);
+        writeCanvasLayoutCache(layoutCacheRef.current);
+      }
       readModelRef.current = model;
       loadedProjectIdRef.current = projectId;
       setCanvasError(null);
@@ -645,8 +675,14 @@ export function AgentPage({ project, onSelectProject }: Props) {
   }, [canvasLoading, formatButtonDisabled, formatting, nodes.length, project?.id]);
 
   return <div className={`agent-page${sidebarVisible ? " agent-page--sidebar-open" : ""}`}><div className="agent-main">
-    {!sidebarVisible && <button className="sidebar-grabber" onClick={() => setSidebarOpen(true)} type="button" title="展开作品列表" aria-label="展开作品列表"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
-    <div className={`sidebar-drawer${sidebarVisible ? " sidebar-drawer--open" : ""}`}><ProjectSidebar projects={projects} selectedProjectId={project?.id ?? ""} onSelectProject={(projectId) => { const nextProject = projects.find((item) => item.id === projectId); if (nextProject) onSelectProjectWrapped(nextProject); }} onCreateProject={() => {}} onDeleteProject={() => {}} onGoHome={() => {}} /></div>
+    {project && <div className={`sidebar-edge-hotzone agent-sidebar-edge-hotzone${sidebarVisible ? " sidebar-edge-hotzone--open" : ""}`}>
+      <button className="sidebar-grabber" onClick={() => setSidebarOpen((open) => !open)} type="button" title={sidebarVisible ? "收起作品列表" : "展开作品列表"} aria-label={sidebarVisible ? "收起作品列表" : "展开作品列表"}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          {sidebarVisible ? <path d="M5 5L11 11M11 5L5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /> : <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
+        </svg>
+      </button>
+    </div>}
+    <div className={`sidebar-drawer${sidebarVisible ? " sidebar-drawer--open" : ""}`}><ProjectSidebar projects={projects} selectedProjectId={project?.id ?? ""} onSelectProject={(projectId) => { const nextProject = projects.find((item) => item.id === projectId); if (nextProject) onSelectProjectWrapped(nextProject); }} onCreateProject={() => {}} onDeleteProject={() => {}} onGoHome={onGoHome} /></div>
     <div className="agent-canvas" onPointerDownCapture={handleCanvasPointerDownCapture}>
       <CanvasInteractionProvider expandedIds={activeExpanded} onToggleExpanded={toggleExpanded} onAssetPillClick={revealReferencedAsset} activeVideoId={activeVideoId} onVideoClick={openVideoPlayer} onVideoPlayerClose={clearVideoPlayer}>
         <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleCanvasNodesChange} onEdgesChange={onEdgesChange} onNodeClick={(_, node) => selectCanvasNode(node)} onNodeDragStart={startCanvasDrag} onNodeDrag={handleCanvasNodeDrag} onNodeDragStop={stopCanvasDrag} onMoveEnd={persistCanvasViewport} onPaneClick={clearCanvasSelection} onInit={(instance) => { flowRef.current = instance; debugCanvas("reactflow:init", { viewport: instance.getViewport(), nodes: summarizeCanvasNodes(instance.getNodes() as Node<CanvasFlowNodeData>[]) }); }} nodeTypes={agentNodeTypes} nodesConnectable={false} nodesDraggable={!formatting} panOnDrag nodeExtent={[[-CANVAS_MAX_POSITION, -CANVAS_MAX_POSITION], [CANVAS_MAX_POSITION, CANVAS_MAX_POSITION]]} minZoom={CANVAS_MIN_ZOOM} maxZoom={CANVAS_MAX_ZOOM} proOptions={{ hideAttribution: true }}>

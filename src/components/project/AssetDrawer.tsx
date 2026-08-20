@@ -15,6 +15,7 @@ type AssetImageTaskUpdateEvent = {
   clip_id: string;
   asset_type: string;
   name: string;
+  assetId?: string;
   imageId: string;
   status: "ready" | "failed";
 };
@@ -24,6 +25,7 @@ type AssetImageProgressEvent = {
   clip_id: string;
   asset_type: string;
   name: string;
+  assetId?: string;
   status: "running" | "success" | "failed";
 };
 
@@ -182,10 +184,12 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
     let unlistenProgress: UnlistenFn | undefined;
     let unlistenUpscaleDone: UnlistenFn | undefined;
 
-    const matches = (payload: { clip_id: string; asset_type: string; name: string }) =>
+    const matches = (payload: { clip_id: string; asset_type: string; name: string; assetId?: string }) =>
       payload.clip_id === current.clipId &&
       payload.asset_type === current.type &&
-      payload.name === current.resource.name;
+      (current.assetId
+        ? payload.assetId === current.assetId
+        : payload.name === current.resource.name);
 
     listen<AssetImageTaskUpdateEvent>("asset-image-task-update", (e) => {
       if (matches(e.payload)) setPollKey((k) => k + 1);
@@ -231,6 +235,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
           clip_id: current.clipId,
           asset_type: current.type,
           name: current.resource.name,
+          asset_id: current.assetId,
         };
 
         // 获取图片+任务混合列表
@@ -240,6 +245,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
         const galleryItems: GalleryImage[] = tasks.map((t) => ({
           id: t.id,
           path: t.image_path,
+          thumbnailPath: t.thumbnail_path,
           is_selected: t.is_selected,
           status: t.status as GalleryImage["status"],
           error_message: t.error_message ?? undefined,
@@ -335,6 +341,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
         asset_type: current.type,
         name: current.resource.name,
         image_id: imageId,
+        asset_id: current.assetId,
       });
       setGalleryImages((prev) => prev.map((img) => ({ ...img, is_selected: img.id === imageId })));
       onImageSelected?.();
@@ -353,6 +360,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
         name: current.resource.name,
         image_id: imageId,
         delete_file: deleteFile,
+        asset_id: current.assetId,
       });
       const feedback = formatDeleteResult(result);
       toast(feedback.text, feedback.kind);
@@ -423,6 +431,7 @@ export function AssetDrawer({ cards, projectId, onClose, onGenerate, onBatchGene
         name: current.resource.name,
         description,
         prompt,
+        asset_id: current.assetId,
       });
       onAssetUpdated?.(current, { prompt, description });
     } catch (err) {

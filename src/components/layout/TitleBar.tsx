@@ -11,6 +11,7 @@ type TitleBarProps = {
   onEnterAgent?: () => void;
   isAgentMode?: boolean;
   onExitAgent?: () => void;
+  showModeSwitcher?: boolean;
   projectName?: string | null;
 };
 
@@ -25,7 +26,7 @@ const isTauri =
  * 右侧设置 / 帮助 与窗口控制（最小化 / 最大化 / 关闭）。
  * 拖拽由 onMouseDown 手动调用 startDragging 实现，双击空白处最大化。
  */
-export function TitleBar({ onOpenSettings, onEnterAgent, isAgentMode, onExitAgent, projectName }: TitleBarProps) {
+export function TitleBar({ onOpenSettings, onEnterAgent, isAgentMode, onExitAgent, showModeSwitcher = true, projectName }: TitleBarProps) {
   const [isMax, setIsMax] = useState(false);
   const services = useServiceStatus();
   const serviceIndicator = useMemo(() => {
@@ -101,7 +102,8 @@ export function TitleBar({ onOpenSettings, onEnterAgent, isAgentMode, onExitAgen
       </div>
 
       {/* macOS 风格居中分段控件 — 手动模式 / Agent */}
-      <div className="tb-segment" role="tablist" aria-label="工作模式">
+      {showModeSwitcher && (
+        <div className="tb-segment" role="tablist" aria-label="工作模式">
         <button
           type="button"
           role="tab"
@@ -129,7 +131,8 @@ export function TitleBar({ onOpenSettings, onEnterAgent, isAgentMode, onExitAgen
           </svg>
           <span>Agent</span>
         </button>
-      </div>
+        </div>
+      )}
 
       <div className="tb-spacer" />
 

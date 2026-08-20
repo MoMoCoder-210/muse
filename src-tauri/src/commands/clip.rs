@@ -233,6 +233,7 @@ pub fn list_script_sources(
     Ok(sources)
 }
 
+#[allow(dead_code)]
 fn collect_clip_file_paths(
     tx: &rusqlite::Transaction<'_>,
     clip_id: &str,
@@ -240,11 +241,10 @@ fn collect_clip_file_paths(
     // 1. 查出哪些素材被其他分集引用（需保护）
     let protected: Vec<String>;
     let protect_sql = "
-        SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id != ?1
-        UNION
-        SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id != ?1
-        UNION
-        SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id != ?1
+        SELECT ca.asset_id
+        FROM clip_assets ca
+        JOIN clips c ON c.id = ca.clip_id
+        WHERE ca.clip_id != ?1 AND c.deleted_at IS NULL
     ";
     {
         let mut stmt = tx
@@ -261,7 +261,7 @@ fn collect_clip_file_paths(
     let owned: Vec<String>;
     {
         let mut stmt = tx
-            .prepare("SELECT id FROM assets WHERE clip_id = ?1")
+            .prepare("SELECT asset_id FROM clip_assets WHERE clip_id = ?1")
             .map_err(|e| format!("查询本分集素材失败: {}", e))?;
         owned = stmt
             .query_map(rusqlite::params![clip_id], |row| row.get::<_, String>(0))
@@ -311,12 +311,10 @@ fn collect_clip_file_paths(
                 }
             }
         }
-        // reference_image_path / generated_image_path
+        // reference_image_path 也是受素材实体管理的外部引用。
         let ref_sql = format!(
-            "SELECT reference_image_path FROM assets WHERE id IN ({}) AND reference_image_path IS NOT NULL
-             UNION
-             SELECT generated_image_path FROM assets WHERE id IN ({}) AND generated_image_path IS NOT NULL",
-            placeholders.join(","), placeholders.join(",")
+            "SELECT reference_image_path FROM assets WHERE id IN ({}) AND reference_image_path IS NOT NULL",
+            placeholders.join(",")
         );
         {
             let mut stmt = tx
@@ -341,14 +339,20 @@ fn collect_clip_file_paths(
     {
         let mut stmt = tx
             .prepare(
-                "SELECT fused_image_path FROM storyboards WHERE clip_id = ?1 AND fused_image_path IS NOT NULL
-                 UNION
-                 SELECT voice_path FROM storyboards WHERE clip_id = ?1 AND voice_path IS NOT NULL
+                "SELECT voice_path FROM storyboards WHERE clip_id = ?1 AND voice_path IS NOT NULL
                  UNION
                  SELECT file_path FROM storyboard_videos
                  WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
                  UNION
-                 SELECT output_path FROM concat_outputs WHERE clip_id = ?1",
+                 SELECT cover_path FROM storyboard_videos
+                 WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1) AND cover_path IS NOT NULL
+                 UNION
+                 SELECT output_path FROM concat_outputs WHERE clip_id = ?1
+                 UNION
+                 SELECT cover_path FROM concat_outputs WHERE clip_id = ?1 AND cover_path IS NOT NULL
+                 UNION
+                 SELECT output_path FROM upscale_jobs
+                 WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1) AND TRIM(output_path) <> ''",
             )
             .map_err(|e| format!("查询镜头/视频文件失败: {}", e))?;
         let rows = stmt
@@ -362,16 +366,6 @@ fn collect_clip_file_paths(
     }
 
     Ok(paths)
-}
-
-/// 共享素材保护查询：返回被其他分集 storyboard 引用的 asset ID 列表
-/// 使用 ?2 与大查询中的 ?1 区分，避免跨子查询绑定歧义
-fn shared_sql_snippet() -> &'static str {
-    "SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id != ?2 \
-     UNION \
-     SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id != ?2 \
-     UNION \
-     SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id != ?2"
 }
 
 /// 删除数据库记录中列出的、且位于所属作品工作区中的文件。
@@ -435,6 +429,7 @@ fn delete_managed_clip_files(candidates: Vec<ClipFileCandidate>) -> DeleteClipsR
 pub fn delete_clips(
     input: DeleteClipsInput,
     app: tauri::AppHandle,
+    state: tauri::State<'_, SharedSidecarManager>,
 ) -> Result<DeleteClipsResult, String> {
     let mut clip_ids = Vec::new();
     for id in input.clip_ids {
@@ -453,11 +448,92 @@ pub fn delete_clips(
         });
     }
 
-    let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    // 真正软删：派生剧本、镜头、视频和素材池都保留，以便 restore_clips 恢复完整状态。
+    // 异步任务改为 invalidated 而不是删除，Worker 写回时可观察到持久化墓碑。
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut running_task_ids = Vec::new();
+    for id in &clip_ids {
+        let exists: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if exists != 1 {
+            return Err(format!("分集不存在或已删除：{}", id));
+        }
+        let mut task_stmt = tx
+            .prepare(
+                "SELECT id FROM tasks
+                 WHERE status = 'running' AND (clip_id = ?1 OR storyboard_id IN (
+                    SELECT id FROM storyboards WHERE clip_id = ?1
+                 ))",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = task_stmt
+            .query_map(rusqlite::params![id], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        running_task_ids.extend(rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?);
+        tx.execute(
+            "UPDATE tasks
+             SET status = CASE WHEN status IN ('pending','running','waiting_remote','downloading') THEN 'invalidated' ELSE status END,
+                 cancel_requested_at = COALESCE(cancel_requested_at, datetime('now')),
+                 cancel_reason = 'clip deleted', updated_at = datetime('now')
+             WHERE clip_id = ?1 OR storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE clips SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+
+    // DB 墓碑已提交后再请求各执行器停止；即使进程在此刻退出，写回 CAS 也会拒绝旧结果。
+    for task_id in &running_task_ids {
+        let _ = util::send_cancel_to_worker(&state, task_id);
+    }
+    crate::upscale_manager::cancel_upscale_jobs_for_clips(&app, &clip_ids)?;
+    if input.delete_files {
+        log::warn!("分集软删除忽略 delete_files=true；物理文件仅可由后续永久清理流程删除");
+    }
+    return Ok(DeleteClipsResult {
+        deleted_file_count: 0,
+        skipped_file_count: 0,
+        failed_file_count: 0,
+    });
+}
+
+    /* 已替换的旧硬删实现：仅保留在源文件中供后续永久清理（purge）迁移参考，不参与编译。 = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut file_candidates = Vec::new();
+    let target_asset_ids = {
+        let placeholders = std::iter::repeat("?")
+            .take(clip_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT DISTINCT asset_id FROM clip_assets WHERE clip_id IN ({})",
+            placeholders
+        );
+        let mut statement = tx.prepare(&sql).map_err(|error| error.to_string())?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = clip_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+        let rows = statement
+            .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
 
     // 先验证全部目标，任意一个失效时整个批次回滚，避免批量操作只删一部分。
     for id in &clip_ids {
@@ -503,13 +579,11 @@ pub fn delete_clips(
                 SELECT lock_key FROM tasks
                 WHERE clip_id = ?1
                    OR storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
-                   OR asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)
              )
              OR locked_by IN (
                 SELECT id FROM tasks
                 WHERE clip_id = ?1
                    OR storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
-                   OR asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)
              )",
             rusqlite::params![id],
         )
@@ -529,19 +603,8 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除镜头视频 clipId={}: {}", id, e))?;
 
-        // 4. 删除其余叶子记录。
-        // 注意：共享素材（被其他分集镜头引用的素材）不可删除，仅删除本分集专属且未被引用的素材
-        tx.execute(
-            &format!(
-                "DELETE FROM asset_images WHERE asset_id IN (
-                SELECT id FROM assets WHERE clip_id = ?1
-                AND id NOT IN ({})
-            )",
-                shared_sql_snippet()
-            ),
-            rusqlite::params![id, id],
-        )
-        .map_err(|e| format!("无法删除素材图片 clipId={}: {}", id, e))?;
+        // 素材实体的回收统一在批次全部解除 clip_assets 关联后执行，避免批量删除
+        // 共享素材时因处理顺序误删图片或留下孤儿记录。
         tx.execute(
             "DELETE FROM concat_outputs WHERE clip_id = ?1",
             rusqlite::params![id],
@@ -549,8 +612,7 @@ pub fn delete_clips(
         .map_err(|e| format!("无法删除拼接记录 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM storyboard_assets
-             WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
-                OR asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
+             WHERE storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
             rusqlite::params![id],
         )
         .map_err(|e| format!("无法删除镜头素材关联 clipId={}: {}", id, e))?;
@@ -559,8 +621,7 @@ pub fn delete_clips(
         tx.execute(
             "DELETE FROM tasks
              WHERE clip_id = ?1
-                OR storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)
-                OR asset_id IN (SELECT id FROM assets WHERE clip_id = ?1)",
+                OR storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?1)",
             rusqlite::params![id],
         )
         .map_err(|e| format!("无法删除关联任务 clipId={}: {}", id, e))?;
@@ -572,15 +633,10 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除镜头 clipId={}: {}", id, e))?;
         tx.execute(
-            &format!(
-                "DELETE FROM assets WHERE clip_id = ?1
-                AND id NOT IN ({})
-            ",
-                shared_sql_snippet()
-            ),
-            rusqlite::params![id, id],
+            "DELETE FROM clip_assets WHERE clip_id = ?1",
+            rusqlite::params![id],
         )
-        .map_err(|e| format!("无法删除素材 clipId={}: {}", id, e))?;
+        .map_err(|e| format!("无法删除分集素材池关联 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM clip_scripts WHERE clip_id = ?1",
             rusqlite::params![id],
@@ -598,6 +654,77 @@ pub fn delete_clips(
         if affected != 1 {
             return Err(format!("删除分集时记录状态异常：{}", id));
         }
+    }
+
+    // 所有待删分集均已解除素材池关联后，再回收整个批次中没有任何剩余分集引用的实体。
+    // 这样 A/B 同时删除且共同复用同一素材时，不会因顺序而遗漏回收或误删。
+    for asset_id in target_asset_ids {
+        let remaining_links: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM clip_assets WHERE asset_id = ?1",
+                rusqlite::params![&asset_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if remaining_links > 0 {
+            continue;
+        }
+
+        if input.delete_files {
+            let workspace_path: String = tx
+                .query_row(
+                    "SELECT p.workspace_path FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.id = ?1",
+                    rusqlite::params![&asset_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            let mut statement = tx
+                .prepare(
+                    "SELECT image_path FROM asset_images WHERE asset_id = ?1
+                     UNION SELECT thumbnail_path FROM asset_images WHERE asset_id = ?1 AND thumbnail_path IS NOT NULL
+                     UNION SELECT reference_image_path FROM assets WHERE id = ?1 AND reference_image_path IS NOT NULL",
+                )
+                .map_err(|error| error.to_string())?;
+            let paths = statement
+                .query_map(rusqlite::params![&asset_id], |row| row.get::<_, String>(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            for file_path in paths {
+                file_candidates.push(ClipFileCandidate {
+                    workspace_path: std::path::PathBuf::from(&workspace_path),
+                    file_path: std::path::PathBuf::from(file_path),
+                });
+            }
+        }
+
+        tx.execute(
+            "DELETE FROM storyboard_assets WHERE asset_id = ?1",
+            rusqlite::params![&asset_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "DELETE FROM task_locks
+             WHERE lock_key IN (SELECT lock_key FROM tasks WHERE asset_id = ?1)
+                OR locked_by IN (SELECT id FROM tasks WHERE asset_id = ?1)",
+            rusqlite::params![&asset_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "DELETE FROM tasks WHERE asset_id = ?1",
+            rusqlite::params![&asset_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "DELETE FROM asset_images WHERE asset_id = ?1",
+            rusqlite::params![&asset_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "DELETE FROM assets WHERE id = ?1",
+            rusqlite::params![&asset_id],
+        )
+        .map_err(|error| error.to_string())?;
     }
 
     tx.commit().map_err(|e| {
@@ -669,6 +796,38 @@ pub fn delete_clips(
         );
     }
     Ok(result)
+}
+*/
+
+/// 恢复此前软删除的分集；派生数据从未被删除，因此恢复不会重新触发旧任务。
+#[derive(Debug, Deserialize)]
+pub struct RestoreClipsInput {
+    pub clip_ids: Vec<String>,
+}
+
+#[tauri::command]
+pub fn restore_clips(input: RestoreClipsInput, app: tauri::AppHandle) -> Result<usize, String> {
+    if input.clip_ids.is_empty() {
+        return Ok(0);
+    }
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut restored = 0usize;
+    for clip_id in input.clip_ids {
+        let affected = tx
+            .execute(
+                "UPDATE clips SET deleted_at = NULL, updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NOT NULL",
+                rusqlite::params![clip_id],
+            )
+            .map_err(|e| e.to_string())?;
+        if affected != 1 {
+            return Err("分集不存在、未删除或已被永久清理".to_string());
+        }
+        restored += 1;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(restored)
 }
 
 /// 更新分集内容
@@ -856,68 +1015,100 @@ pub struct DeleteAssetsInput {
 }
 
 #[derive(Debug)]
-pub(crate) struct DeletedAsset {
-    pub clip_id: String,
-    pub asset_type: String,
-    pub name: String,
-}
+pub(crate) struct DeletedAsset;
 
-/// 从分集最新的拆解结果中移除一个素材描述。
-///
-/// 素材卡片以该 JSON 为展示来源，因此数据库素材记录删除后也必须同步更新；
-/// 没有拆解记录的手动素材则无需更新，直接返回成功。
-pub(crate) fn remove_asset_from_latest_clip_script(
+/// 防止删除仍由镜头提示词执行快照引用的素材。
+/// 不自动重写用户编辑的提示词或 @图片编号，必须先由用户在镜头侧移除引用。
+fn ensure_asset_not_mentioned_in_clip(
     tx: &rusqlite::Transaction<'_>,
     clip_id: &str,
-    asset_type: &str,
-    name: &str,
+    asset_id: &str,
 ) -> Result<(), String> {
-    let row = tx.query_row(
-        "SELECT id, COALESCE(extracted_resources_json, '')
-         FROM clip_scripts WHERE clip_id = ?1 ORDER BY created_at DESC LIMIT 1",
-        rusqlite::params![clip_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    );
-    let (script_id, raw_resources) = match row {
-        Ok(value) => value,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
-        Err(error) => return Err(format!("读取分集资源失败 clipId={}: {}", clip_id, error)),
+    let params = {
+        let mut statement = tx
+            .prepare(
+                "SELECT id, COALESCE(video_param_json, '') FROM storyboards WHERE clip_id = ?1",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(rusqlite::params![clip_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
     };
-
-    let key = match asset_type {
-        "character" => "characters",
-        "scene" => "scenes",
-        "item" => "items",
-        _ => return Err(format!("无效的素材类型：{}", asset_type)),
-    };
-    let mut resources: serde_json::Value = if raw_resources.trim().is_empty() {
-        serde_json::json!({ "characters": [], "scenes": [], "items": [] })
-    } else {
-        serde_json::from_str(&raw_resources)
-            .map_err(|error| format!("解析分集资源 JSON 失败 clipId={}: {}", clip_id, error))?
-    };
-    if !resources.is_object() {
-        return Err(format!("分集资源 JSON 格式无效 clipId={}", clip_id));
+    for (storyboard_id, raw) in params {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let mentioned = value
+            .get("mention_map")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry.get("assetId").and_then(serde_json::Value::as_str) == Some(asset_id)
+                })
+            });
+        if mentioned {
+            return Err(format!(
+                "素材仍被镜头提示词引用，请先在镜头中移除引用后再删除（storyboardId={}）",
+                storyboard_id
+            ));
+        }
     }
-    if let Some(items) = resources
-        .get_mut(key)
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        items.retain(|item| {
-            item.get("name")
-                .and_then(serde_json::Value::as_str)
-                .map(|item_name| item_name != name)
-                .unwrap_or(true)
-        });
-    }
-
-    let updated_resources = serde_json::to_string(&resources).map_err(|error| error.to_string())?;
-    tx.execute(
-        "UPDATE clip_scripts SET extracted_resources_json = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![updated_resources, script_id],
-    )
-    .map_err(|error| format!("更新分集资源失败 clipId={}: {}", clip_id, error))?;
     Ok(())
+}
+
+/// 从一个分集移除素材。若其它存活分集仍持有 clip_assets 关联，只解除当前分集关系；
+/// 否则回收该素材及其派生图片、任务。
+pub(crate) fn detach_asset_from_clip(
+    tx: &rusqlite::Transaction<'_>,
+    clip_id: &str,
+    asset_id: &str,
+) -> Result<Option<DeletedAsset>, String> {
+    let _asset = tx
+        .query_row(
+            "SELECT 1 FROM assets WHERE id = ?1",
+            rusqlite::params![asset_id],
+            |_| Ok(DeletedAsset),
+        )
+        .map_err(|error| format!("素材不存在：{}", error))?;
+    let linked: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM clip_assets WHERE clip_id = ?1 AND asset_id = ?2",
+            rusqlite::params![clip_id, asset_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if linked == 0 {
+        return Err(format!("素材不属于当前分集：{}", asset_id));
+    }
+
+    ensure_asset_not_mentioned_in_clip(tx, clip_id, asset_id)?;
+    tx.execute(
+        "DELETE FROM storyboard_assets
+         WHERE asset_id = ?1 AND storyboard_id IN (SELECT id FROM storyboards WHERE clip_id = ?2)",
+        rusqlite::params![asset_id, clip_id],
+    )
+    .map_err(|error| format!("删除分集镜头素材关联失败：{}", error))?;
+    tx.execute(
+        "DELETE FROM clip_assets WHERE clip_id = ?1 AND asset_id = ?2",
+        rusqlite::params![clip_id, asset_id],
+    )
+    .map_err(|error| format!("删除分集素材关联失败：{}", error))?;
+
+    let remaining: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM clip_assets WHERE asset_id = ?1",
+            rusqlite::params![asset_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if remaining > 0 {
+        return Ok(None);
+    }
+    delete_asset_by_id(tx, asset_id).map(Some)
 }
 
 /// 删除单个素材及其只属于该素材的引用和派生记录。
@@ -929,73 +1120,17 @@ pub(crate) fn delete_asset_by_id(
 ) -> Result<DeletedAsset, String> {
     let asset = tx
         .query_row(
-            "SELECT clip_id, type, name FROM assets WHERE id = ?1",
+            "SELECT 1 FROM assets WHERE id = ?1",
             rusqlite::params![asset_id],
-            |row| {
-                Ok(DeletedAsset {
-                    clip_id: row.get(0)?,
-                    asset_type: row.get(1)?,
-                    name: row.get(2)?,
-                })
-            },
+            |_| Ok(DeletedAsset),
         )
         .map_err(|error| format!("素材不存在：{}", error))?;
 
-    remove_asset_from_latest_clip_script(tx, &asset.clip_id, &asset.asset_type, &asset.name)?;
-
-    // 先将关联镜头中的 JSON ID 清掉；仅处理实际关联该素材的镜头，不影响同分集其他镜头。
-    let storyboard_ids = {
-        let mut statement = tx
-            .prepare("SELECT DISTINCT storyboard_id FROM storyboard_assets WHERE asset_id = ?1")
-            .map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map(rusqlite::params![asset_id], |row| row.get::<_, String>(0))
-            .map_err(|error| error.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?
-    };
-    let column = match asset.asset_type.as_str() {
-        "character" => "character_ids_json",
-        "scene" => "scene_ids_json",
-        "item" => "item_ids_json",
-        _ => return Err(format!("无效的素材类型：{}", asset.asset_type)),
-    };
-    for storyboard_id in storyboard_ids {
-        let ids_json: String = tx
-            .query_row(
-                &format!("SELECT {} FROM storyboards WHERE id = ?1", column),
-                rusqlite::params![&storyboard_id],
-                |row| row.get(0),
-            )
-            .map_err(|error| {
-                format!(
-                    "读取镜头素材关联失败 storyboardId={}: {}",
-                    storyboard_id, error
-                )
-            })?;
-        let mut ids: Vec<String> = serde_json::from_str(&ids_json).map_err(|error| {
-            format!(
-                "解析镜头素材关联失败 storyboardId={}: {}",
-                storyboard_id, error
-            )
-        })?;
-        ids.retain(|id| id != asset_id);
-        let updated_ids = serde_json::to_string(&ids).map_err(|error| error.to_string())?;
-        tx.execute(
-            &format!(
-                "UPDATE storyboards SET {} = ?1, updated_at = datetime('now') WHERE id = ?2",
-                column
-            ),
-            rusqlite::params![updated_ids, &storyboard_id],
-        )
-        .map_err(|error| {
-            format!(
-                "更新镜头素材关联失败 storyboardId={}: {}",
-                storyboard_id, error
-            )
-        })?;
-    }
-
+    tx.execute(
+        "DELETE FROM clip_assets WHERE asset_id = ?1",
+        rusqlite::params![asset_id],
+    )
+    .map_err(|error| format!("删除分集素材关联失败 assetId={}: {}", asset_id, error))?;
     tx.execute(
         "DELETE FROM storyboard_assets WHERE asset_id = ?1",
         rusqlite::params![asset_id],
@@ -1013,6 +1148,12 @@ pub(crate) fn delete_asset_by_id(
         rusqlite::params![asset_id],
     )
     .map_err(|error| format!("删除素材任务失败 assetId={}: {}", asset_id, error))?;
+    // 本地执行器已在命令入口收到取消；删除 job 记录会让最终写回的条件更新失败。
+    tx.execute(
+        "DELETE FROM upscale_jobs WHERE source_asset_id = ?1",
+        rusqlite::params![asset_id],
+    )
+    .map_err(|error| format!("删除素材超分任务失败 assetId={}: {}", asset_id, error))?;
     tx.execute(
         "DELETE FROM asset_images WHERE asset_id = ?1",
         rusqlite::params![asset_id],
@@ -1050,6 +1191,8 @@ pub fn delete_assets(input: DeleteAssetsInput, app: tauri::AppHandle) -> Result<
     }
 
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+    // 硬删前先让本地执行器停止；随后删除 job 使陈旧完成回写失去所有权。
+    crate::upscale_manager::cancel_upscale_jobs_for_assets(&app, &asset_ids)?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;

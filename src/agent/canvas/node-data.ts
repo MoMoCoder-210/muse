@@ -4,12 +4,11 @@ import type { AssetType } from "../../types/project";
 export type CanvasEntityType =
   | "project" | "clip" | "asset" | "storyboard" | "video" | "task"
   | "center" | "material-category" | "shot-track" | "shot-anchor"
-  | "release-summary" | "release-task" | "release-output";
+  | "release-summary" | "release-output";
 export type CanvasCenterKind = "materials" | "shots" | "release";
 export type CanvasTaskKind = "video-generation" | "upscale";
 
 export type CanvasRole = "root" | "context" | "center" | "category" | "track" | "content";
-export type CanvasLocalPosition = { x: number; y: number };
 
 export interface CanvasNodeBase {
   canonicalId: string;
@@ -18,8 +17,6 @@ export interface CanvasNodeBase {
   canvasParentId: string | null;
   /** Flat-canvas group owner used to translate a center and its contents together. */
   canvasGroupId?: string | null;
-  /** Optional template/local position retained for layout diagnostics; rendering uses absolute node.position. */
-  canvasLocalPosition?: CanvasLocalPosition;
   canvasRole: CanvasRole;
   projectId: string;
   entityId: string;
@@ -87,7 +84,6 @@ export interface StoryboardNodeData extends CanvasNodeBase {
   visualDescription: string;
   videoPrompt: string;
   videoParamJson: string | null;
-  fusedImagePath: string | null;
   selectedVideoId: string | null;
   duration: number | null;
   assetReferences: StoryboardAssetReference[];
@@ -108,6 +104,7 @@ export interface ReleaseShotPreview {
   sbid: string;
   summary: string;
   videoPath: string | null;
+  videoCoverPath: string | null;
   videoDuration: number | null;
   batchIndex: number | null;
   isReady: boolean;
@@ -115,13 +112,12 @@ export interface ReleaseShotPreview {
 export interface ReleaseSummaryNodeData extends CanvasNodeBase {
   entityType: "release-summary"; clipId: string; readyShots: number; totalShots: number; shots: ReleaseShotPreview[]; totalDuration: number | null;
 }
-export interface ReleaseTaskNodeData extends CanvasNodeBase { entityType: "release-task"; clipId: string; readyShots: number; totalShots: number; }
 export interface ReleaseOutputNodeData extends CanvasNodeBase {
-  entityType: "release-output"; clipId: string; fileName: string | null; filePath: string | null; duration: number | null; segmentCount: number; source: string | null; createdAt: string | null; audioIncluded: boolean; isEmpty: boolean; isHistory?: boolean;
+  entityType: "release-output"; clipId: string; fileName: string | null; filePath: string | null; coverPath: string | null; duration: number | null; segmentCount: number; source: string | null; createdAt: string | null; audioIncluded: boolean; isEmpty: boolean; isHistory?: boolean;
 }
 
 export type CanvasNodeData = ProjectNodeData | ClipNodeData | AssetNodeData | StoryboardNodeData | VideoNodeData | TaskNodeData;
-export type CanvasFlowNodeData = CanvasNodeData | CanvasCenterNodeData | MaterialCategoryNodeData | ShotTrackNodeData | ShotAnchorNodeData | ReleaseSummaryNodeData | ReleaseTaskNodeData | ReleaseOutputNodeData;
+export type CanvasFlowNodeData = CanvasNodeData | CanvasCenterNodeData | MaterialCategoryNodeData | ShotTrackNodeData | ShotAnchorNodeData | ReleaseSummaryNodeData | ReleaseOutputNodeData;
 
 /** Shared readiness rule for any video output shown by the canvas. */
 export function isCanvasVideoReady(

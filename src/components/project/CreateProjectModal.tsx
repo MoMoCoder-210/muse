@@ -242,7 +242,7 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
               <input
                 value={projectDirectory}
                 onChange={(e) => setProjectDirectory(e.target.value)}
-                placeholder={`${defaultProjectDir || "D:\\projects"}`}
+                placeholder={defaultProjectDir || "默认：~/.muse/projects"}
               />
               <button type="button" className="ghost-button" onClick={handlePickWorkspace}>
                 选择目录

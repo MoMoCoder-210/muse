@@ -291,12 +291,18 @@ pub(crate) fn resolve_workspace_path(
     crate::app_paths::default_projects_root().join(dir_name)
 }
 
-/// 初始化数据库 Schema：启动时对比 schema.sql 与实际库结构，自动补全缺失的表/列/索引。
+/// 初始化数据库 Schema：启动时强制将实际库结构对齐到 schema.sql，补齐缺失对象并删除未声明的列。
 pub(crate) fn ensure_project_schema(
     db_path: &std::path::Path,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    let conn = crate::db::init_db(db_path).map_err(|e| e.to_string())?;
+    let mut conn = crate::db::init_db(db_path).map_err(|e| e.to_string())?;
+    // 旧版素材的 clip_id 是升级前唯一归属信息，必须先回填 clip_assets，
+    // 再由通用同步器移除废弃列与索引。
+    crate::db::migrate_legacy_clip_assets(&mut conn).map_err(|e| e.to_string())?;
+    // 约束变化（尤其是 upscale_jobs 的真实图片外键）必须在通用列同步前通过
+    // 显式表重建完成；自动同步器无法修改既有 NOT NULL/FK/CHECK 定义。
+    crate::db::migrate_upscale_jobs(&mut conn).map_err(|e| e.to_string())?;
     let schema_path = resolve_schema_path(app)?;
     crate::db::sync_schema(&conn, &schema_path).map_err(|e| e.to_string())?;
     // 播种公共音色清单（仅插元数据，不覆盖已缓存的样例音频）

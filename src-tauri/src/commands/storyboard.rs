@@ -44,7 +44,10 @@ pub struct StoryboardAssetInfo {
     pub name: String,
     pub description: String,
     pub prompt: String,
+    /// 运行时权威声音绑定；前端仅将其投影到旧 JSON 以兼容现有界面。
+    pub voice_binding_json: Option<String>,
     pub selected_image_path: Option<String>,
+    pub selected_thumbnail_path: Option<String>,
     /// 镜头专属的稳定图片编号；未被该镜头引用时为 null。
     pub index: Option<i32>,
     /// 完整引用文本（素材名(@图片N)）；前端用它精确水合为一个胶囊。
@@ -62,16 +65,21 @@ pub fn list_storyboards(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, project_id, clip_id, sbid, seq_num, source_text, summary, dialogue,
-                    visual_description, video_prompt,
-                    character_ids_json, scene_ids_json, item_ids_json,
-                    image_param_json, video_param_json, voice_param_json,
-                    image_state, voice_state, video_state,
-                    voice_path, voice_duration, video_duration,
-                    selected_video_id
-             FROM storyboards
-             WHERE clip_id = ?1
-             ORDER BY seq_num ASC",
+            "SELECT s.id, s.project_id, s.clip_id, s.sbid, s.seq_num, s.source_text, s.summary, s.dialogue,
+                    s.visual_description, s.video_prompt,
+                    COALESCE((SELECT json_group_array(sa.asset_id) FROM storyboard_assets sa
+                              WHERE sa.storyboard_id = s.id AND sa.asset_type = 'character'), '[]'),
+                    COALESCE((SELECT json_group_array(sa.asset_id) FROM storyboard_assets sa
+                              WHERE sa.storyboard_id = s.id AND sa.asset_type = 'scene'), '[]'),
+                    COALESCE((SELECT json_group_array(sa.asset_id) FROM storyboard_assets sa
+                              WHERE sa.storyboard_id = s.id AND sa.asset_type = 'item'), '[]'),
+                    s.image_param_json, s.video_param_json, s.voice_param_json,
+                    s.image_state, s.voice_state, s.video_state,
+                    s.voice_path, s.voice_duration, s.video_duration,
+                    s.selected_video_id
+             FROM storyboards s
+             WHERE s.clip_id = ?1
+             ORDER BY s.seq_num ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -173,18 +181,14 @@ pub fn list_clip_assets(
 
     let mut stmt = conn
         .prepare(
-            "SELECT a.id, a.clip_id, a.type, a.name, a.description, a.prompt,
-                    (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id LIMIT 1)
-             FROM assets a
-             WHERE a.clip_id = ?1
-                OR a.id IN (
-                    SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id = ?1
-                    UNION
-                    SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id = ?1
-                    UNION
-                    SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id = ?1
-                )
-             ORDER BY a.type, a.name",
+            "SELECT a.id, a.type, a.name, a.description, a.prompt, a.voice_binding_json,
+                    (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id LIMIT 1),
+                    (SELECT ai.thumbnail_path FROM asset_images ai WHERE ai.id = a.selected_image_id LIMIT 1)
+             FROM clip_assets ca
+             JOIN assets a ON a.id = ca.asset_id
+             JOIN clips c ON c.id = ca.clip_id
+             WHERE ca.clip_id = ?1 AND c.deleted_at IS NULL
+             ORDER BY a.type, a.name, a.id",
         )
         .map_err(|e| e.to_string())?;
 
@@ -194,12 +198,14 @@ pub fn list_clip_assets(
             let mention = mention_by_asset.get(&asset_id);
             Ok(StoryboardAssetInfo {
                 asset_id,
-                clip_id: row.get(1)?,
-                r#type: row.get(2)?,
-                name: row.get(3)?,
-                description: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                prompt: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                clip_id: Some(clip_id.clone()),
+                r#type: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                prompt: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                voice_binding_json: row.get(5)?,
                 selected_image_path: row.get(6)?,
+                selected_thumbnail_path: row.get(7)?,
                 index: mention.map(|(index, _)| *index),
                 asset_tag: mention.map(|(_, asset_tag)| asset_tag.clone()),
             })
@@ -235,63 +241,80 @@ pub fn update_storyboard_assets(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let char_json = serde_json::to_string(&input.character_ids).map_err(|e| e.to_string())?;
-    let scene_json = serde_json::to_string(&input.scene_ids).map_err(|e| e.to_string())?;
-    let item_json = serde_json::to_string(&input.item_ids).map_err(|e| e.to_string())?;
+    let (project_id, clip_id): (String, String) = tx
+        .query_row(
+            "SELECT project_id, clip_id FROM storyboards WHERE id = ?1",
+            rusqlite::params![&input.storyboard_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| "镜头不存在".to_string())?;
 
-    // 更新 storyboards 表的 JSON 列
-    tx.execute(
-        "UPDATE storyboards SET character_ids_json = ?1, scene_ids_json = ?2, item_ids_json = ?3, updated_at = datetime('now') WHERE id = ?4",
-        rusqlite::params![&char_json, &scene_json, &item_json, &input.storyboard_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let groups = [
+        ("character", &input.character_ids),
+        ("scene", &input.scene_ids),
+        ("item", &input.item_ids),
+    ];
+    let mut seen_asset_ids = std::collections::HashSet::new();
+    for (asset_type, asset_ids) in groups {
+        for asset_id in asset_ids {
+            if !seen_asset_ids.insert(asset_id) {
+                return Err(format!("素材不能重复关联到同一镜头：{}", asset_id));
+            }
+            let actual_type: String = tx
+                .query_row(
+                    "SELECT type FROM assets WHERE id = ?1 AND project_id = ?2",
+                    rusqlite::params![asset_id, &project_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| format!("素材不存在或不属于当前作品：{}", asset_id))?;
+            if actual_type != asset_type {
+                return Err(format!(
+                    "素材类型不匹配：{} 应为 {}，实际为 {}",
+                    asset_id, asset_type, actual_type
+                ));
+            }
+        }
+    }
 
-    // 重建 storyboard_assets 关联表
     tx.execute(
         "DELETE FROM storyboard_assets WHERE storyboard_id = ?1",
         rusqlite::params![&input.storyboard_id],
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let mut insert = tx.prepare(
-            "INSERT INTO storyboard_assets (id, storyboard_id, asset_id, asset_type) VALUES (?1, ?2, ?3, ?4)",
-        ).map_err(|e| e.to_string())?;
-
-        for asset_id in &input.character_ids {
-            let link_id = uuid::Uuid::new_v4().to_string();
-            insert
+    let mut insert_storyboard_asset = tx
+        .prepare(
+            "INSERT INTO storyboard_assets (id, storyboard_id, asset_id, asset_type)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut insert_clip_asset = tx
+        .prepare(
+            "INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source)
+             VALUES (?1, ?2, ?3, 'reused')",
+        )
+        .map_err(|e| e.to_string())?;
+    for (asset_type, asset_ids) in groups {
+        for asset_id in asset_ids {
+            insert_storyboard_asset
                 .execute(rusqlite::params![
-                    &link_id,
+                    uuid::Uuid::new_v4().to_string(),
                     &input.storyboard_id,
                     asset_id,
-                    "character"
+                    asset_type
                 ])
                 .map_err(|e| e.to_string())?;
-        }
-        for asset_id in &input.scene_ids {
-            let link_id = uuid::Uuid::new_v4().to_string();
-            insert
+            insert_clip_asset
                 .execute(rusqlite::params![
-                    &link_id,
-                    &input.storyboard_id,
-                    asset_id,
-                    "scene"
-                ])
-                .map_err(|e| e.to_string())?;
-        }
-        for asset_id in &input.item_ids {
-            let link_id = uuid::Uuid::new_v4().to_string();
-            insert
-                .execute(rusqlite::params![
-                    &link_id,
-                    &input.storyboard_id,
-                    asset_id,
-                    "item"
+                    uuid::Uuid::new_v4().to_string(),
+                    &clip_id,
+                    asset_id
                 ])
                 .map_err(|e| e.to_string())?;
         }
     }
+    drop(insert_storyboard_asset);
+    drop(insert_clip_asset);
 
     tx.commit().map_err(|e| e.to_string())?;
 
@@ -436,16 +459,33 @@ pub fn delete_storyboard(
 
     let file_candidates = if input.delete_files {
         let mut statement = tx
-            .prepare("SELECT file_path FROM storyboard_videos WHERE storyboard_id = ?1")
+            .prepare("SELECT file_path, cover_path FROM storyboard_videos WHERE storyboard_id = ?1")
             .map_err(|e| format!("读取镜头关联视频失败：{}", e))?;
         let file_paths = statement
             .query_map(rusqlite::params![&input.storyboard_id], |row| {
-                row.get::<_, String>(0)
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
             })
             .map_err(|e| format!("读取镜头关联视频失败：{}", e))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("读取镜头关联视频失败：{}", e))?;
-        file_paths
+        let mut paths: Vec<String> = file_paths
+            .into_iter()
+            .flat_map(|(file_path, cover_path)| {
+                std::iter::once(file_path).chain(cover_path.into_iter())
+            })
+            .collect();
+        let mut upscale_statement = tx
+            .prepare("SELECT output_path FROM upscale_jobs WHERE storyboard_id = ?1 AND TRIM(output_path) <> ''")
+            .map_err(|e| format!("读取镜头超分文件失败：{}", e))?;
+        let upscale_paths = upscale_statement
+            .query_map(rusqlite::params![&input.storyboard_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| format!("读取镜头超分文件失败：{}", e))?;
+        for path in upscale_paths {
+            paths.push(path.map_err(|e| format!("读取镜头超分文件失败：{}", e))?);
+        }
+        paths
             .into_iter()
             .map(|file_path| crate::commands::clip::ClipFileCandidate {
                 workspace_path: std::path::PathBuf::from(&workspace_path),
@@ -853,7 +893,9 @@ pub fn import_video_file(
         )
         .map_err(|_| "未找到作品工作区".to_string())?;
 
-    let video_dir = std::path::PathBuf::from(&workspace).join("video");
+    let video_dir = std::path::PathBuf::from(&workspace)
+        .join("videos")
+        .join("imports");
     std::fs::create_dir_all(&video_dir).map_err(|e| format!("创建视频目录失败：{}", e))?;
 
     // 原始文件名仅用于界面展示，磁盘存储使用唯一名，避免同名视频互相覆盖
@@ -891,6 +933,8 @@ pub struct StoryboardVideoInfo {
     /// 生成任务 ID；手动上传的视频没有对应任务。
     pub task_id: Option<String>,
     pub duration: Option<f64>,
+    /// FFmpeg 抽取的首帧封面路径。
+    pub cover_path: Option<String>,
 }
 
 /// 镜头视频尚未成功落库的任务状态（待处理、运行中或最终失败）。
@@ -923,10 +967,16 @@ pub fn add_storyboard_video(
             .to_string()
     });
 
+    // 封面是可选派生数据；视频记录必须先落库，旧视频或异常媒体允许无封面回退原视频。
+    let cover_path =
+        crate::media::generate_video_cover(&app, std::path::Path::new(&input.video_path))
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+
     conn.execute(
-        "INSERT INTO storyboard_videos (id, storyboard_id, file_path, file_name, source)
-         VALUES (?1, ?2, ?3, ?4, 'manual')",
-        rusqlite::params![&id, &input.storyboard_id, &input.video_path, &fname],
+        "INSERT INTO storyboard_videos (id, storyboard_id, file_path, file_name, source, cover_path)
+         VALUES (?1, ?2, ?3, ?4, 'manual', ?5)",
+        rusqlite::params![&id, &input.storyboard_id, &input.video_path, &fname, &cover_path],
     )
     .map_err(|e| e.to_string())?;
 
@@ -946,6 +996,7 @@ pub fn add_storyboard_video(
         source: "manual".to_string(),
         task_id: None,
         duration: None,
+        cover_path,
     })
 }
 
@@ -989,7 +1040,7 @@ pub fn list_storyboard_videos(
     let conn = util::open_app_conn(&app)?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, storyboard_id, file_path, file_name, source, task_id, duration
+            "SELECT id, storyboard_id, file_path, file_name, source, task_id, duration, cover_path
              FROM storyboard_videos WHERE storyboard_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -1004,6 +1055,7 @@ pub fn list_storyboard_videos(
                 source: row.get(4)?,
                 task_id: row.get(5)?,
                 duration: row.get(6)?,
+                cover_path: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -1128,15 +1180,30 @@ pub fn delete_storyboard_video(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     // 由镜头所属作品确定工作区；最终视频受保护，不允许通过删除批次移除。
-    let (file_path, workspace_path, selected_video_id): (String, String, Option<String>) = tx
+    let (file_path, cover_path, workspace_path, selected_video_id, upscale_output_path): (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT sv.file_path, p.workspace_path, s.selected_video_id
+            "SELECT sv.file_path, sv.cover_path, p.workspace_path, s.selected_video_id,
+                    (SELECT output_path FROM upscale_jobs WHERE video_id = sv.id LIMIT 1)
              FROM storyboard_videos sv
              JOIN storyboards s ON s.id = sv.storyboard_id
              JOIN projects p ON p.id = s.project_id
              WHERE sv.id = ?1 AND sv.storyboard_id = ?2",
             rusqlite::params![&input.video_id, &input.storyboard_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .map_err(|_| "视频记录不存在，或不属于该镜头".to_string())?;
     if selected_video_id.as_deref() == Some(input.video_id.as_str()) {
@@ -1167,12 +1234,24 @@ pub fn delete_storyboard_video(
     tx.commit().map_err(|e| e.to_string())?;
 
     let result = if input.delete_file {
-        crate::commands::clip::delete_managed_files(vec![
-            crate::commands::clip::ClipFileCandidate {
-                workspace_path: std::path::PathBuf::from(workspace_path),
-                file_path: std::path::PathBuf::from(file_path),
-            },
-        ])
+        let workspace_path = std::path::PathBuf::from(workspace_path);
+        let mut candidates = vec![crate::commands::clip::ClipFileCandidate {
+            workspace_path: workspace_path.clone(),
+            file_path: std::path::PathBuf::from(file_path),
+        }];
+        if let Some(cover_path) = cover_path {
+            candidates.push(crate::commands::clip::ClipFileCandidate {
+                workspace_path: workspace_path.clone(),
+                file_path: std::path::PathBuf::from(cover_path),
+            });
+        }
+        if let Some(upscale_output_path) = upscale_output_path {
+            candidates.push(crate::commands::clip::ClipFileCandidate {
+                workspace_path,
+                file_path: std::path::PathBuf::from(upscale_output_path),
+            });
+        }
+        crate::commands::clip::delete_managed_files(candidates)
     } else {
         crate::commands::clip::DeleteClipsResult {
             deleted_file_count: 0,

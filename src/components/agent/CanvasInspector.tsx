@@ -101,7 +101,7 @@ function InspectorVideoCard({ video, index, selected }: { video: StoryboardNodeD
   const sourceLabel = videoSourceLabel(video.source, video.isUpscaleOutput);
   return <div className={`agent-inspector__video-card${selected ? " is-selected" : ""}`}>
     <div className="agent-inspector__video-thumb agent-inspector__video-thumb--deferred">
-      {video.coverPath ? <img src={toMediaUrl(video.coverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="agent-inspector__video-thumb-placeholder">暂无封面</span>}
+      {video.coverPath ? <img src={toMediaUrl(video.coverPath)} alt="" loading="lazy" decoding="async" draggable={false} /> : ready ? <video src={toMediaUrl(video.filePath)} preload="metadata" muted playsInline /> : <span className="agent-inspector__video-thumb-placeholder">{videoPreviewMessageFor(video.isUpscaleOutput, video.isOutputReady, video.filePath)}</span>}
       <span className={`agent-inspector__video-type-badge${sourceLabel === "超分" ? " agent-inspector__video-type-badge--upscale" : ""}`}>{sourceLabel}</span><span className="agent-inspector__video-batch-label">B{index + 1}</span>{selected && <span className="agent-inspector__video-selected-badge">✓</span>}
     </div>
     <div className="agent-inspector__video-card-meta"><strong>时长：{duration}</strong><small>生成时间：{video.createdAt}</small></div>

@@ -20,7 +20,6 @@ import { formatDeleteResult } from "../../utils/delete-result";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
 
 type SegType = ConcatSegment & { enabled: boolean };
-
 /** 视频元数据（比例 + 时长），来自 video.onLoadedMetadata */
 type VideoMeta = { ar: number; dur: number };
 
@@ -32,16 +31,18 @@ import { avatarColor } from "../../utils/avatar-colors";
 /** 秒 → "m:ss" */
 function fmtDur(d: number | null): string {
   if (d == null || !Number.isFinite(d) || d <= 0) return "--";
-  const m = Math.floor(d / 60);
-  const s = Math.round(d % 60);
+  const totalSeconds = Math.max(0, Math.round(d));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 /** 秒 → "mm:ss"（零填充，用于成片时长） */
 function fmtClock(d: number | null): string {
   if (d == null || !Number.isFinite(d) || d <= 0) return "00:00";
-  const m = Math.floor(d / 60);
-  const s = Math.round(d % 60);
+  const totalSeconds = Math.max(0, Math.round(d));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
@@ -83,7 +84,6 @@ export function VideoEditorPage({ project }: Props) {
   const [segments, setSegments] = useState<SegType[]>([]);
   const [loadingSegs, setLoadingSegs] = useState(false);
   const [metaMap, setMetaMap] = useState<Record<string, VideoMeta>>({});
-
   const [ffmpegOk, setFfmpegOk] = useState<boolean | null>(null);
 
   const [running, setRunning] = useState(false);
@@ -111,7 +111,6 @@ export function VideoEditorPage({ project }: Props) {
   } | null>(null);
   const justDraggedRef = useRef(false);
   const cardElRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-
   // 单播放控制：同一时刻仅一个 <video> 在播放
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
@@ -120,6 +119,7 @@ export function VideoEditorPage({ project }: Props) {
     if (el) videoRefs.current.set(id, el);
     else videoRefs.current.delete(id);
   };
+
   const cardsRef = useRef<HTMLDivElement | null>(null);
   const handleCardsWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
@@ -127,15 +127,16 @@ export function VideoEditorPage({ project }: Props) {
       e.preventDefault();
     }
   }, []);
+
   const pauseOthers = useCallback((exceptId: string) => {
     videoRefs.current.forEach((el, key) => {
       if (key !== exceptId && !el.paused) el.pause();
     });
   }, []);
+
   // ── 自定义播放控件状态（仅追踪当前播放的那个视频） ──
   const [playCur, setPlayCur] = useState(0);
   const [playDur, setPlayDur] = useState(0);
-
   const onVideoPlay = useCallback(
     (id: string) => {
       pauseOthers(id);
@@ -151,14 +152,12 @@ export function VideoEditorPage({ project }: Props) {
   const onVideoPause = useCallback((id: string) => {
     setPlayingId((p) => (p === id ? null : p));
   }, []);
-
   const togglePlay = useCallback((id: string) => {
     const el = videoRefs.current.get(id);
     if (!el) return;
     if (el.paused) el.play().catch(() => {});
     else el.pause();
   }, []);
-
   const onTimeUpdate = useCallback(
     (id: string, el: HTMLVideoElement) => {
       if (playingId !== id) return;
@@ -167,14 +166,11 @@ export function VideoEditorPage({ project }: Props) {
     },
     [playingId],
   );
-
   const seekTo = useCallback((id: string, ratio: number) => {
     const el = videoRefs.current.get(id);
     if (!el || !el.duration || !Number.isFinite(el.duration)) return;
     el.currentTime = Math.max(0, Math.min(1, ratio)) * el.duration;
   }, []);
-
-  // 进度条按下即定位，可拖动
   const onSeekPointer = useCallback(
     (id: string) => (e: React.PointerEvent<HTMLDivElement>) => {
       e.stopPropagation();
@@ -194,102 +190,58 @@ export function VideoEditorPage({ project }: Props) {
     },
     [seekTo],
   );
-
   const toggleFullscreen = useCallback((id: string) => {
     const videoEl = videoRefs.current.get(id);
     const cardEl = videoEl?.closest(".ve-card") as HTMLElement | null;
     if (!cardEl) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void cardEl.requestFullscreen();
-    }
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void cardEl.requestFullscreen();
   }, []);
-
-  // 监听浏览器全屏状态变化，同步 fullscreenId
   useEffect(() => {
     const onChange = () => {
       if (!document.fullscreenElement) {
         setFullscreenId(null);
-      } else {
-        // 找到全屏元素对应的 storyboard_id
-        const el = document.fullscreenElement as HTMLElement;
-        const video = el.querySelector("video");
-        if (video) {
-          for (const [sid, vel] of videoRefs.current) {
-            if (vel === video) {
-              setFullscreenId(sid);
-              // 暂停其他视频
-              videoRefs.current.forEach((other, otherId) => {
-                if (otherId !== sid) other.pause();
-              });
-              return;
-            }
-          }
-        }
-        setFullscreenId(null);
+        return;
       }
+      const video = (document.fullscreenElement as HTMLElement).querySelector("video");
+      for (const [id, element] of videoRefs.current) {
+        if (element === video) {
+          setFullscreenId(id);
+          videoRefs.current.forEach((other, otherId) => {
+            if (otherId !== id) other.pause();
+          });
+          return;
+        }
+      }
+      setFullscreenId(null);
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  // 自定义控件条：播放或全屏时覆盖在视频底部
   const renderControls = (id: string) => {
     const ratio = playDur > 0 ? Math.min(1, playCur / playDur) : 0;
     const isPlaying = playingId === id;
     return (
-      <div
-        className="ve-ctrl"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+      <div className="ve-ctrl" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
         <div className="ve-ctrl-row">
-          <button
-            type="button"
-            className="ve-ctrl-btn"
-            title={isPlaying ? "暂停" : "播放"}
-            onClick={() => togglePlay(id)}
-          >
+          <button type="button" className="ve-ctrl-btn" title={isPlaying ? "暂停" : "播放"} onClick={() => togglePlay(id)}>
             {isPlaying ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
-              </svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
             ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
             )}
           </button>
-          <div className="ve-ctrl-times">
-            <span className="ve-ctrl-time">{fmtDur(playCur)}</span>
-            <span className="ve-ctrl-time">{fmtDur(playDur)}</span>
-          </div>
-          <button
-            type="button"
-            className="ve-ctrl-btn"
-            title={fullscreenId === id ? "退出全屏" : "全屏"}
-            onClick={(e) => { e.stopPropagation(); toggleFullscreen(id); }}
-          >
+          <div className="ve-ctrl-times"><span className="ve-ctrl-time">{fmtDur(playCur)}</span><span className="ve-ctrl-time">{fmtDur(playDur)}</span></div>
+          <button type="button" className="ve-ctrl-btn" title={fullscreenId === id ? "退出全屏" : "全屏"} onClick={(e) => { e.stopPropagation(); toggleFullscreen(id); }}>
             {fullscreenId === id ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 9V4H4v5M15 9V4h5v5M9 15v5H4v-5M15 15v5h5v-5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 9V4H4v5M15 9V4h5v5M9 15v5H4v-5M15 15v5h5v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
-              </svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
             )}
           </button>
         </div>
-        <div className="ve-ctrl-track">
-          <div className="ve-ctrl-bar" onPointerDown={onSeekPointer(id)}>
-            <div className="ve-ctrl-fill" style={{ width: `${ratio * 100}%` }}>
-              <span className="ve-ctrl-knob" />
-            </div>
-          </div>
-        </div>
+        <div className="ve-ctrl-track"><div className="ve-ctrl-bar" onPointerDown={onSeekPointer(id)}><div className="ve-ctrl-fill" style={{ width: `${ratio * 100}%` }}><span className="ve-ctrl-knob" /></div></div></div>
       </div>
     );
   };
@@ -313,6 +265,16 @@ export function VideoEditorPage({ project }: Props) {
   }, [project?.id, toast]);
 
   useEffect(() => { loadClips(); }, [loadClips]);
+
+  // 切换分集时停止所有预览，避免旧视频继续播放或全屏状态泄漏到新列表。
+  useEffect(() => {
+    videoRefs.current.forEach((video) => video.pause());
+    setPlayingId(null);
+    setFullscreenId(null);
+    setPlayCur(0);
+    setPlayDur(0);
+    setMetaMap({});
+  }, [clipId]);
 
   // 监听拆解完成事件，实时刷新分集列表
   useEffect(() => {
@@ -339,7 +301,6 @@ export function VideoEditorPage({ project }: Props) {
     }
     let cancelled = false;
     setLoadingSegs(true);
-    setPlayingId(null);
     listClipConcatVideos(clipId)
       .then((list) => {
         if (cancelled) return;
@@ -364,6 +325,7 @@ export function VideoEditorPage({ project }: Props) {
             segment_count: r.segment_count,
             audio_included: r.audio_included,
             source: r.source,
+            cover_path: r.cover_path,
           })),
         );
       })
@@ -394,17 +356,18 @@ export function VideoEditorPage({ project }: Props) {
     const ar = el.videoWidth / el.videoHeight;
     const dur = el.duration;
     if (Number.isFinite(ar) && ar > 0) {
-      setMetaMap((m) => {
-        const prev = m[storyboardId];
-        if (prev && prev.ar === ar && prev.dur === dur) return m;
-        return { ...m, [storyboardId]: { ar, dur } };
+      setMetaMap((current) => {
+        const previous = current[storyboardId];
+        if (previous && previous.ar === ar && previous.dur === dur) return current;
+        return { ...current, [storyboardId]: { ar, dur } };
       });
     } else if (Number.isFinite(dur) && dur > 0) {
-      // 仅拿到时长
-      setMetaMap((m) => ({ ...m, [storyboardId]: { ar: m[storyboardId]?.ar ?? 16 / 9, dur } }));
+      setMetaMap((current) => ({
+        ...current,
+        [storyboardId]: { ar: current[storyboardId]?.ar ?? defaultAR, dur },
+      }));
     }
-  }, []);
-
+  }, [defaultAR]);
 
   const toggleSeg = useCallback((i: number) => {
     setSegments((ss) => ss.map((x, idx) => (idx === i ? { ...x, enabled: !x.enabled } : x)));
@@ -575,16 +538,16 @@ export function VideoEditorPage({ project }: Props) {
         segments: paths,
         output_name: outputName,
       });
-      // 持久化到数据库，并取回新记录 id 以便删除
-      const savedId = await saveConcatOutput({
+      // 持久化到数据库，并取回新记录 id 与封面路径以便立即展示和删除
+      const saved = await saveConcatOutput({
         clip_id: clipId,
         output_path: res.output_path,
         file_name: res.file_name,
         duration: res.duration,
         segment_count: res.segment_count,
         audio_included: res.audio_included,
-      }).catch(() => undefined);
-      setOutputs((prev) => [{ ...res, id: savedId }, ...prev]);
+      });
+      setOutputs((prev) => [{ ...res, id: saved.id, cover_path: saved.cover_path }, ...prev]);
       toast(`拼接完成：${res.file_name}`, "success");
     } catch (err) {
       toast(`拼接失败：${String(err)}`, "error");
@@ -791,19 +754,20 @@ export function VideoEditorPage({ project }: Props) {
                           className={`ve-card-thumb${fullscreenId === seg.storyboard_id ? " is-fullscreen" : ""}`}
                           title="拖拽排序"
                         >
-                        <video
-                          ref={setVideoRef(seg.storyboard_id)}
-                          className="ve-card-video"
-                          src={convertFileSrc(seg.file_path)}
-                          muted={!playing}
-                          preload="metadata"
-                          playsInline
-                          draggable={false}
-                          onPlay={() => onVideoPlay(seg.storyboard_id)}
-                          onPause={() => onVideoPause(seg.storyboard_id)}
-                          onTimeUpdate={(e) => onTimeUpdate(seg.storyboard_id, e.currentTarget)}
-                          onLoadedMetadata={(e) => onSegMetadata(seg.storyboard_id, e.currentTarget)}
-                        />
+                          <video
+                            ref={setVideoRef(seg.storyboard_id)}
+                            className="ve-card-video"
+                            src={convertFileSrc(seg.file_path)}
+                            poster={seg.cover_path ? convertFileSrc(seg.cover_path) : undefined}
+                            muted={!playing}
+                            preload="metadata"
+                            playsInline
+                            draggable={false}
+                            onPlay={() => onVideoPlay(seg.storyboard_id)}
+                            onPause={() => onVideoPause(seg.storyboard_id)}
+                            onTimeUpdate={(e) => onTimeUpdate(seg.storyboard_id, e.currentTarget)}
+                            onLoadedMetadata={(e) => onSegMetadata(seg.storyboard_id, e.currentTarget)}
+                          />
                           {(playing || fullscreenId === seg.storyboard_id) && renderControls(seg.storyboard_id)}
                           {!playing && fullscreenId !== seg.storyboard_id && (
                             <button
@@ -897,15 +861,14 @@ export function VideoEditorPage({ project }: Props) {
                               ref={setVideoRef(outId)}
                               className="ve-card-video"
                               src={convertFileSrc(out.output_path)}
+                              poster={out.cover_path ? convertFileSrc(out.cover_path) : undefined}
                               muted={!outPlaying}
                               preload="metadata"
                               playsInline
                               onPlay={() => onVideoPlay(outId)}
                               onPause={() => onVideoPause(outId)}
                               onTimeUpdate={(e) => onTimeUpdate(outId, e.currentTarget)}
-                              onLoadedMetadata={(e) =>
-                                onSegMetadata(outId, e.currentTarget)
-                              }
+                              onLoadedMetadata={(e) => onSegMetadata(outId, e.currentTarget)}
                             />
                             {(outPlaying || fullscreenId === outId) && renderControls(outId)}
                             {!outPlaying && fullscreenId !== outId && (

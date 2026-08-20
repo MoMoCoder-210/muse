@@ -14,6 +14,17 @@ export function maskKey(key: string): string {
   return key.slice(0, 6) + "****" + key.slice(-4);
 }
 
+function summarizePayload(value: unknown): string {
+  if (value == null) return "(无内容)";
+  if (typeof value === "string") return `字符串(${value.length}字符)`;
+  if (Array.isArray(value)) return `数组(${value.length}项)`;
+  if (typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return `对象(keys=${keys.join(",") || "无"})`;
+  }
+  return typeof value;
+}
+
 // ─── 对外 API ──────────────────────────────────────────────
 
 /**
@@ -33,8 +44,8 @@ export function logRequest(
   body: unknown,
 ): void {
   const masked = maskKey(apiKey);
-  const bodyStr = body !== null ? JSON.stringify(body) : "(无请求体)";
-  logLine(source, "INFO", `${method} ${url} | key=${masked} | ${bodyStr}`);
+  const bodyStr = summarizePayload(body);
+  logLine(source, "INFO", `${method} ${url} | key=${masked} | body=${bodyStr}`);
 }
 
 /**
@@ -51,8 +62,7 @@ export function logResponse(
   elapsed: number,
   body: unknown,
 ): void {
-  const bodyStr = JSON.stringify(body);
-  logLine(source, "INFO", `${url} | 200 ${elapsed}ms | ${bodyStr}`);
+  logLine(source, "INFO", `${url} | 200 ${elapsed}ms | body=${summarizePayload(body)}`);
 }
 
 /**
@@ -72,11 +82,10 @@ export function logStreamDone(
   meta?: Record<string, string | number>,
 ): void {
   const metaStr = meta ? " " + Object.entries(meta).map(([k, v]) => `${k}=${v}`).join(" ") : "";
-  const contentStr = content;
   logLine(
     source,
     "INFO",
-    `${url} | 200 ${elapsed}ms${metaStr} | 流式输出(${content.length}字符)\n  ▶ ${contentStr}`,
+    `${url} | 200 ${elapsed}ms | 流式输出(${content.length}字符)${metaStr}`,
   );
 }
 

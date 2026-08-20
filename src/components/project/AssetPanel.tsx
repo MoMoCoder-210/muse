@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectInfo, Clip, ClipScriptInfo, AssetType, ParsedAssets } from "../../types/project";
-import { listClips, getClipScripts, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, batchGetAssetGenerating, importLocalAssetImage, copyAssetImageFrom } from "../../services/tauri";
+import type { ProjectInfo, Clip, AssetType, AssetResource, StoryboardAssetInfo } from "../../types/project";
+import { listClips, generateAssetImage, addAssetToClip, deleteAssetFromClip, batchGetAssetSelectedImages, batchGetAssetGenerating, importLocalAssetImage, copyAssetImageFrom, listClipAssets } from "../../services/tauri";
 import { useToast } from "../../hooks/useToast";
-import { countResources } from "../../utils/assets";
 import { isClipDecomposed } from "../../utils/clip";
 import { avatarColor } from "../../utils/avatar-colors";
 import { formatDeleteResult, mergeFileDeletionResults } from "../../utils/delete-result";
@@ -21,15 +20,17 @@ type AssetImageProgressEvent = {
   clip_id: string;
   asset_type: string;
   name: string;
+  assetId?: string;
   status: "running" | "success" | "failed";
 };
 
-/** type → 属性名映射 */
-const TYPE_TO_KEY: Record<AssetType, keyof ParsedAssets> = {
-  character: "characters",
-  scene: "scenes",
-  item: "items",
-};
+/**
+ * 素材唯一键：优先用 assetId 精确定位，缺失时回退 `${type}:${name}`（兼容旧数据）。
+ * 用于 selectedImageMap / generatingMap 的映射 key，避免同名素材共用同一张图/状态。
+ */
+function assetKey(type: AssetType, name: string, assetId?: string): string {
+  return assetId ? `id:${assetId}` : `name:${type}:${name}`;
+}
 
 /** 分类配置 */
 const ASSET_CATEGORIES: { type: AssetType; label: string; icon: string }[] = [
@@ -51,7 +52,6 @@ type AssetPanelProps = {
 export function AssetPanel({ project }: AssetPanelProps) {
   const { toast } = useToast();
   const [clips, setClips] = useState<Clip[]>([]);
-  const [clipScripts, setClipScripts] = useState<ClipScriptInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<AssetCardId>>(new Set());
@@ -70,6 +70,9 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
   // 卡片绑定图片路径映射：key = `${type}:${name}`
   const [selectedImageMap, setSelectedImageMap] = useState<Record<string, string>>({});
+
+  // 当前分集素材详情（description/prompt 以 assets 表为唯一权威来源）
+  const [clipAssets, setClipAssets] = useState<StoryboardAssetInfo[]>([]);
 
   // 正在生成图片的素材集合：key = `${type}:${name}`，实时轮询
   const [generatingMap, setGeneratingMap] = useState<Record<string, boolean>>({});
@@ -93,12 +96,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
     if (!project) return;
     setLoading(true);
     try {
-      const [clipList, csList] = await Promise.all([
-        listClips(project.id),
-        getClipScripts(project.id),
-      ]);
+      const clipList = await listClips(project.id);
       setClips(clipList);
-      setClipScripts(csList);
       // 进入该步骤时自动选中第一个已拆解分集（无符合分集则不选择）
       const dec = clipList.filter((c) => isClipDecomposed(c.status));
       setSelectedClipId((prev) =>
@@ -118,25 +117,39 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 已拆解的分集（与镜头管理 / 视频编辑统一口径：按分集状态判定）
   const disassembledClips = clips.filter((c) => isClipDecomposed(c.status));
 
-  // 选中分集的素材数据
-  const selectedScript = clipScripts.find((s) => s.clip_id === selectedClipId);
-
-  let parsedResources: ParsedAssets | null = null;
-  if (selectedScript?.extracted_resources_json) {
-    try {
-      parsedResources = JSON.parse(selectedScript.extracted_resources_json) as ParsedAssets;
-    } catch {
-      // JSON 解析失败
+  const assetResourcesByType = useMemo(() => {
+    const groups: Record<AssetType, AssetResource[]> = {
+      character: [],
+      scene: [],
+      item: [],
+    };
+    for (const asset of clipAssets) {
+      let voiceBinding: VoiceBinding | undefined;
+      if (asset.voice_binding_json) {
+        try {
+          voiceBinding = JSON.parse(asset.voice_binding_json) as VoiceBinding;
+        } catch {
+          // 损坏的运行时绑定不影响素材卡片展示。
+        }
+      }
+      groups[asset.type].push({
+        id: asset.asset_id,
+        type: asset.type,
+        name: asset.name,
+        description: asset.description,
+        prompt: asset.prompt,
+        voiceBinding,
+      });
     }
-  }
+    return groups;
+  }, [clipAssets]);
 
-  // 当前分集所有素材卡片
   const allAssetCards = useMemo<AssetCardData[]>(() => {
-    if (!selectedClipId || !parsedResources) return [];
+    if (!selectedClipId) return [];
     return ASSET_CATEGORIES.flatMap((cat) =>
-      buildAssetCards(selectedClipId, cat.type, parsedResources[TYPE_TO_KEY[cat.type]] ?? [])
+      buildAssetCards(selectedClipId, cat.type, assetResourcesByType[cat.type]),
     );
-  }, [selectedClipId, parsedResources]);
+  }, [selectedClipId, assetResourcesByType]);
 
   const allSelected = allAssetCards.length > 0 && selectedAssetIds.size === allAssetCards.length;
 
@@ -156,20 +169,29 @@ export function AssetPanel({ project }: AssetPanelProps) {
     else setSelectedAssetIds(new Set(allAssetCards.map((card) => card.id)));
   };
 
-  // 切换分集时：清空跨分集选中项 + 加载选定图片映射
+  // 切换分集时：清空跨分集选中项 + 加载选定图片映射与素材详情
   const loadSelectedImages = useCallback(async (clipId: string) => {
-    if (!clipId) { setSelectedImageMap({}); return; }
+    if (!clipId) { setSelectedImageMap({}); setClipAssets([]); return; }
     try {
       const items = await batchGetAssetSelectedImages({ clip_id: clipId });
       const map: Record<string, string> = {};
       for (const item of items) {
-        if (item.selected_image_path) {
-          map[`${item.asset_type}:${item.name}`] = item.selected_image_path;
-        }
+        const path = item.selected_thumbnail_path ?? item.selected_image_path;
+        if (!path) continue;
+        // 使用 asset_id 精确匹配；保留名称键仅用于处理未带 ID 的进行中任务事件。
+        if (item.asset_id) map[`id:${item.asset_id}`] = path;
+        map[`name:${item.asset_type}:${item.name}`] = path;
       }
       setSelectedImageMap(map);
     } catch {
       setSelectedImageMap({});
+    }
+    // 素材描述/提示词以 assets 表为准，独立加载详情
+    try {
+      const assets = await listClipAssets(clipId);
+      setClipAssets(assets);
+    } catch {
+      setClipAssets([]);
     }
   }, []);
 
@@ -189,9 +211,9 @@ export function AssetPanel({ project }: AssetPanelProps) {
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     listen<AssetImageProgressEvent>("asset-image-progress", (e) => {
-      const { clip_id, asset_type, name, status } = e.payload;
+      const { clip_id, asset_type, name, assetId, status } = e.payload;
       if (clip_id !== selectedClipId) return;
-      const key = `${asset_type}:${name}`;
+      const key = assetKey(asset_type as AssetType, name, assetId);
       if (status === "running") {
         setGeneratingMap((prev) => {
           const next = { ...prev, [key]: true };
@@ -238,7 +260,11 @@ export function AssetPanel({ project }: AssetPanelProps) {
     try {
       const items = await batchGetAssetGenerating({ clip_id: clipId });
       const map: Record<string, boolean> = {};
-      for (const it of items) map[`${it.asset_type}:${it.name}`] = true;
+      for (const it of items) {
+        // 双 key 填充，与卡片侧 assetKey 保持一致（id 精确 / name 兜底）
+        if (it.asset_id) map[`id:${it.asset_id}`] = true;
+        map[`name:${it.asset_type}:${it.name}`] = true;
+      }
       const prev = generatingRef.current;
       const completed = Object.keys(prev).some((k) => prev[k] && !map[k]);
       generatingRef.current = map;
@@ -355,6 +381,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         size: params.size,
         n: params.n,
         style: styleValue,
+        asset_id: data.assetId,
       });
       toast(`已为素材「${data.resource.name}」发起图片生成`, "success");
       startPoll(selectedClipId ?? "");
@@ -382,6 +409,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
             size: params.size,
             n: params.n,
             style: styleValue,
+            asset_id: card.assetId,
           })
         )
       );
@@ -408,6 +436,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         asset_type: data.type,
         name: data.resource.name,
         local_file_path: selected,
+        asset_id: data.assetId,
       });
       const msg = result.is_selected
         ? `已导入并绑定图片`
@@ -426,6 +455,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
         target_clip_id: data.clipId,
         target_asset_type: data.type,
         target_name: data.resource.name,
+        target_asset_id: data.assetId,
       });
       const msg = result.is_selected
         ? `已复制并绑定图片`
@@ -444,26 +474,16 @@ export function AssetPanel({ project }: AssetPanelProps) {
   // 抽屉内保存提示词/描述后：更新覆盖值，使生成使用最新 prompt
   const handleAssetUpdated = useCallback((card: AssetCardData, patch: { prompt: string; description: string }) => {
     setAssetOverrides((prev) => ({ ...prev, [card.id]: patch }));
-    // 同步底层数据源 clipScripts，使退出抽屉后重新打开卡片时展示最新 prompt/description
-    // （clipScripts 才是 allAssetCards 的真正来源；不更新则重新打开会读到编辑前的旧值）
-    setClipScripts((prev) =>
-      prev.map((cs) => {
-        if (cs.clip_id !== card.clipId || !cs.extracted_resources_json) return cs;
-        try {
-          const parsed = JSON.parse(cs.extracted_resources_json) as ParsedAssets;
-          const key = TYPE_TO_KEY[card.type];
-          const list = parsed[key] ?? [];
-          const updated = list.map((r) =>
-            r.name === card.resource.name
-              ? { ...r, prompt: patch.prompt, description: patch.description }
-              : r
-          );
-          return { ...cs, extracted_resources_json: JSON.stringify({ ...parsed, [key]: updated }) };
-        } catch {
-          return cs;
-        }
-      })
-    );
+    // 描述和提示词已写入 assets 表；这里同步当前素材缓存，保证抽屉重新打开时显示最新值。
+    setClipAssets((prev) => {
+      const match = (a: StoryboardAssetInfo) =>
+        (card.assetId ? a.asset_id === card.assetId : a.type === card.type && a.name === card.resource.name);
+      const hit = prev.some(match);
+      if (!hit) return prev;
+      return prev.map((a) =>
+        match(a) ? { ...a, description: patch.description, prompt: patch.prompt } : a
+      );
+    });
     setDrawerTarget((prev) =>
       prev?.map((c) =>
         c.id === card.id
@@ -473,24 +493,17 @@ export function AssetPanel({ project }: AssetPanelProps) {
     );
   }, []);
 
-  // 抽屉内绑定声音后：合并回 clipScripts 与当前抽屉卡片，使重新打开时展示最新绑定
+  // 抽屉内绑定声音后：仅更新运行时权威素材缓存与当前抽屉卡片。
   const handleVoiceBindingChanged = useCallback((card: AssetCardData, binding: VoiceBinding | undefined) => {
-    setClipScripts((prev) =>
-      prev.map((cs) => {
-        if (cs.clip_id !== card.clipId || !cs.extracted_resources_json) return cs;
-        try {
-          const parsed = JSON.parse(cs.extracted_resources_json) as ParsedAssets;
-          const key = TYPE_TO_KEY[card.type];
-          const list = parsed[key] ?? [];
-          const updated = list.map((r) =>
-            r.name === card.resource.name ? { ...r, voiceBinding: binding } : r
-          );
-          return { ...cs, extracted_resources_json: JSON.stringify({ ...parsed, [key]: updated }) };
-        } catch {
-          return cs;
-        }
-      })
-    );
+    setClipAssets((prev) => {
+      const match = (a: StoryboardAssetInfo) =>
+        card.assetId ? a.asset_id === card.assetId : a.type === card.type && a.name === card.resource.name;
+      return prev.map((a) =>
+        match(a)
+          ? { ...a, voice_binding_json: binding ? JSON.stringify(binding) : null }
+          : a,
+      );
+    });
     setDrawerTarget((prev) =>
       prev?.map((c) =>
         c.id === card.id ? { ...c, resource: { ...c.resource, voiceBinding: binding } } : c
@@ -538,6 +551,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
             asset_type: card.type,
             name: card.resource.name,
             delete_files: deleteFiles,
+            asset_id: card.assetId,
           })
         )
       );
@@ -601,7 +615,6 @@ export function AssetPanel({ project }: AssetPanelProps) {
           ) : (
             <div className="rail-clips-list">
               {disassembledClips.map((clip) => {
-                const cs = clipScripts.find((s) => s.clip_id === clip.id);
                 const isSelected = clip.id === selectedClipId;
                 const colors = avatarColor(clip.sort_index);
                 return (
@@ -615,9 +628,6 @@ export function AssetPanel({ project }: AssetPanelProps) {
                     <span className="rail-clips-item-num" style={{ background: colors.bg, color: colors.text }}>{clip.sort_index}</span>
                     <span className="rail-clips-item-text">
                       <span className="rail-clips-item-title">{clip.title}</span>
-                      {cs && (
-                        <span className="rail-clips-item-cnt">{countResources(cs.extracted_resources_json)}</span>
-                      )}
                     </span>
                   </button>
                 );
@@ -646,7 +656,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
           </div>
           {!selectedClipId ? (
             <p className="empty-clip-list">请从左侧选择已拆解的分集</p>
-          ) : !parsedResources ? (
+          ) : allAssetCards.length === 0 ? (
             <p className="empty-clip-list">暂无素材数据</p>
           ) : (
             <>
@@ -687,7 +697,7 @@ export function AssetPanel({ project }: AssetPanelProps) {
 
             <div className="asset-display-body">
               {ASSET_CATEGORIES.map((cat) => {
-                const resources = parsedResources![TYPE_TO_KEY[cat.type]] ?? [];
+                const resources = assetResourcesByType[cat.type];
                 return (
                   <div key={cat.type} className="asset-category">
                     <div className="asset-category-header">
@@ -704,8 +714,8 @@ export function AssetPanel({ project }: AssetPanelProps) {
                           data={card}
                           icon={cat.icon}
                           selected={selectedAssetIds.has(card.id)}
-                          selectedImagePath={selectedImageMap[`${card.type}:${card.resource.name}`] ?? null}
-                          generating={generatingMap[`${card.type}:${card.resource.name}`] ?? false}
+                          selectedImagePath={selectedImageMap[assetKey(card.type, card.resource.name, card.assetId)] ?? null}
+                          generating={generatingMap[assetKey(card.type, card.resource.name, card.assetId)] ?? false}
                           renderKey={cardRenderKey}
                           onToggle={toggleSelect}
                           onDelete={(data) => handleDeleteClick([data])}

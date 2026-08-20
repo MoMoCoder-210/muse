@@ -1,4 +1,4 @@
-/** Strict adapter for a real Agent disclosure into the read-only production canvas. */
+/** Strict adapter for an Agent disclosure into the production canvas. */
 import type { ProjectCanvasReadModel } from "../../services/tauri";
 import { canvasCenterId, canonicalAssetId, canonicalStoryboardId, canonicalTaskId, canonicalVideoId, createCanvasHierarchy, type CanvasHierarchy } from "./sync";
 
@@ -31,5 +31,5 @@ export function adaptCanvasDisclosure(disclosure: CanvasDisclosure, model: Proje
   const center = canvasCenterId(material ? "materials" : "shots", clipId);
   const expansions = new Set(path.reverse());
   expansions.add(center);
-  return { expandedCanonicalIds: [...expansions], selectedCanonicalId: targetId, centerCanonicalId: targetId };
+  return { expandedCanonicalIds: [...expansions], selectedCanonicalId: targetId, centerCanonicalId: center };
 }

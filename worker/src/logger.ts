@@ -1,60 +1,40 @@
 /**
- * Worker 日志模块
+ * Worker 日志模块。
  *
- * 支持按级别过滤（LOG_LEVEL 环境变量）、日志轮转（保留最近 2MB）。
- *
+ * Worker 只通过 stdout 的协议消息输出日志，由 Rust 统一落盘，避免 Worker
+ * 与 Rust 同时追加同一个文件造成竞态、乱序和重复日志。
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
-import { appendFile } from "fs/promises";
-import { dirname } from "path";
-
-// 与 src-tauri/src/project_log.rs 中的 LOG_MAX_BYTES / LOG_KEEP_BYTES 保持一致
-const LOG_MAX_BYTES = 5 * 1024 * 1024;
-const LOG_KEEP_BYTES = 2 * 1024 * 1024;
+import { PROTOCOL_VERSION } from "./types.js";
 
 type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
-/** 当前生效的最低日志级别，低于此级别的日志不会写入文件 */
+const LEVEL_RANK: Record<LogLevel, number> = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
+
 let minLevel: LogLevel = (() => {
   const envLevel = (process.env.LOG_LEVEL ?? "").toUpperCase();
   if (["DEBUG", "INFO", "WARN", "ERROR"].includes(envLevel)) return envLevel as LogLevel;
   return "INFO";
 })();
 
-const LEVEL_RANK: Record<LogLevel, number> = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
-
-let logPath = "";
-
-export function configureLogger(nextLogPath: string, level?: LogLevel): void {
-  logPath = nextLogPath.trim();
+/** 保留原有初始化接口；日志文件路径由 Rust 侧管理。 */
+export function configureLogger(_logPath: string, level?: LogLevel): void {
   if (level) minLevel = level;
-  if (!logPath) return;
-  mkdirSync(dirname(logPath), { recursive: true });
 }
 
+/** 经 Worker/Rust 协议统一转发，消息内容不直接写入本地文件。 */
 export function logLine(source: string, level: LogLevel, message: string): void {
-  if (!logPath) return;
   if (LEVEL_RANK[level] < LEVEL_RANK[minLevel]) return;
-  rotateIfNeeded();
-  const line = `[${formatTime(new Date())}] [${level}] [${source}] ${message}\n`;
-  void appendFile(logPath, line, "utf-8");
-}
-
-function formatTime(d: Date): string {
-  const y = d.getFullYear();
-  const m = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  const h = d.getHours().toString().padStart(2, "0");
-  const min = d.getMinutes().toString().padStart(2, "0");
-  const s = d.getSeconds().toString().padStart(2, "0");
-  return `${y}/${m}/${day} ${h}:${min}:${s}`;
-}
-
-function rotateIfNeeded(): void {
-  if (!logPath || !existsSync(logPath)) return;
-  const size = statSync(logPath).size;
-  if (size <= LOG_MAX_BYTES) return;
-  const content = readFileSync(logPath);
-  writeFileSync(logPath, content.subarray(Math.max(0, content.length - LOG_KEEP_BYTES)));
+  try {
+    process.stdout.write(
+      JSON.stringify({
+        version: PROTOCOL_VERSION,
+        msg: "log",
+        level: level.toLowerCase(),
+        message: `[${source}] ${message}`,
+      }) + "\n",
+    );
+  } catch {
+    // stdout 关闭时忽略日志，不能影响任务本身。
+  }
 }

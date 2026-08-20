@@ -46,9 +46,9 @@ export type TaskEvent =
   | { type: "quota_exhausted"; apiType: ApiType; message: string }
   | { type: "quota_resumed"; apiType: ApiType }
   /** 素材生图进度推送（供前端实时刷新生成中状态） */
-  | { type: "asset_image_progress"; clipId: string; assetType: string; name: string; status: "running" | "success" | "failed" }
+  | { type: "asset_image_progress"; clipId: string; assetType: string; name: string; assetId?: string; status: "running" | "success" | "failed" }
   /** 单张素材生成图片状态更新（供 AssetDrawer 画廊即时刷新） */
-  | { type: "asset_image_task_update"; clipId: string; assetType: string; name: string; imageId: string; status: "ready" | "failed" }
+  | { type: "asset_image_task_update"; clipId: string; assetType: string; name: string; assetId?: string; imageId: string; status: "ready" | "failed" }
   /** 分集拆解任务完成/失败（供分集列表即时刷新） */
   | { type: "clip_script_ready"; projectId: string; clipId: string; status: "success" | "failed"; errorMessage?: string }
   /** 剧本优化流式输出（逐字推送到前端实时渲染） */

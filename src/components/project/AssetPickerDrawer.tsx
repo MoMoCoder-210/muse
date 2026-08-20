@@ -23,6 +23,7 @@ type ProjectAsset = {
   description: string;
   prompt: string;
   selected_image_path: string;
+  selected_thumbnail_path: string | null;
   selected_image_id: string;
 };
 
@@ -153,7 +154,7 @@ export function AssetPickerDrawer({
                 >
                   <div className="asset-picker-card-img-wrap">
                     <img
-                      src={convertFileSrc(asset.selected_image_path)}
+                      src={convertFileSrc(asset.selected_thumbnail_path ?? asset.selected_image_path)}
                       alt={asset.name}
                       draggable={false}
                     />

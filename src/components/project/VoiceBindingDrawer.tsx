@@ -41,6 +41,7 @@ export function VoiceBindingDrawer({
         description: resource.description ?? "",
         prompt: resource.prompt ?? "",
         voice_binding: binding ? JSON.stringify(binding) : undefined,
+        asset_id: card.assetId,
       });
       onVoiceBound(card, binding);
     } catch (err) {

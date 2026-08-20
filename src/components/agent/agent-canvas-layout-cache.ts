@@ -9,20 +9,25 @@ export type CanvasProjectLayout = {
   updatedAt: number;
 };
 export type CanvasLayoutCache = {
-  schemaVersion: 8;
   projects: Record<string, CanvasProjectLayout>;
 };
+export type CanvasLayoutCacheRead = {
+  cache: CanvasLayoutCache;
+  projectsNeedingFormat: string[];
+};
 
-const CANVAS_LAYOUT_STORAGE_KEY = "muse.agent-canvas.layout.v8";
-const LEGACY_CANVAS_LAYOUT_STORAGE_KEY = "muse.agent-canvas.layout.v1";
-const LEGACY_CANVAS_LAYOUT_V2_STORAGE_KEY = "muse.agent-canvas.layout.v2";
-const LEGACY_CANVAS_LAYOUT_V3_STORAGE_KEY = "muse.agent-canvas.layout.v3";
-const LEGACY_CANVAS_LAYOUT_V4_STORAGE_KEY = "muse.agent-canvas.layout.v4";
-const LEGACY_CANVAS_LAYOUT_V5_STORAGE_KEY = "muse.agent-canvas.layout.v5";
-const LEGACY_CANVAS_LAYOUT_V6_STORAGE_KEY = "muse.agent-canvas.layout.v6";
-const LEGACY_CANVAS_LAYOUT_V7_STORAGE_KEY = "muse.agent-canvas.layout.v7";
-const LEGACY_CANVAS_POSITION_STORAGE_KEY = "muse.agent-canvas.positions.v2";
-const CANVAS_LAYOUT_SCHEMA_VERSION = 8;
+const CANVAS_LAYOUT_STORAGE_KEY = "muse.agent-canvas.layout";
+const LEGACY_CANVAS_STORAGE_KEYS = [
+  "muse.agent-canvas.layout.v8",
+  "muse.agent-canvas.layout.v7",
+  "muse.agent-canvas.layout.v6",
+  "muse.agent-canvas.layout.v5",
+  "muse.agent-canvas.layout.v4",
+  "muse.agent-canvas.layout.v3",
+  "muse.agent-canvas.layout.v2",
+  "muse.agent-canvas.layout.v1",
+  "muse.agent-canvas.positions.v2",
+];
 const CANVAS_MIN_ZOOM = 0.25;
 const CANVAS_MAX_ZOOM = 1.8;
 
@@ -31,22 +36,37 @@ export function createCanvasProjectLayout(): CanvasProjectLayout {
 }
 
 export function createCanvasLayoutCache(): CanvasLayoutCache {
-  return { schemaVersion: CANVAS_LAYOUT_SCHEMA_VERSION, projects: {} };
+  return { projects: {} };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasValidPositions(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((position) => {
+    if (!isRecord(position)) return false;
+    const { x, y } = position;
+    return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y);
+  });
 }
 
 export function sanitizeCanvasPositions(value: unknown): Record<string, CanvasNodePosition> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  if (!isRecord(value)) return {};
   const positions: Record<string, CanvasNodePosition> = {};
-  for (const [nodeId, position] of Object.entries(value as Record<string, unknown>)) {
-    if (!position || typeof position !== "object" || Array.isArray(position)) continue;
+  for (const [nodeId, position] of Object.entries(value)) {
+    if (!isRecord(position)) continue;
     const { x, y } = position as Partial<CanvasNodePosition>;
-    if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) positions[nodeId] = { x, y };
+    if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) {
+      positions[nodeId] = { x, y };
+    }
   }
   return positions;
 }
 
 export function sanitizeCanvasViewport(value: unknown): CanvasViewport | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const { x, y, zoom } = value as Partial<CanvasViewport>;
   return typeof x === "number" && typeof y === "number" && typeof zoom === "number"
     && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(zoom) && zoom > 0
@@ -54,47 +74,63 @@ export function sanitizeCanvasViewport(value: unknown): CanvasViewport | undefin
     : undefined;
 }
 
-export function readCanvasLayoutCache(): CanvasLayoutCache {
+function normalizeCanvasProjectLayout(rawLayout: unknown): { layout: CanvasProjectLayout; needsFormatting: boolean } {
+  const source = isRecord(rawLayout) ? rawLayout : {};
+  const positionsValue = source.positions;
+  const positions = sanitizeCanvasPositions(positionsValue);
+  const hasMode = source.mode === "custom" || source.mode === "formatted";
+  const hasUpdatedAt = typeof source.updatedAt === "number" && Number.isFinite(source.updatedAt);
+  const mode = hasMode ? source.mode as CanvasLayoutMode : Object.keys(positions).length ? "custom" : "formatted";
+
+  return {
+    layout: {
+      positions,
+      // Viewport is optional by design: formatted layouts fit the canvas on load.
+      viewport: sanitizeCanvasViewport(source.viewport),
+      mode,
+      updatedAt: hasUpdatedAt ? source.updatedAt as number : 0,
+    },
+    needsFormatting: !hasValidPositions(positionsValue) || !hasMode || !hasUpdatedAt,
+  };
+}
+
+export function readCanvasLayoutCache(): CanvasLayoutCacheRead {
+  const empty: CanvasLayoutCacheRead = { cache: createCanvasLayoutCache(), projectsNeedingFormat: [] };
   try {
-    // All previous versions used incompatible coordinate or parent semantics.
-    // v8 keeps center positions in absolute coordinates and grouped child
-    // positions relative to their center, so group movement remains stable.
-    for (const key of [
-      LEGACY_CANVAS_LAYOUT_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V2_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V3_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V4_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V5_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V6_STORAGE_KEY,
-      LEGACY_CANVAS_LAYOUT_V7_STORAGE_KEY,
-      LEGACY_CANVAS_POSITION_STORAGE_KEY,
-    ]) window.localStorage.removeItem(key);
-    const stored = window.localStorage.getItem(CANVAS_LAYOUT_STORAGE_KEY);
-    if (stored) {
-      const parsed: unknown = JSON.parse(stored);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const candidate = parsed as Partial<CanvasLayoutCache>;
-        if (candidate.schemaVersion === CANVAS_LAYOUT_SCHEMA_VERSION && candidate.projects && typeof candidate.projects === "object" && !Array.isArray(candidate.projects)) {
-          const cache = createCanvasLayoutCache();
-          for (const [projectId, rawLayout] of Object.entries(candidate.projects as Record<string, unknown>)) {
-            if (!rawLayout || typeof rawLayout !== "object" || Array.isArray(rawLayout)) continue;
-            const layout = rawLayout as Partial<CanvasProjectLayout>;
-            const positions = sanitizeCanvasPositions(layout.positions);
-            const mode = layout.mode === "custom" || layout.mode === "formatted" ? layout.mode : Object.keys(positions).length ? "custom" : "formatted";
-            cache.projects[projectId] = {
-              positions,
-              viewport: sanitizeCanvasViewport(layout.viewport),
-              mode,
-              updatedAt: typeof layout.updatedAt === "number" && Number.isFinite(layout.updatedAt) ? layout.updatedAt : 0,
-            };
-          }
-          return cache;
+    let parsed: Record<string, unknown> | null = null;
+    let sourceKey = CANVAS_LAYOUT_STORAGE_KEY;
+    for (const key of [CANVAS_LAYOUT_STORAGE_KEY, ...LEGACY_CANVAS_STORAGE_KEYS]) {
+      const stored = window.localStorage.getItem(key);
+      if (!stored) continue;
+      try {
+        const candidate: unknown = JSON.parse(stored);
+        if (isRecord(candidate) && isRecord(candidate.projects)) {
+          parsed = candidate;
+          sourceKey = key;
+          break;
         }
+      } catch {
+        // Try the next storage key; a malformed cache should not block startup.
       }
     }
-    return createCanvasLayoutCache();
+    if (!parsed) return empty;
+
+    const cache = createCanvasLayoutCache();
+    const projectsNeedingFormat: string[] = [];
+    const rawProjects = isRecord(parsed.projects) ? parsed.projects : {};
+    for (const [projectId, rawLayout] of Object.entries(rawProjects)) {
+      const normalized = normalizeCanvasProjectLayout(rawLayout);
+      cache.projects[projectId] = normalized.layout;
+      if (normalized.needsFormatting) projectsNeedingFormat.push(projectId);
+    }
+
+    if (sourceKey !== CANVAS_LAYOUT_STORAGE_KEY) {
+      writeCanvasLayoutCache(cache);
+      for (const key of LEGACY_CANVAS_STORAGE_KEYS) window.localStorage.removeItem(key);
+    }
+    return { cache, projectsNeedingFormat };
   } catch {
-    return createCanvasLayoutCache();
+    return empty;
   }
 }
 

@@ -36,6 +36,10 @@ pub struct GenerateAssetImageInput {
     pub size: Option<String>,
     pub n: Option<i32>,
     pub style: Option<String>,
+    /// 素材唯一 ID（assets.id），用于精确定位并避免同名素材串绑同一张图。
+    /// 未提供时按当前分集内的 type + name 回退定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 添加素材输入
@@ -57,6 +61,9 @@ pub struct DeleteAssetInput {
     /// 是否同时删除数据库记录所引用的作品工作区内本地文件，默认不删除。
     #[serde(default)]
     pub delete_files: bool,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 素材查询输入
@@ -65,6 +72,9 @@ pub struct AssetQueryInput {
     pub clip_id: String,
     pub asset_type: String,
     pub name: String,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位（兼容旧数据）。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 分集拆解脚本信息
@@ -73,7 +83,6 @@ pub struct ClipScriptInfo {
     pub id: String,
     pub clip_id: String,
     pub script_summary: String,
-    pub extracted_resources_json: String,
     pub status: String,
 }
 
@@ -307,9 +316,14 @@ pub fn generate_asset_image(
     let task_ids: Vec<String> = (0..image_count)
         .map(|_| uuid::Uuid::new_v4().to_string())
         .collect();
+    // lock_key 使用 asset_id 精确定位；缺失时回退 name，保证同名素材互不干扰且不共享锁
+    let asset_key = input
+        .asset_id
+        .clone()
+        .unwrap_or_else(|| format!("name:{}", input.name));
     let lock_key = format!(
         "generate_asset_image:{}:{}:{}",
-        input.clip_id, input.asset_type, input.name
+        input.clip_id, input.asset_type, asset_key
     );
 
     let mut conn = util::open_app_conn(&app)?;
@@ -327,6 +341,9 @@ pub fn generate_asset_image(
             "batchIndex": index + 1,
             "batchSize": image_count,
         });
+        if let Some(ref asset_id) = input.asset_id {
+            task_input["assetId"] = serde_json::Value::String(asset_id.clone());
+        }
         if let Some(ref size) = input.size {
             task_input["size"] = serde_json::Value::String(size.clone());
         }
@@ -472,7 +489,10 @@ pub fn cancel_clip_script(
 
     let deleted = tx
         .execute(
-            "DELETE FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running')",
+            "UPDATE tasks
+             SET status = 'invalidated', cancel_requested_at = datetime('now'),
+                 cancel_reason = 'clip script cancelled', updated_at = datetime('now')
+             WHERE lock_key = ?1 AND status IN ('pending', 'running')",
             rusqlite::params![&lock_key],
         )
         .map_err(|e| e.to_string())?;
@@ -525,7 +545,7 @@ pub fn get_clip_scripts(
     // 子查询取每个 clip_id 最新一条记录（按 created_at DESC），避免历史 pending 记录干扰
     let mut stmt = conn
         .prepare(
-            "SELECT cs.id, cs.clip_id, cs.script_summary, cs.extracted_resources_json, cs.status
+            "SELECT cs.id, cs.clip_id, cs.script_summary, cs.status
              FROM clip_scripts cs
              JOIN clips c ON c.id = cs.clip_id
              WHERE c.project_id = ?1 AND c.deleted_at IS NULL
@@ -545,8 +565,7 @@ pub fn get_clip_scripts(
                 id: row.get(0)?,
                 clip_id: row.get(1)?,
                 script_summary: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                extracted_resources_json: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                status: row.get(4)?,
+                status: row.get(3)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -558,58 +577,46 @@ pub fn get_clip_scripts(
     Ok(results)
 }
 
-/// 添加单个素材到 clip_scripts.extracted_resources_json
+/// 将素材加入指定分集的素材池。
 ///
-/// 读取当前 clip 的拆解结果，将新素材追加到对应分类，再写回。
+/// 素材详情由 `assets` 保存；分集可见性只由 `clip_assets` 表达。
 #[tauri::command]
 pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
-
-    let row = conn
-        .query_row(
-            "SELECT id, extracted_resources_json FROM clip_scripts WHERE clip_id = ?1 ORDER BY created_at DESC LIMIT 1",
-            rusqlite::params![&input.clip_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
-        )
-        .map_err(|e| format!("未找到该分集的拆解记录：{}", e))?;
-
-    let (script_id, resources_json) = row;
-
-    let mut parsed: serde_json::Value = if resources_json.is_empty() {
-        serde_json::json!({ "characters": [], "scenes": [], "items": [] })
-    } else {
-        serde_json::from_str(&resources_json).map_err(|e| format!("解析资源 JSON 失败：{}", e))?
-    };
-
-    let key = match input.asset_type.as_str() {
-        "character" => "characters",
-        "scene" => "scenes",
-        "item" => "items",
-        _ => return Err(format!("无效的素材类型：{}", input.asset_type)),
-    };
-
-    let new_item = serde_json::json!({
-        "type": input.asset_type,
-        "name": input.name,
-        "description": input.description,
-        "prompt": input.prompt,
-    });
-
-    if let Some(arr) = parsed[key].as_array_mut() {
-        arr.push(new_item);
-    } else {
-        parsed[key] = serde_json::json!([new_item]);
+    if !matches!(input.asset_type.as_str(), "character" | "scene" | "item") {
+        return Err(format!("无效的素材类型：{}", input.asset_type));
     }
 
-    let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "UPDATE clip_scripts SET extracted_resources_json = ?, updated_at = datetime('now') WHERE id = ?",
-        rusqlite::params![&updated_json, &script_id],
+    let project_id: String = conn
+        .query_row(
+            "SELECT project_id FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![&input.clip_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "未找到该分集".to_string())?;
+    let asset_id = uuid::Uuid::new_v4().to_string();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO assets (id, project_id, type, name, description, prompt, source, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual', 'draft')",
+        rusqlite::params![
+            &asset_id,
+            &project_id,
+            &input.asset_type,
+            &input.name,
+            &input.description,
+            &input.prompt,
+        ],
     )
     .map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO clip_assets (id, clip_id, asset_id, source) VALUES (?1, ?2, ?3, 'manual')",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), &input.clip_id, &asset_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     crate::project_log::append_log(
         &log_path,
@@ -620,14 +627,10 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
             input.clip_id, input.asset_type, input.name
         ),
     );
-
     Ok(())
 }
 
-/// 从分集拆解结果中删除单个素材。
-///
-/// 卡片展示依赖 `clip_scripts.extracted_resources_json`，而镜头、图片和任务依赖
-/// `assets` 记录；两侧必须在同一事务内同步删除，避免 UI 已消失但数据库仍残留素材。
+/// 从当前分集素材池中删除一个素材，可选回收只被该素材使用的文件。
 #[tauri::command]
 pub fn delete_asset_from_clip(
     input: DeleteAssetInput,
@@ -651,14 +654,32 @@ pub fn delete_asset_from_clip(
     }
 
     // 素材表通过所属分集关联作品；在删除任何记录前一并读取工作区和仅属于该素材的文件。
-    let assets = {
+    // 优先按唯一 asset_id 精确定位，缺失时回退按 (clip_id, type, name) 匹配。
+    let assets = if let Some(ref aid) = input.asset_id {
         let mut statement = tx
             .prepare(
                 "SELECT a.id, p.workspace_path
-                 FROM assets a
-                 JOIN clips c ON c.id = a.clip_id
-                 JOIN projects p ON p.id = c.project_id
-                 WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3",
+                 FROM clip_assets ca
+                 JOIN assets a ON a.id = ca.asset_id
+                 JOIN projects p ON p.id = a.project_id
+                 WHERE ca.clip_id = ?2 AND a.id = ?1",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(rusqlite::params![aid, &input.clip_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    } else {
+        let mut statement = tx
+            .prepare(
+                "SELECT a.id, p.workspace_path
+                 FROM clip_assets ca
+                 JOIN assets a ON a.id = ca.asset_id
+                 JOIN projects p ON p.id = a.project_id
+                 WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3",
             )
             .map_err(|error| error.to_string())?;
         let rows = statement
@@ -674,6 +695,16 @@ pub fn delete_asset_from_clip(
     let mut file_candidates = Vec::new();
     if input.delete_files {
         for (asset_id, workspace_path) in &assets {
+            let remaining_links: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM clip_assets WHERE asset_id = ?1 AND clip_id != ?2",
+                    rusqlite::params![asset_id, &input.clip_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if remaining_links > 0 {
+                continue;
+            }
             let file_paths = {
                 let mut statement = tx
                     .prepare(
@@ -683,10 +714,7 @@ pub fn delete_asset_from_clip(
                          WHERE asset_id = ?1 AND thumbnail_path IS NOT NULL
                          UNION
                          SELECT reference_image_path FROM assets
-                         WHERE id = ?1 AND reference_image_path IS NOT NULL
-                         UNION
-                         SELECT generated_image_path FROM assets
-                         WHERE id = ?1 AND generated_image_path IS NOT NULL",
+                         WHERE id = ?1 AND reference_image_path IS NOT NULL",
                     )
                     .map_err(|error| {
                         format!("读取素材关联文件失败 assetId={}: {}", asset_id, error)
@@ -709,18 +737,14 @@ pub fn delete_asset_from_clip(
         }
     }
 
-    // 即使历史数据中没有 assets 行，也要把资源从拆解 JSON 中移除。
     if assets.is_empty() {
-        crate::commands::clip::remove_asset_from_latest_clip_script(
-            &tx,
-            &input.clip_id,
-            &input.asset_type,
-            &input.name,
-        )?;
-    } else {
-        for (asset_id, _) in &assets {
-            crate::commands::clip::delete_asset_by_id(&tx, asset_id)?;
-        }
+        return Err(format!(
+            "素材不属于当前分集：{}/{}",
+            input.asset_type, input.name
+        ));
+    }
+    for (asset_id, _) in &assets {
+        crate::commands::clip::detach_asset_from_clip(&tx, &input.clip_id, asset_id)?;
     }
 
     tx.commit().map_err(|error| error.to_string())?;
@@ -754,95 +778,44 @@ pub fn delete_asset_from_clip(
     Ok(result)
 }
 
-/// 更新 clip_scripts 中的单个素材（提示词/描述）。
-///
-/// 按 type + name 匹配并就地更新对应字段，再写回 extracted_resources_json。
+/// 更新当前分集中的素材详情。
 #[tauri::command]
 pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> Result<(), String> {
     let mut conn = util::open_app_conn(&app)?;
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
-
-    let row = conn
-        .query_row(
-            "SELECT id, extracted_resources_json FROM clip_scripts WHERE clip_id = ?1 ORDER BY created_at DESC LIMIT 1",
-            rusqlite::params![&input.clip_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
-        )
-        .map_err(|e| format!("未找到该分集的拆解记录：{}", e))?;
-
-    let (script_id, resources_json) = row;
-
-    let mut parsed: serde_json::Value = if resources_json.is_empty() {
-        serde_json::json!({ "characters": [], "scenes": [], "items": [] })
-    } else {
-        serde_json::from_str(&resources_json).map_err(|e| format!("解析资源 JSON 失败：{}", e))?
-    };
-
-    let key = match input.asset_type.as_str() {
-        "character" => "characters",
-        "scene" => "scenes",
-        "item" => "items",
-        _ => return Err(format!("无效的素材类型：{}", input.asset_type)),
-    };
-
-    let mut found = false;
-    if let Some(arr) = parsed[key].as_array_mut() {
-        for item in arr.iter_mut() {
-            if item.get("name").and_then(|v| v.as_str()) == Some(input.name.as_str()) {
-                if let Some(obj) = item.as_object_mut() {
-                    obj.insert(
-                        "prompt".to_string(),
-                        serde_json::Value::String(input.prompt.clone()),
-                    );
-                    obj.insert(
-                        "description".to_string(),
-                        serde_json::Value::String(input.description.clone()),
-                    );
-                    // 人物绑定声音：写回 extracted_resources_json 的人物对象，
-                    // 使前端 AssetResource.voiceBinding 能直接读取。
-                    if let Some(vb) = &input.voice_binding {
-                        obj.remove("voice_binding"); // 清理旧命名
-                        obj.insert(
-                            "voiceBinding".to_string(),
-                            serde_json::from_str(vb).unwrap_or(serde_json::Value::Null),
-                        );
-                    } else {
-                        obj.remove("voice_binding");
-                        obj.remove("voiceBinding");
-                    }
-                    found = true;
-                }
-                break;
-            }
-        }
+    if !matches!(input.asset_type.as_str(), "character" | "scene" | "item") {
+        return Err(format!("无效的素材类型：{}", input.asset_type));
     }
 
-    if !found {
-        return Err(format!("未找到素材：{}/{}", input.asset_type, input.name));
-    }
-
-    let updated_json = serde_json::to_string(&parsed).map_err(|e| e.to_string())?;
-
-    // 事务：同步更新 assets 表和 clip_scripts 表，避免半成功状态
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let asset_id = if let Some(asset_id) = input.asset_id.as_deref() {
+        tx.query_row(
+            "SELECT a.id FROM assets a JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE a.id = ?1 AND ca.clip_id = ?2",
+            rusqlite::params![asset_id, &input.clip_id],
+            |row| row.get::<_, String>(0),
+        )
+    } else {
+        tx.query_row(
+            "SELECT a.id FROM assets a JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             ORDER BY a.updated_at DESC LIMIT 1",
+            rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
+            |row| row.get::<_, String>(0),
+        )
+    }
+    .map_err(|_| format!("未找到素材：{}/{}", input.asset_type, input.name))?;
+
     tx.execute(
-        "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?3
-         WHERE clip_id = ?4 AND type = ?5 AND name = ?6",
+        "UPDATE assets SET prompt = ?1, description = ?2, voice_binding_json = ?3,
+                updated_at = datetime('now') WHERE id = ?4",
         rusqlite::params![
             &input.prompt,
             &input.description,
             &input.voice_binding,
-            &input.clip_id,
-            &input.asset_type,
-            &input.name
+            &asset_id
         ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "UPDATE clip_scripts SET extracted_resources_json = ?, updated_at = datetime('now') WHERE id = ?",
-        rusqlite::params![&updated_json, &script_id],
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
@@ -856,7 +829,6 @@ pub fn update_asset_in_clip(input: UpdateAssetInput, app: tauri::AppHandle) -> R
             input.clip_id, input.asset_type, input.name
         ),
     );
-
     Ok(())
 }
 
@@ -871,6 +843,9 @@ pub struct UpdateAssetInput {
     /// 人物绑定声音（JSON 字符串：公共音色 / 本地上传），场景与道具为空
     #[serde(default)]
     pub voice_binding: Option<String>,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 返回作品工作区中已导入的音频文件列表（用于本地上传 tab 的文件选择）。
@@ -952,18 +927,26 @@ pub fn import_voice_file(
         .join("voices");
     std::fs::create_dir_all(&voices_dir).map_err(|e| format!("创建音频目录失败：{}", e))?;
 
-    let fname = std::path::Path::new(&source_path)
+    let source_file_name = std::path::Path::new(&source_path)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("voice.mp3")
-        .to_string();
-    let dest = voices_dir.join(&fname);
+        .unwrap_or("voice.mp3");
+    let path = std::path::Path::new(source_file_name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("voice");
+    let extension = path.extension().and_then(|s| s.to_str());
+    let file_name = match extension {
+        Some(extension) if !extension.is_empty() => {
+            format!("{}_{}.{}", uuid::Uuid::new_v4(), stem, extension)
+        }
+        _ => format!("{}_{}", uuid::Uuid::new_v4(), stem),
+    };
+    let dest = voices_dir.join(&file_name);
 
     std::fs::copy(&source_path, &dest).map_err(|e| format!("复制音频文件失败：{}", e))?;
 
     Ok(ImportVoiceResult {
         file_path: dest.to_string_lossy().to_string(),
-        file_name: fname,
+        file_name,
     })
 }
 
@@ -976,7 +959,7 @@ pub struct AssetImageInfo {
     pub image_count: i64,
 }
 
-/// 获取指定素材的图片信息（按 clip_id + type + name 查 assets 表）
+/// 获取指定素材的图片信息（优先按 asset_id，缺失时回退按 clip_id + type + name 查 assets 表）
 #[tauri::command]
 pub fn get_asset_image_info(
     input: AssetQueryInput,
@@ -984,22 +967,46 @@ pub fn get_asset_image_info(
 ) -> Result<AssetImageInfo, String> {
     let conn = util::open_app_conn(&app)?;
 
-    let row = conn.query_row(
-        "SELECT a.generated_image_path, a.selected_image_id, a.status,
+    let row = if let Some(ref aid) = input.asset_id {
+        conn.query_row(
+            "SELECT (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id),
+                    a.selected_image_id, a.status,
                     (SELECT COUNT(*) FROM asset_images ai WHERE ai.asset_id = a.id) as image_count
              FROM assets a
-             WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE a.id = ?1 AND ca.clip_id = ?2
              LIMIT 1",
-        rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
-        |row| {
-            Ok(AssetImageInfo {
-                generated_image_path: row.get(0)?,
-                selected_image_id: row.get(1)?,
-                status: row.get(2)?,
-                image_count: row.get(3)?,
-            })
-        },
-    );
+            rusqlite::params![aid, &input.clip_id],
+            |row| {
+                Ok(AssetImageInfo {
+                    generated_image_path: row.get(0)?,
+                    selected_image_id: row.get(1)?,
+                    status: row.get(2)?,
+                    image_count: row.get(3)?,
+                })
+            },
+        )
+    } else {
+        conn.query_row(
+            "SELECT (SELECT ai.image_path FROM asset_images ai WHERE ai.id = a.selected_image_id),
+                    a.selected_image_id, a.status,
+                    (SELECT COUNT(*) FROM asset_images ai WHERE ai.asset_id = a.id) as image_count
+             FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             ORDER BY a.updated_at DESC
+             LIMIT 1",
+            rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
+            |row| {
+                Ok(AssetImageInfo {
+                    generated_image_path: row.get(0)?,
+                    selected_image_id: row.get(1)?,
+                    status: row.get(2)?,
+                    image_count: row.get(3)?,
+                })
+            },
+        )
+    };
 
     match row {
         Ok(info) => Ok(info),
@@ -1018,6 +1025,7 @@ pub fn get_asset_image_info(
 pub struct AssetImageItem {
     pub id: String,
     pub image_path: String,
+    pub thumbnail_path: Option<String>,
     pub size: Option<String>,
     pub style: Option<String>,
     pub is_selected: bool,
@@ -1030,6 +1038,8 @@ pub struct AssetImageTaskItem {
     pub id: String,
     /// 已生成图片路径（pending / running / failed 时为 null）
     pub image_path: Option<String>,
+    /// 已生成图片的缩略图路径；缺失时由查询兼容逻辑按需补生成。
+    pub thumbnail_path: Option<String>,
     pub size: Option<String>,
     pub style: Option<String>,
     pub is_selected: bool,
@@ -1050,14 +1060,25 @@ pub fn list_asset_images(
 ) -> Result<Vec<AssetImageItem>, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 先查 asset_id
-    let asset_row = conn
-        .query_row(
-            "SELECT id FROM assets WHERE clip_id = ?1 AND type = ?2 AND name = ?3 LIMIT 1",
+    // 先查 asset_id：优先按唯一 id 精确定位，缺失时回退按 name 定位
+    let asset_row = if let Some(ref aid) = input.asset_id {
+        conn.query_row(
+            "SELECT id FROM assets WHERE id = ?1 LIMIT 1",
+            rusqlite::params![aid],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    } else {
+        conn.query_row(
+            "SELECT a.id FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             ORDER BY a.updated_at DESC LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
-        .ok();
+        .ok()
+    };
 
     let asset_id = match asset_row {
         Some(id) => id,
@@ -1066,7 +1087,7 @@ pub fn list_asset_images(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, image_path, size, style, is_selected, created_at
+            "SELECT id, image_path, thumbnail_path, size, style, is_selected, created_at
              FROM asset_images WHERE asset_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -1076,10 +1097,11 @@ pub fn list_asset_images(
             Ok(AssetImageItem {
                 id: row.get(0)?,
                 image_path: row.get(1)?,
-                size: row.get(2)?,
-                style: row.get(3)?,
-                is_selected: row.get::<_, i64>(4)? != 0,
-                created_at: row.get(5)?,
+                thumbnail_path: row.get(2)?,
+                size: row.get(3)?,
+                style: row.get(4)?,
+                is_selected: row.get::<_, i64>(5)? != 0,
+                created_at: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -1099,18 +1121,25 @@ pub fn list_asset_image_tasks(
 ) -> Result<Vec<AssetImageTaskItem>, String> {
     let conn = util::open_app_conn(&app)?;
 
-    // 查 asset_id（先查本分集，再查同项目共享素材）
-    let asset_row = conn
-        .query_row(
-            "SELECT id FROM assets
-             WHERE (clip_id = ?1 OR project_id = (SELECT project_id FROM clips WHERE id = ?1))
-               AND type = ?2 AND name = ?3
-             ORDER BY CASE WHEN clip_id = ?1 THEN 0 ELSE 1 END
-             LIMIT 1",
+    // 查 asset_id：优先按唯一 asset_id 精确定位，缺失时回退（先本分集，再同项目共享素材）
+    let asset_row = if let Some(ref asset_id) = input.asset_id {
+        conn.query_row(
+            "SELECT id FROM assets WHERE id = ?1 LIMIT 1",
+            rusqlite::params![asset_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    } else {
+        conn.query_row(
+            "SELECT a.id FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             ORDER BY a.updated_at DESC LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
-        .ok();
+        .ok()
+    };
 
     let mut results: Vec<AssetImageTaskItem> = Vec::new();
 
@@ -1118,7 +1147,7 @@ pub fn list_asset_image_tasks(
     if let Some(ref asset_id) = asset_row {
         let mut stmt = conn
             .prepare(
-                "SELECT id, image_path, size, style, is_selected, created_at, source
+                "SELECT id, image_path, thumbnail_path, size, style, is_selected, created_at, source
                  FROM asset_images WHERE asset_id = ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -1128,13 +1157,14 @@ pub fn list_asset_image_tasks(
                 Ok(AssetImageTaskItem {
                     id: row.get(0)?,
                     image_path: Some(row.get(1)?),
-                    size: row.get(2)?,
-                    style: row.get(3)?,
-                    is_selected: row.get::<_, i64>(4)? != 0,
+                    thumbnail_path: row.get(2)?,
+                    size: row.get(3)?,
+                    style: row.get(4)?,
+                    is_selected: row.get::<_, i64>(5)? != 0,
                     status: "ready".to_string(),
                     error_message: None,
-                    created_at: row.get(5)?,
-                    source: row.get::<_, String>(6).unwrap_or_default(),
+                    created_at: row.get(6)?,
+                    source: row.get::<_, String>(7).unwrap_or_default(),
                 })
             })
             .map_err(|e| e.to_string())?
@@ -1165,7 +1195,7 @@ pub fn list_asset_image_tasks(
                 if let Some(ref src_id) = src_asset_id {
                     let mut fallback_stmt = conn
                         .prepare(
-                            "SELECT id, image_path, size, style, is_selected, created_at, source
+                            "SELECT id, image_path, thumbnail_path, size, style, is_selected, created_at, source
                              FROM asset_images WHERE asset_id = ?1",
                         )
                         .map_err(|e| e.to_string())?;
@@ -1174,13 +1204,14 @@ pub fn list_asset_image_tasks(
                             Ok(AssetImageTaskItem {
                                 id: row.get(0)?,
                                 image_path: Some(row.get(1)?),
-                                size: row.get(2)?,
-                                style: row.get(3)?,
-                                is_selected: row.get::<_, i64>(4)? != 0,
+                                thumbnail_path: row.get(2)?,
+                                size: row.get(3)?,
+                                style: row.get(4)?,
+                                is_selected: row.get::<_, i64>(5)? != 0,
                                 status: "ready".to_string(),
                                 error_message: None,
-                                created_at: row.get(5)?,
-                                source: row.get::<_, String>(6).unwrap_or_default(),
+                                created_at: row.get(6)?,
+                                source: row.get::<_, String>(7).unwrap_or_default(),
                             })
                         })
                         .map_err(|e| e.to_string())?
@@ -1194,9 +1225,13 @@ pub fn list_asset_image_tasks(
 
     // 2. 进行中/失败的任务（tasks 表，按 lock_key 匹配）
     {
+        let asset_key = input
+            .asset_id
+            .clone()
+            .unwrap_or_else(|| format!("name:{}", input.name));
         let lock_prefix = format!(
             "generate_asset_image:{}:{}:{}",
-            input.clip_id, input.asset_type, input.name
+            input.clip_id, input.asset_type, asset_key
         );
 
         let mut stmt = conn
@@ -1231,6 +1266,7 @@ pub fn list_asset_image_tasks(
                 Ok(AssetImageTaskItem {
                     id: row.get(0)?,
                     image_path: None,
+                    thumbnail_path: None,
                     size,
                     style,
                     is_selected: false,
@@ -1264,29 +1300,27 @@ pub fn list_asset_image_tasks(
             .map_err(|e| e.to_string())?;
 
         let upscale_items = stmt
-            .query_map(
-                rusqlite::params![&input.clip_id, &asset_type_name],
-                |row| {
-                    let status: String = row.get(1)?;
-                    let mapped_status = match status.as_str() {
-                        "queued" => "pending",
-                        "running" => "running",
-                        "failed" => "failed",
-                        _ => "pending",
-                    };
-                    Ok(AssetImageTaskItem {
-                        id: row.get(0)?,
-                        image_path: None,
-                        size: None,
-                        style: None,
-                        is_selected: false,
-                        status: mapped_status.to_string(),
-                        error_message: row.get(2)?,
-                        created_at: row.get(3)?,
-                        source: String::new(),
-                    })
-                },
-            )
+            .query_map(rusqlite::params![&input.clip_id, &asset_type_name], |row| {
+                let status: String = row.get(1)?;
+                let mapped_status = match status.as_str() {
+                    "queued" => "pending",
+                    "running" => "running",
+                    "failed" => "failed",
+                    _ => "pending",
+                };
+                Ok(AssetImageTaskItem {
+                    id: row.get(0)?,
+                    image_path: None,
+                    thumbnail_path: None,
+                    size: None,
+                    style: None,
+                    is_selected: false,
+                    status: mapped_status.to_string(),
+                    error_message: row.get(2)?,
+                    created_at: row.get(3)?,
+                    source: String::new(),
+                })
+            })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
@@ -1307,6 +1341,9 @@ pub struct SelectAssetImageInput {
     pub asset_type: String,
     pub name: String,
     pub image_id: String,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 批量查询素材选定图片
@@ -1318,9 +1355,11 @@ pub struct BatchAssetImageQuery {
 /// 批量查询结果项
 #[derive(Debug, Serialize)]
 pub struct BatchAssetImageItem {
+    pub asset_id: String,
     pub asset_type: String,
     pub name: String,
     pub selected_image_path: Option<String>,
+    pub selected_thumbnail_path: Option<String>,
 }
 
 /// 批量获取指定分集下所有素材的选定图片
@@ -1335,38 +1374,30 @@ pub fn batch_get_asset_selected_images(
 
     let mut stmt = conn
         .prepare(
-            "SELECT a.type, a.name, (
+            "SELECT a.id, a.type, a.name, (
                 SELECT ai.image_path FROM asset_images ai
                 WHERE ai.id = a.selected_image_id
                 LIMIT 1
-            ) as sel_path
-            FROM assets a
-            WHERE a.clip_id = ?1
-
-            UNION
-
-            SELECT a.type, a.name, (
-                SELECT ai.image_path FROM asset_images ai
+            ) as sel_path, (
+                SELECT ai.thumbnail_path FROM asset_images ai
                 WHERE ai.id = a.selected_image_id
                 LIMIT 1
-            ) as sel_path
-            FROM assets a
-            WHERE a.id IN (
-                SELECT je.value FROM storyboards s, json_each(s.character_ids_json) je WHERE s.clip_id = ?1
-                UNION
-                SELECT je.value FROM storyboards s, json_each(s.scene_ids_json) je WHERE s.clip_id = ?1
-                UNION
-                SELECT je.value FROM storyboards s, json_each(s.item_ids_json) je WHERE s.clip_id = ?1
-            )",
+            ) as sel_thumbnail_path
+            FROM clip_assets ca
+            JOIN assets a ON a.id = ca.asset_id
+            JOIN clips c ON c.id = ca.clip_id
+            WHERE ca.clip_id = ?1 AND c.deleted_at IS NULL",
         )
         .map_err(|e| e.to_string())?;
 
     let items = stmt
         .query_map(rusqlite::params![&input.clip_id], |row| {
             Ok(BatchAssetImageItem {
-                asset_type: row.get(0)?,
-                name: row.get(1)?,
-                selected_image_path: row.get(2)?,
+                asset_id: row.get(0)?,
+                asset_type: row.get(1)?,
+                name: row.get(2)?,
+                selected_image_path: row.get(3)?,
+                selected_thumbnail_path: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -1387,6 +1418,9 @@ pub struct BatchAssetGeneratingQuery {
 
 #[derive(Debug, Serialize)]
 pub struct GeneratingAssetItem {
+    /// 素材唯一 ID，旧任务可能缺失（空字符串），前端可回退按 name 匹配。
+    #[serde(default)]
+    pub asset_id: String,
     pub asset_type: String,
     pub name: String,
 }
@@ -1430,11 +1464,26 @@ pub fn batch_get_asset_generating(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let asset_id = val
+                .get("assetId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if asset_type.is_empty() || name.is_empty() {
                 continue;
             }
-            if seen.insert((asset_type.clone(), name.clone())) {
-                items.push(GeneratingAssetItem { asset_type, name });
+            // 有唯一 id 时按 id 去重，否则回退按 (type, name) 去重，避免同名素材互相干扰
+            let dedup_key = if asset_id.is_empty() {
+                format!("name:{}:{}", asset_type, name)
+            } else {
+                format!("id:{}", asset_id)
+            };
+            if seen.insert((dedup_key, String::new())) {
+                items.push(GeneratingAssetItem {
+                    asset_id,
+                    asset_type,
+                    name,
+                });
             }
         }
     }
@@ -1467,27 +1516,36 @@ pub fn select_asset_image(
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 查 asset_id（先查本分集，再查同项目共享素材）
-    let asset_id = tx
-        .query_row(
-            "SELECT id FROM assets
-             WHERE (clip_id = ?1 OR project_id = (SELECT project_id FROM clips WHERE id = ?1))
-               AND type = ?2 AND name = ?3
-             ORDER BY CASE WHEN clip_id = ?1 THEN 0 ELSE 1 END
+    let asset_id = if let Some(ref asset_id) = input.asset_id {
+        tx.query_row(
+            "SELECT a.id FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE a.id = ?1 AND ca.clip_id = ?2
+             LIMIT 1",
+            rusqlite::params![asset_id, &input.clip_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|e| format!("未找到当前分集素材：{}", e))?
+    } else {
+        tx.query_row(
+            "SELECT a.id FROM clip_assets ca
+             JOIN assets a ON a.id = ca.asset_id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
              LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| row.get::<_, String>(0),
         )
-        .map_err(|e| format!("未找到素材：{}", e))?;
+        .map_err(|e| format!("未找到当前分集素材：{}", e))?
+    };
 
-    // 查新选中图片的路径
+    // 图片必须从当前素材的图片集合中选择，防止任意 image_id 跨素材串绑。
     let image_path: String = tx
         .query_row(
-            "SELECT image_path FROM asset_images WHERE id = ?1",
-            rusqlite::params![&input.image_id],
+            "SELECT image_path FROM asset_images WHERE id = ?1 AND asset_id = ?2",
+            rusqlite::params![&input.image_id, &asset_id],
             |row| row.get(0),
         )
-        .map_err(|e| format!("图片记录不存在：{}", e))?;
+        .map_err(|e| format!("图片不属于当前素材或不存在：{}", e))?;
 
     // 1. 清除该素材所有图片的选中状态
     tx.execute(
@@ -1497,16 +1555,20 @@ pub fn select_asset_image(
     .map_err(|e| e.to_string())?;
 
     // 2. 设置目标图片为选中
-    tx.execute(
-        "UPDATE asset_images SET is_selected = 1 WHERE id = ?1",
-        rusqlite::params![&input.image_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let affected = tx
+        .execute(
+            "UPDATE asset_images SET is_selected = 1 WHERE id = ?1 AND asset_id = ?2",
+            rusqlite::params![&input.image_id, &asset_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if affected != 1 {
+        return Err("图片不属于当前素材或不存在".to_string());
+    }
 
     // 3. 回写 assets 表
     tx.execute(
-        "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
-        rusqlite::params![&input.image_id, &image_path, &asset_id],
+        "UPDATE assets SET selected_image_id = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
+        rusqlite::params![&input.image_id, &asset_id],
     )
     .map_err(|e| e.to_string())?;
 
@@ -1533,6 +1595,9 @@ pub struct DeleteAssetImageInput {
     pub name: String,
     pub image_id: String,
     pub delete_file: bool,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 删除单张 asset_image 记录
@@ -1551,18 +1616,31 @@ pub fn delete_asset_image(
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let (asset_id, workspace_path): (String, String) = tx
-        .query_row(
+    let (asset_id, workspace_path): (String, String) = if let Some(ref aid) = input.asset_id {
+        tx.query_row(
             "SELECT a.id, p.workspace_path
              FROM assets a
-             JOIN clips c ON c.id = a.clip_id
-             JOIN projects p ON p.id = c.project_id
-             WHERE a.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             JOIN projects p ON p.id = a.project_id
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE a.id = ?1 AND ca.clip_id = ?2
              LIMIT 1",
+            rusqlite::params![aid, &input.clip_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("未找到素材：{}", e))?
+    } else {
+        tx.query_row(
+            "SELECT a.id, p.workspace_path
+             FROM assets a
+             JOIN projects p ON p.id = a.project_id
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.type = ?2 AND a.name = ?3
+             ORDER BY a.updated_at DESC LIMIT 1",
             rusqlite::params![&input.clip_id, &input.asset_type, &input.name],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| format!("未找到素材：{}", e))?;
+        .map_err(|e| format!("未找到素材：{}", e))?
+    };
 
     // 先尝试 asset_images 表（已完成图片）
     let img_result = tx.query_row(
@@ -1635,20 +1713,20 @@ pub fn delete_asset_image(
             )
             .ok();
 
-        if let Some((next_id, next_path)) = next {
+        if let Some((next_id, _next_path)) = next {
             tx.execute(
                 "UPDATE asset_images SET is_selected = 1 WHERE id = ?1",
                 rusqlite::params![&next_id],
             )
             .map_err(|e| e.to_string())?;
             tx.execute(
-                "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, updated_at = datetime('now') WHERE id = ?",
-                rusqlite::params![&next_id, &next_path, &asset_id],
+                "UPDATE assets SET selected_image_id = ?, updated_at = datetime('now') WHERE id = ?",
+                rusqlite::params![&next_id, &asset_id],
             )
             .map_err(|e| e.to_string())?;
         } else {
             tx.execute(
-                "UPDATE assets SET selected_image_id = NULL, generated_image_path = NULL, status = 'confirmed', updated_at = datetime('now') WHERE id = ?",
+                "UPDATE assets SET selected_image_id = NULL, status = 'confirmed', updated_at = datetime('now') WHERE id = ?",
                 rusqlite::params![&asset_id],
             )
             .map_err(|e| e.to_string())?;
@@ -1736,6 +1814,9 @@ pub struct ImportLocalAssetImageInput {
     pub asset_type: String,
     pub name: String,
     pub local_file_path: String,
+    /// 素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub asset_id: Option<String>,
 }
 
 /// 导入本地图片返回结果
@@ -1805,28 +1886,55 @@ pub fn import_local_asset_image(
     // 4. 事务：确保 assets + asset_images 记录就绪，然后复制原图并生成缩略图
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let asset_id: String = match tx.query_row(
-        "SELECT id FROM assets
-         WHERE (clip_id = ?2 OR project_id = ?1)
-           AND type = ?3 AND name = ?4
-         ORDER BY CASE WHEN clip_id = ?2 THEN 0 ELSE 1 END
-         LIMIT 1",
-        rusqlite::params![&project_id, &input.clip_id, &input.asset_type, &input.name],
-        |row| row.get(0),
-    ) {
-        Ok(id) => id,
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let new_id = uuid::Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, status, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'local')",
-                rusqlite::params![&new_id, &project_id, &input.clip_id, &input.asset_type, &input.name],
-            )
-            .map_err(|e| e.to_string())?;
-            new_id
+    let asset_id: String = if let Some(ref aid) = input.asset_id {
+        // 有唯一 ID 时精确匹配；不存在则用该 ID 创建，避免同名素材串绑
+        match tx.query_row(
+            "SELECT id FROM assets WHERE id = ?1 LIMIT 1",
+            rusqlite::params![aid],
+            |row| row.get(0),
+        ) {
+            Ok(id) => id,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                tx.execute(
+                    "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'local')",
+                    rusqlite::params![aid, &project_id, &input.asset_type, &input.name],
+                )
+                .map_err(|e| e.to_string())?;
+                aid.clone()
+            }
+            Err(e) => return Err(e.to_string()),
         }
-        Err(e) => return Err(e.to_string()),
+    } else {
+        match tx.query_row(
+            "SELECT a.id FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.project_id = ?2 AND a.type = ?3 AND a.name = ?4
+             ORDER BY a.updated_at DESC
+             LIMIT 1",
+            rusqlite::params![&input.clip_id, &project_id, &input.asset_type, &input.name],
+            |row| row.get(0),
+        ) {
+            Ok(id) => id,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                let new_id = uuid::Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'local')",
+                    rusqlite::params![&new_id, &project_id, &input.asset_type, &input.name],
+                )
+                .map_err(|e| e.to_string())?;
+                new_id
+            }
+            Err(e) => return Err(e.to_string()),
+        }
     };
+
+    tx.execute(
+        "INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source) VALUES (?1, ?2, ?3, 'manual')",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), &input.clip_id, &asset_id],
+    )
+    .map_err(|e| e.to_string())?;
 
     // 5. 检查是否已有绑定图片
     let existing_selected: i64 = tx
@@ -1855,8 +1963,8 @@ pub fn import_local_asset_image(
     // 7. 若自动绑定，回写 assets 表
     if is_selected {
         tx.execute(
-            "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
-            rusqlite::params![&image_id, &target_path_str, &asset_id],
+            "UPDATE assets SET selected_image_id = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
+            rusqlite::params![&image_id, &asset_id],
         )
         .map_err(|e| e.to_string())?;
     } else {
@@ -1911,6 +2019,7 @@ pub struct ProjectAssetImageItem {
     pub description: String,
     pub prompt: String,
     pub selected_image_path: String,
+    pub selected_thumbnail_path: Option<String>,
     pub selected_image_id: String,
 }
 
@@ -1929,13 +2038,16 @@ pub fn list_project_asset_images(
 
     let mut stmt = conn
         .prepare(
-            "SELECT a.id, a.clip_id, a.type, a.name, a.description, a.prompt,
-                    ai.image_path, ai.id as image_id
+            "SELECT a.id, '' AS clip_id, a.type, a.name, a.description, a.prompt,
+                    ai.image_path, ai.id as image_id, ai.thumbnail_path
              FROM assets a
              JOIN asset_images ai ON ai.id = a.selected_image_id
              WHERE a.project_id = ?1
                AND a.type = ?2
-               AND a.clip_id != ?3
+               AND NOT EXISTS (
+                 SELECT 1 FROM clip_assets ca
+                 WHERE ca.asset_id = a.id AND ca.clip_id = ?3
+               )
              ORDER BY a.updated_at DESC",
         )
         .map_err(|e| e.to_string())?;
@@ -1952,6 +2064,7 @@ pub fn list_project_asset_images(
                     description: row.get(4)?,
                     prompt: row.get(5)?,
                     selected_image_path: row.get(6)?,
+                    selected_thumbnail_path: row.get(8)?,
                     selected_image_id: row.get(7)?,
                 })
             },
@@ -1970,6 +2083,9 @@ pub struct CopyAssetImageFromInput {
     pub target_clip_id: String,
     pub target_asset_type: String,
     pub target_name: String,
+    /// 目标素材唯一 ID，优先用于精确定位；缺失时回退按 name 定位。
+    #[serde(default)]
+    pub target_asset_id: Option<String>,
 }
 
 /// 从其他素材复制图片返回结果
@@ -2044,33 +2160,60 @@ pub fn copy_asset_image_from(
     // 4. 事务：确保目标 assets 记录存在，插入 asset_images，然后复制原图并生成缩略图
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let target_asset_id: String = match tx.query_row(
-        "SELECT id FROM assets
-         WHERE (clip_id = ?2 OR project_id = ?1)
-           AND type = ?3 AND name = ?4
-         ORDER BY CASE WHEN clip_id = ?2 THEN 0 ELSE 1 END
-         LIMIT 1",
-        rusqlite::params![
-            &project_id,
-            &input.target_clip_id,
-            &input.target_asset_type,
-            &input.target_name
-        ],
-        |row| row.get(0),
-    ) {
-        Ok(id) => id,
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let new_id = uuid::Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, status, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
-                rusqlite::params![&new_id, &project_id, &input.target_clip_id, &input.target_asset_type, &input.target_name],
-            )
-            .map_err(|e| e.to_string())?;
-            new_id
+    let target_asset_id: String = if let Some(ref aid) = input.target_asset_id {
+        // 有唯一 ID 时精确匹配；不存在则用该 ID 创建，避免同名素材串绑
+        match tx.query_row(
+            "SELECT id FROM assets WHERE id = ?1 LIMIT 1",
+            rusqlite::params![aid],
+            |row| row.get(0),
+        ) {
+            Ok(id) => id,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                tx.execute(
+                    "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
+                    rusqlite::params![aid, &project_id, &input.target_asset_type, &input.target_name],
+                )
+                .map_err(|e| e.to_string())?;
+                aid.clone()
+            }
+            Err(e) => return Err(e.to_string()),
         }
-        Err(e) => return Err(e.to_string()),
+    } else {
+        match tx.query_row(
+            "SELECT a.id FROM assets a
+             JOIN clip_assets ca ON ca.asset_id = a.id
+             WHERE ca.clip_id = ?1 AND a.project_id = ?2 AND a.type = ?3 AND a.name = ?4
+             ORDER BY a.updated_at DESC
+             LIMIT 1",
+            rusqlite::params![
+                &input.target_clip_id,
+                &project_id,
+                &input.target_asset_type,
+                &input.target_name
+            ],
+            |row| row.get(0),
+        ) {
+            Ok(id) => id,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                let new_id = uuid::Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
+                    rusqlite::params![&new_id, &project_id, &input.target_asset_type, &input.target_name],
+                )
+                .map_err(|e| e.to_string())?;
+                new_id
+            }
+            Err(e) => return Err(e.to_string()),
+        }
     };
+
+    tx.execute(
+        "INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source) VALUES (?1, ?2, ?3, 'imported')",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), &input.target_clip_id, &target_asset_id],
+    )
+    .map_err(|e| e.to_string())?;
 
     // 5. 检查是否已有绑定图片
     let existing_selected: i64 = tx
@@ -2099,8 +2242,8 @@ pub fn copy_asset_image_from(
     // 7. 若自动绑定，回写 assets 表
     if is_selected {
         tx.execute(
-            "UPDATE assets SET selected_image_id = ?, generated_image_path = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
-            rusqlite::params![&new_image_id, &target_path_str, &target_asset_id],
+            "UPDATE assets SET selected_image_id = ?, status = 'image_ready', updated_at = datetime('now') WHERE id = ?",
+            rusqlite::params![&new_image_id, &target_asset_id],
         )
         .map_err(|e| e.to_string())?;
     } else {

@@ -319,61 +319,65 @@ function saveResults(
   storyboards: StoryboardItem[],
   resources: ReturnType<typeof buildResources>,
   rawOutput: string,
-  mode?: string,
+  mode: string | undefined,
+  taskId: string,
+  expectedProjectId: string,
 ): void {
+  const persist = db.transaction(() => {
+    const owner = db.prepare(`
+      SELECT t.id
+      FROM tasks t
+      JOIN clips c ON c.id = t.clip_id
+      WHERE t.id = ? AND t.project_id = ? AND t.clip_id = ?
+        AND t.status = 'running' AND t.cancel_requested_at IS NULL
+        AND c.deleted_at IS NULL
+    `).get(taskId, expectedProjectId, clipId);
+    if (!owner) {
+      throw new Error("拆解任务已取消、被替换或分集已删除");
+    }
+
   // 检查分集是否已被删除
   const clip = db.prepare(
     "SELECT id FROM clips WHERE id = ? AND deleted_at IS NULL"
   ).get(clipId);
   if (!clip) {
     lw("拆解", `分集已被删除，丢弃拆解结果 clipId=${clipId}`);
-    return;
+    throw new Error("分集已删除，拒绝写入拆解结果");
   }
 
   // 从 clips 表获取 projectId
   const clipRow = db.prepare(
     "SELECT project_id FROM clips WHERE id = ?"
   ).get(clipId) as { project_id: string } | undefined;
-  if (!clipRow) return;
+  if (!clipRow || clipRow.project_id !== expectedProjectId) {
+    throw new Error("分集归属校验失败，拒绝写入拆解结果");
+  }
 
   const projectId = clipRow.project_id;
   const actualMode = mode || "RS";
   const summary = storyboards.map((s) => s.description).join("；").slice(0, 200);
-  const resourcesJson = JSON.stringify(resources);
 
-  // 写入 clip_scripts — UPDATE 已有的 pending 记录，而非 INSERT 新行
-  const updated = db.prepare(`
-    UPDATE clip_scripts
-    SET script_summary = ?, raw_model_output = ?, extracted_resources_json = ?,
-        mode = ?, status = 'success', updated_at = datetime('now')
-    WHERE clip_id = ? AND status = 'pending'
-  `).run(summary, rawOutput, resourcesJson, actualMode, clipId);
-
-  // 兜底：如果没有 pending 记录（直接调用 handler 场景），则 INSERT
-  if (updated.changes === 0) {
-    db.prepare(`
-      INSERT INTO clip_scripts (id, project_id, clip_id, source_text, script_summary,
-        raw_model_output, extracted_resources_json, mode, status)
-      VALUES (?, ?, ?, '', ?, ?, ?, ?, 'success')
-    `).run(randomUUID(), projectId, clipId, summary, rawOutput, resourcesJson, actualMode);
-  }
-
-  // ── 将拆解出的素材写入 assets 表，并建立 name → assetId 映射 ──
-  // 同分集内去重
+  // 当前分集的素材池以 clip_assets 为唯一事实来源。
   const findAsset = db.prepare(`
-    SELECT id FROM assets
-    WHERE clip_id = ? AND type = ? AND name = ?
+    SELECT a.id FROM assets a
+    JOIN clip_assets ca ON ca.asset_id = a.id
+    WHERE ca.clip_id = ? AND a.project_id = ? AND a.type = ? AND a.name = ?
+    LIMIT 1
   `);
-  // 作品级同名素材复用：查找其他分集中已有的同名素材，直接复用其 ID
+  // 作品级同名素材复用：复用同一 assets.id，但为当前分集新增 clip_assets 关联。
   const findProjectAsset = db.prepare(`
     SELECT id FROM assets
-    WHERE project_id = ? AND type = ? AND name = ? AND clip_id != ?
+    WHERE project_id = ? AND type = ? AND name = ?
     ORDER BY CASE WHEN selected_image_id IS NOT NULL THEN 0 ELSE 1 END, updated_at DESC
     LIMIT 1
   `);
   const insertAsset = db.prepare(`
-    INSERT INTO assets (id, project_id, clip_id, type, name, description, prompt, source, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'model', 'draft')
+    INSERT INTO assets (id, project_id, type, name, description, prompt, source, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'model', 'draft')
+  `);
+  const insertClipAsset = db.prepare(`
+    INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source)
+    VALUES (?, ?, ?, ?)
   `);
 
   // type → name → assetId
@@ -387,33 +391,45 @@ function saveResults(
       : type === "scene" ? resources.scenes : resources.items;
     const map = idMap.get(type)!;
     for (const r of list) {
-      // 1. 同分集内已有 → 直接复用
-      const existing = findAsset.get(clipId, type, r.name) as { id: string } | undefined;
-      if (existing) {
-        map.set(r.name, existing.id);
-        continue;
+      const existing = findAsset.get(clipId, projectId, type, r.name) as { id: string } | undefined;
+      const projectAsset = !existing
+        ? findProjectAsset.get(projectId, type, r.name) as { id: string } | undefined
+        : undefined;
+      const assetId = existing?.id ?? projectAsset?.id ?? randomUUID();
+      const linkSource = projectAsset ? "reused" : "generated";
+
+      if (!existing && !projectAsset) {
+        insertAsset.run(assetId, projectId, type, r.name, r.description, r.prompt);
+        l("拆解", `  新增素材: ${type} "${r.name}" id=${assetId.slice(0, 8)}`);
+      } else if (projectAsset) {
+        l("拆解", `  复用素材: ${type} "${r.name}" id=${assetId.slice(0, 8)}`);
       }
-      // 2. 作品内其他分集已有同名素材 → 直接复用其 ID（不创建新记录）
-      const projectAsset = findProjectAsset.get(projectId, type, r.name, clipId) as { id: string } | undefined;
-      if (projectAsset) {
-        map.set(r.name, projectAsset.id);
-        l("拆解", `  复用素材: ${type} "${r.name}" id=${projectAsset.id.slice(0, 8)}`);
-        continue;
-      }
-      // 3. 全新素材
-      const id = randomUUID();
-      insertAsset.run(id, projectId, clipId, type, r.name, r.description, r.prompt);
-      map.set(r.name, id);
-      l("拆解", `  新增素材: ${type} "${r.name}" id=${id.slice(0, 8)}`);
+      insertClipAsset.run(randomUUID(), clipId, assetId, linkSource);
+      map.set(r.name, assetId);
+      r.id = assetId;
     }
+  }
+
+  // 写入 clip_scripts — UPDATE 已有的 pending 记录，而非 INSERT 新行
+  const updated = db.prepare(`
+    UPDATE clip_scripts
+    SET script_summary = ?, raw_model_output = ?, mode = ?, status = 'success', updated_at = datetime('now')
+    WHERE clip_id = ? AND status = 'pending'
+  `).run(summary, rawOutput, actualMode, clipId);
+
+  if (updated.changes !== 1) {
+    throw new Error("待提交的拆解记录不存在或已被替换");
   }
 
   // ── 写入故事板，携带镜头→素材的绑定 ──
   const insertSb = db.prepare(`
     INSERT INTO storyboards (id, project_id, clip_id, seq_num, sbid, source_text,
-      visual_description, video_prompt, video_duration,
-      character_ids_json, scene_ids_json, item_ids_json, video_param_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      visual_description, video_prompt, video_duration, video_param_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertStoryboardAsset = db.prepare(`
+    INSERT OR IGNORE INTO storyboard_assets (id, storyboard_id, asset_id, asset_type)
+    VALUES (?, ?, ?, ?)
   `);
 
   const charById = idMap.get("character")!;
@@ -484,17 +500,27 @@ function saveResults(
       mention_map: mentionMap,
     });
 
+    const storyboardId = randomUUID();
     insertSb.run(
-      randomUUID(), projectId, clipId,
+      storyboardId, projectId, clipId,
       i + 1, sb.sbid, sb.originalText || "",
       sb.description, videoPrompt,
       sb.duration ?? 15,
-      JSON.stringify(charIds),
-      JSON.stringify(sceneIds),
-      JSON.stringify(itemIds),
       videoParamJson,
     );
+    for (const [assetType, assetIds] of [
+      ["character", charIds],
+      ["scene", sceneIds],
+      ["item", itemIds],
+    ] as const) {
+      for (const assetId of assetIds) {
+        insertStoryboardAsset.run(randomUUID(), storyboardId, assetId, assetType);
+      }
+    }
   }
+  advanceProjectStep(db, clipId);
+  });
+  persist();
 }
 
 // ─── 作品步骤推进 ───────────────────────────────────────────────────
@@ -531,7 +557,7 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
     throw new Error("generate_clip_script: 缺少 projectId / clipId / sourceText");
   }
 
-  const { db, emit } = ctx;
+  const { db } = ctx;
 
   // 前置检查：分集是否已被删除
   const clip = db.prepare(
@@ -562,13 +588,9 @@ export async function generateClipScriptHandler(ctx: TaskContext): Promise<strin
   const { storyboards, resources, rawOutput } = await callModelAndParse(ctx, { ...input, sourceText });
 
   // 写入数据库
-  saveResults(db, input.clipId, storyboards, resources, rawOutput, input.styleMode);
-
-  // 推进作品步骤
-  advanceProjectStep(db, input.clipId);
+  saveResults(db, input.clipId, storyboards, resources, rawOutput, input.styleMode, ctx.taskId, input.projectId);
 
   l("拆解", `拆解成功 clipId=${input.clipId} 镜头数=${storyboards.length}`);
-  emit({ type: "task_success", taskId: ctx.taskId });
 
   return JSON.stringify({
     sbidCount: storyboards.length,
@@ -653,6 +675,8 @@ interface ExtractedResource {
   description: string;
   prompt: string;
   tags?: string[];
+  /** 素材唯一 ID（等同于 assets.id），用于镜头关联与前端精确定位。 */
+  id?: string;
 }
 
 function buildResources(sbs: StoryboardItem[]): {

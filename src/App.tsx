@@ -80,13 +80,15 @@ export default function App() {
           onEnterAgent={handleEnterAgent}
           isAgentMode={isAgentMode}
           onExitAgent={handleExitAgent}
-          projectName={isAgentMode ? selectedProject?.name ?? null : null}
+          showModeSwitcher={isAgentMode || view === "projects"}
+          projectName={selectedProject?.name ?? null}
         />
 
         {isAgentMode ? (
           <AgentPage
             project={selectedProject}
             onSelectProject={setSelectedProject}
+            onGoHome={handleGoHome}
           />
         ) : view === "home" ? (
           <HomePage

@@ -23,7 +23,8 @@ function friendlyError(raw?: string): string {
 
 export type GalleryImage = {
   id: string;
-  path: string | null;       // null for pending/running/failed tasks
+  path: string | null;       // 原图；null for pending/running/failed tasks
+  thumbnailPath?: string | null; // 缩略图；缺失时回退原图
   is_selected: boolean;
   status: "ready" | "pending" | "running" | "failed";  // per-item status
   error_message?: string;
@@ -120,7 +121,8 @@ export function AssetImageGallery({
   // 缩略图内容渲染
   const renderThumbContent = (img: GalleryImage) => {
     if (img.status === "ready" && img.path) {
-      return <img src={convertFileSrc(img.path)} alt="" decoding="async" loading="lazy" draggable={false} />;
+      const thumbnailPath = img.thumbnailPath || img.path;
+      return <img src={thumbnailPath ? convertFileSrc(thumbnailPath) : undefined} alt="" decoding="async" loading="lazy" draggable={false} />;
     }
     if (img.status === "pending" || img.status === "running") {
       return (
