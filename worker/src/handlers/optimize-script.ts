@@ -143,16 +143,50 @@ export async function optimizeScriptHandler(
       throw new Error("模型返回了空内容");
     }
 
-    // 更新已存在的优化记录（Rust 端已创建 status=running 的空记录）
-    ctx.db
-      .prepare(
-        `UPDATE script_optimizations
-            SET optimized_text  = ?,
-                char_count_after = ?,
-                status           = 'completed'
-          WHERE id = ?`,
-      )
-      .run(cleaned, cleaned.length, input.optimizationId);
+    // 仅当前仍在运行且拥有该优化记录的任务可以提交；若该版本已被激活，
+    // 有效文本变化必须与优化完成在同一事务中推进 revision。
+    ctx.db.transaction(() => {
+      const optimization = ctx.db.prepare(`
+        SELECT so.optimized_text, so.status, c.source_text,
+               c.active_optimization_id = so.id AS is_active
+        FROM script_optimizations so
+        JOIN clips c ON c.id = so.clip_id
+        JOIN tasks t ON t.id = so.task_id
+        WHERE so.id = ? AND so.project_id = ? AND so.clip_id = ?
+          AND t.id = ? AND t.status = 'running' AND t.cancel_requested_at IS NULL
+          AND c.deleted_at IS NULL
+      `).get(
+        input.optimizationId,
+        input.projectId,
+        input.clipId,
+        ctx.taskId,
+      ) as {
+        optimized_text: string;
+        status: string;
+        source_text: string;
+        is_active: number;
+      } | undefined;
+      if (!optimization) throw new Error("优化任务已取消、被替换或分集已删除");
+
+      const oldEffectiveText = optimization.status === "completed" && optimization.optimized_text.trim()
+        ? optimization.optimized_text
+        : optimization.source_text;
+      const updated = ctx.db.prepare(`
+        UPDATE script_optimizations
+        SET optimized_text = ?, char_count_after = ?, status = 'completed'
+        WHERE id = ? AND task_id = ?
+      `).run(cleaned, cleaned.length, input.optimizationId, ctx.taskId);
+      if (updated.changes !== 1) throw new Error("优化记录已被替换");
+
+      if (optimization.is_active === 1 && oldEffectiveText !== cleaned) {
+        ctx.db.prepare(`
+          UPDATE clips
+          SET source_revision = source_revision + 1,
+              status = 'pending', current_step = 'project', updated_at = datetime('now')
+          WHERE id = ? AND project_id = ? AND active_optimization_id = ?
+        `).run(input.clipId, input.projectId, input.optimizationId);
+      }
+    })();
 
     l("剧本优化", `优化完成，分集=${input.clipId}，原字数=${input.text.length}，结果字数=${cleaned.length}，版本=${input.optimizationId}`);
     const output: OptimizeOutput = {
@@ -169,8 +203,11 @@ export async function optimizeScriptHandler(
     if (input?.optimizationId) {
       try {
         ctx.db
-          .prepare("UPDATE script_optimizations SET status = 'failed' WHERE id = ?")
-          .run(input.optimizationId);
+          .prepare(`
+            UPDATE script_optimizations SET status = 'failed'
+            WHERE id = ? AND task_id = ? AND status = 'running'
+          `)
+          .run(input.optimizationId, ctx.taskId);
       } catch { /* 静默：DB 操作不应遮盖原始错误 */ }
     }
 

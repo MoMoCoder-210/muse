@@ -300,6 +300,10 @@ pub(crate) fn ensure_project_schema(
     // 旧版素材的 clip_id 是升级前唯一归属信息，必须先回填 clip_assets，
     // 再由通用同步器移除废弃列与索引。
     crate::db::migrate_legacy_clip_assets(&mut conn).map_err(|e| e.to_string())?;
+    // SQLite 不能用 ALTER TABLE 给既有表增加 NOT NULL/UNIQUE/FK 约束；
+    // 这些受控重建迁移必须先于通用列同步执行。
+    crate::db::migrate_clip_scripts_task_ownership(&mut conn).map_err(|e| e.to_string())?;
+    crate::db::migrate_assets_unique_name_index(&mut conn).map_err(|e| e.to_string())?;
     // 约束变化（尤其是 upscale_jobs 的真实图片外键）必须在通用列同步前通过
     // 显式表重建完成；自动同步器无法修改既有 NOT NULL/FK/CHECK 定义。
     crate::db::migrate_upscale_jobs(&mut conn).map_err(|e| e.to_string())?;

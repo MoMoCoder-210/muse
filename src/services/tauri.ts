@@ -100,6 +100,12 @@ export async function importScript(input: ImportScriptInput): Promise<ImportScri
   return invoke<ImportScriptResult>("import_script", { input });
 }
 
+export type ScriptImportInspection = { char_count: number };
+
+export async function inspectScriptFile(filePath: string): Promise<ScriptImportInspection> {
+  return invoke<ScriptImportInspection>("inspect_script_file", { filePath });
+}
+
 /**
  * 手动创建单个分集（无剧本归属）
  *
@@ -348,7 +354,7 @@ export async function generateAssetImage(input: {
 /**
  * 重试失败的素材生图任务
  *
- * 将已有 failed 任务重置为 pending 并重新入队，在原记录上重试。
+ * 将旧 failed 任务失效，并以新的 task ID 重新入队，隔离超时后尚未退出的旧执行。
  */
 export async function retryAssetImageTask(input: {
   task_id: string;

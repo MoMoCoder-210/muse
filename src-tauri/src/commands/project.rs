@@ -432,7 +432,14 @@ pub fn delete_project(
         )
         .map_err(|e| e.to_string())?;
 
-        // 4. tasks（storyboard_videos.task_id 已清，安全删除）
+        // 3.5. clip_scripts（依赖 tasks.id 与 clips.id，必须在二者之前删除）
+        tx.execute(
+            "DELETE FROM clip_scripts WHERE project_id = ?1",
+            rusqlite::params![&project_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // 4. tasks（storyboard_videos.task_id 与 clip_scripts.task_id 已清，安全删除）
         tx.execute(
             "DELETE FROM tasks WHERE project_id = ?1",
             rusqlite::params![&project_id],
@@ -472,13 +479,6 @@ pub fn delete_project(
         // 8. assets
         tx.execute(
             "DELETE FROM assets WHERE project_id = ?1",
-            rusqlite::params![&project_id],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // 9. clip_scripts（依赖 clips.id）
-        tx.execute(
-            "DELETE FROM clip_scripts WHERE project_id = ?1",
             rusqlite::params![&project_id],
         )
         .map_err(|e| e.to_string())?;

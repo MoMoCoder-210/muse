@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS clips (
     title              TEXT NOT NULL,
     summary            TEXT NOT NULL DEFAULT '',
     source_text        TEXT NOT NULL,
+    source_revision    INTEGER NOT NULL DEFAULT 1,
     estimated_duration REAL,
     -- pending | script_ready | asset_ready | storyboard_ready | media_ready | done | failed
     status             TEXT NOT NULL DEFAULT 'pending',
@@ -99,15 +100,18 @@ CREATE TABLE IF NOT EXISTS clip_scripts (
     id                       TEXT PRIMARY KEY,
     project_id               TEXT NOT NULL REFERENCES projects(id),
     clip_id                  TEXT NOT NULL REFERENCES clips(id),
+    task_id                  TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+    source_revision          INTEGER NOT NULL,
     source_text              TEXT NOT NULL,
     optimized_text           TEXT,
     script_summary           TEXT,
     raw_model_output         TEXT,
+    assets_raw_model_output  TEXT,
     -- RS | TS | ZH
     mode                     TEXT,
     -- asset | storyboard | voice | video | export
     stop_step                TEXT,
-    -- pending | running | success | failed
+    -- pending | running | success | failed | cancelled
     status                   TEXT NOT NULL DEFAULT 'pending',
     error_message            TEXT,
     created_at               TEXT NOT NULL DEFAULT (datetime('now')),
@@ -141,7 +145,7 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_assets_project_type_name
+CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_project_type_name
     ON assets(project_id, type, name);
 
 

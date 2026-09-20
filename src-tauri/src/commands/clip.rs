@@ -475,7 +475,10 @@ pub fn delete_clips(
         let rows = task_stmt
             .query_map(rusqlite::params![id], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?;
-        running_task_ids.extend(rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?);
+        running_task_ids.extend(
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?,
+        );
         tx.execute(
             "UPDATE tasks
              SET status = CASE WHEN status IN ('pending','running','waiting_remote','downloading') THEN 'invalidated' ELSE status END,
@@ -509,7 +512,7 @@ pub fn delete_clips(
     });
 }
 
-    /* 已替换的旧硬删实现：仅保留在源文件中供后续永久清理（purge）迁移参考，不参与编译。 = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
+/* 已替换的旧硬删实现：仅保留在源文件中供后续永久清理（purge）迁移参考，不参与编译。 = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -617,7 +620,12 @@ pub fn delete_clips(
         )
         .map_err(|e| format!("无法删除镜头素材关联 clipId={}: {}", id, e))?;
 
-        // 5. 删除所有以该分集、其镜头或其素材为目标的任务，而非只删除 pending/running 子集。
+        // 5. 先删除绑定任务的拆解子记录，再删除所有以该分集、其镜头或其素材为目标的任务。
+        tx.execute(
+            "DELETE FROM clip_scripts WHERE clip_id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| format!("无法删除拆解记录 clipId={}: {}", id, e))?;
         tx.execute(
             "DELETE FROM tasks
              WHERE clip_id = ?1
@@ -637,11 +645,6 @@ pub fn delete_clips(
             rusqlite::params![id],
         )
         .map_err(|e| format!("无法删除分集素材池关联 clipId={}: {}", id, e))?;
-        tx.execute(
-            "DELETE FROM clip_scripts WHERE clip_id = ?1",
-            rusqlite::params![id],
-        )
-        .map_err(|e| format!("无法删除拆解记录 clipId={}: {}", id, e))?;
 
         let affected = tx
             .execute(
@@ -840,42 +843,28 @@ pub fn update_clip(
     let mut conn = util::open_app_conn(&app)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 校验分集存在且未删除
-    let exists: i64 = tx
+    let (current_source_text, had_success): (String, bool) = tx
         .query_row(
-            "SELECT COUNT(*) FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT source_text,
+                    EXISTS(SELECT 1 FROM clip_scripts WHERE clip_id = clips.id AND status = 'success')
+             FROM clips WHERE id = ?1 AND deleted_at IS NULL",
             rusqlite::params![&input.clip_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| e.to_string())?;
-    if exists == 0 {
-        return Err(format!("分集不存在或已删除：{}", input.clip_id));
-    }
+        .map_err(|_| format!("分集不存在或已删除：{}", input.clip_id))?;
 
-    let source_changed = input.source_text.is_some();
-
-    // 查询该分集是否已有成功的拆解记录（用于判断是否需要自动重拆）
-    let had_success: bool = tx
-        .query_row(
-            "SELECT COUNT(*) FROM clip_scripts WHERE clip_id = ?1 AND status = 'success'",
-            rusqlite::params![&input.clip_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .unwrap_or(0)
-        > 0;
-
-    // 使用参数化 SQL，避免动态拼接
     let title_val = input.title.as_deref().unwrap_or("");
     let summary_val = input.summary.as_deref().unwrap_or("");
     let source_text_val = input.source_text.as_deref().unwrap_or("");
-    let clip_id = &input.clip_id;
+    // 空串沿用既有“不覆盖”语义；只有实际写入不同原文时才推进 revision。
+    let source_changed = !source_text_val.is_empty() && source_text_val != current_source_text;
 
-    // COALESCE: 新值不为空串时覆盖，否则保留原值
     tx.execute(
         "UPDATE clips SET
             title = CASE WHEN ?1 != '' THEN ?1 ELSE title END,
             summary = CASE WHEN ?2 != '' THEN ?2 ELSE summary END,
-            source_text = CASE WHEN ?3 != '' THEN ?3 ELSE source_text END,
+            source_text = CASE WHEN ?4 THEN ?3 ELSE source_text END,
+            source_revision = source_revision + CASE WHEN ?4 THEN 1 ELSE 0 END,
             status = CASE WHEN ?4 THEN 'pending' ELSE status END,
             current_step = CASE WHEN ?4 THEN 'project' ELSE current_step END,
             active_optimization_id = CASE WHEN ?4 THEN NULL ELSE active_optimization_id END,
@@ -886,46 +875,49 @@ pub fn update_clip(
             summary_val,
             source_text_val,
             source_changed,
-            clip_id,
+            &input.clip_id,
         ],
     )
     .map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    // 返回最新行
-    let clip = conn
+    // 返回最新行，同时读取自动重拆必须绑定的更新后 revision。
+    let (clip, source_revision) = conn
         .query_row(
             "SELECT id, project_id, source_id, sort_index, title, summary, source_text,
-                    estimated_duration, status, current_step, created_at, updated_at
+                    estimated_duration, status, current_step, created_at, updated_at,
+                    source_revision
              FROM clips WHERE id = ?1",
             rusqlite::params![&input.clip_id],
             |row| {
-                Ok(ClipInfo {
-                    id: row.get(0)?,
-                    project_id: row.get(1)?,
-                    source_id: row.get(2)?,
-                    sort_index: row.get(3)?,
-                    title: row.get(4)?,
-                    summary: row.get(5)?,
-                    source_text: row.get(6)?,
-                    estimated_duration: row.get(7)?,
-                    status: row.get(8)?,
-                    current_step: row.get(9)?,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
-                })
+                Ok((
+                    ClipInfo {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        source_id: row.get(2)?,
+                        sort_index: row.get(3)?,
+                        title: row.get(4)?,
+                        summary: row.get(5)?,
+                        source_text: row.get(6)?,
+                        estimated_duration: row.get(7)?,
+                        status: row.get(8)?,
+                        current_step: row.get(9)?,
+                        created_at: row.get(10)?,
+                        updated_at: row.get(11)?,
+                    },
+                    row.get::<_, i64>(12)?,
+                ))
             },
         )
         .map_err(|e| e.to_string())?;
 
-    // source_text 变更且之前有成功拆解记录 → 自动触发重新拆解
-    if source_changed && had_success && !source_text_val.is_empty() {
+    // 原文真正变更且存在历史成功拆解时，自动创建新 revision 的拆解任务。
+    if source_changed && had_success {
         let project_id = clip.project_id.clone();
         let clip_id = clip.id.clone();
-        let source_text = source_text_val.to_string();
+        let source_text = clip.source_text.clone();
 
-        // 确保 Worker 在线
         if let Err(e) = util::ensure_worker_running(&state, &app, &project_id) {
             crate::project_log::append_log(
                 &crate::project_log::log_path_for_app_data(
@@ -936,11 +928,9 @@ pub fn update_clip(
                 &format!("自动重拆失败（Worker 未就绪）：{}", e),
             );
         } else {
-            // 插入重拆任务 + 通知 Worker
             let task_id = uuid::Uuid::new_v4().to_string();
+            let script_id = uuid::Uuid::new_v4().to_string();
             let lock_key = format!("generate_clip_script:{}", clip_id);
-
-            // 查询作品风格（用于视频提示词风格拼接）
             let style_mode: String = conn
                 .query_row(
                     "SELECT style_mode FROM projects WHERE id = ?1",
@@ -949,58 +939,69 @@ pub fn update_clip(
                 )
                 .unwrap_or(None)
                 .unwrap_or_default();
-
             let input_json = serde_json::json!({
                 "projectId": &project_id,
                 "clipId": &clip_id,
+                "clipScriptId": &script_id,
+                "sourceRevision": source_revision,
                 "sourceText": &source_text,
                 "styleMode": &style_mode,
             })
             .to_string();
 
-            // 删旧拆解记录 + 插入新任务
-            conn.execute(
-                "DELETE FROM clip_scripts WHERE clip_id = ?1",
-                rusqlite::params![&clip_id],
-            )
-            .map_err(|e| e.to_string())?;
+            // CAS、task、clip_script 必须在同一事务，且 task 先于其 FK 子记录。
+            let enqueue_tx = conn.transaction().map_err(|e| e.to_string())?;
+            let claimed = enqueue_tx
+                .execute(
+                    "UPDATE clips
+                     SET status = 'running', updated_at = datetime('now')
+                     WHERE id = ?1 AND deleted_at IS NULL AND source_revision = ?2
+                       AND status = 'pending'",
+                    rusqlite::params![&clip_id, source_revision],
+                )
+                .map_err(|e| e.to_string())?;
 
-            let script_id = uuid::Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO clip_scripts (id, project_id, clip_id, source_text, status)
-                 VALUES (?1, ?2, ?3, ?4, 'pending')",
-                rusqlite::params![&script_id, &project_id, &clip_id, &source_text],
-            )
-            .map_err(|e| e.to_string())?;
+            if claimed == 1 {
+                enqueue_tx
+                    .execute(
+                        "INSERT INTO tasks
+                           (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
+                         VALUES (?1, ?2, ?3, 'generate_clip_script', 'pending', ?4, ?5, 3)",
+                        rusqlite::params![&task_id, &project_id, &clip_id, &lock_key, &input_json],
+                    )
+                    .map_err(|e| e.to_string())?;
+                enqueue_tx
+                    .execute(
+                        "INSERT INTO clip_scripts
+                           (id, project_id, clip_id, task_id, source_revision, source_text, status)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending')",
+                        rusqlite::params![
+                            &script_id,
+                            &project_id,
+                            &clip_id,
+                            &task_id,
+                            source_revision,
+                            &source_text
+                        ],
+                    )
+                    .map_err(|e| e.to_string())?;
+                enqueue_tx.commit().map_err(|e| e.to_string())?;
 
-            conn.execute(
-                "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
-                 VALUES (?1, ?2, ?3, 'generate_clip_script', 'pending', ?4, ?5, 3)",
-                rusqlite::params![
-                    &task_id,
-                    &project_id,
-                    &clip_id,
-                    &lock_key,
-                    &input_json
-                ],
-            )
-            .map_err(|e| e.to_string())?;
-
-            conn.execute(
-                "UPDATE clips SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
-                rusqlite::params![&clip_id],
-            )
-            .map_err(|e| e.to_string())?;
-
-            if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "generate_clip_script") {
-                crate::project_log::append_log(
-                    &crate::project_log::log_path_for_app_data(
-                        &crate::app_paths::resolve_app_data_dir(&app)?,
-                    ),
-                    "拆解",
-                    "WARN",
-                    &format!("自动重拆 enqueue 通知失败（任务仍会被轮询拾取）：{}", e),
-                );
+                if let Err(e) =
+                    util::send_enqueue_to_worker(&state, &task_id, "generate_clip_script")
+                {
+                    crate::project_log::append_log(
+                        &crate::project_log::log_path_for_app_data(
+                            &crate::app_paths::resolve_app_data_dir(&app)?,
+                        ),
+                        "拆解",
+                        "WARN",
+                        &format!("自动重拆 enqueue 通知失败（任务仍会被轮询拾取）：{}", e),
+                    );
+                }
+            } else {
+                // 其他请求已取得该 revision 的所有权，不再创建重复任务。
+                enqueue_tx.rollback().map_err(|e| e.to_string())?;
             }
         }
     }
@@ -1271,7 +1272,8 @@ pub fn split_clip(input: SplitClipInput, app: tauri::AppHandle) -> Result<SplitC
     // 原分集更新为前半段，状态重置
     tx.execute(
         "UPDATE clips
-         SET source_text = ?1, status = 'pending', current_step = 'project',
+         SET source_text = ?1, source_revision = source_revision + 1,
+             status = 'pending', current_step = 'project',
              updated_at = datetime('now')
          WHERE id = ?2",
         rusqlite::params![&first_text, &input.clip_id],
@@ -1508,25 +1510,58 @@ pub fn select_optimization(
     optimization_id: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let exists: bool = conn
+    let (current_active_id, current_effective_text, selected_status, selected_text): (
+        Option<String>,
+        String,
+        String,
+        String,
+    ) = tx
         .query_row(
-            "SELECT 1 FROM script_optimizations WHERE id = ?1 AND clip_id = ?2",
+            "SELECT c.active_optimization_id,
+                    CASE
+                      WHEN current_so.status = 'completed' AND TRIM(current_so.optimized_text) <> ''
+                        THEN current_so.optimized_text
+                      ELSE c.source_text
+                    END,
+                    selected_so.status, selected_so.optimized_text
+             FROM clips c
+             JOIN script_optimizations selected_so
+               ON selected_so.id = ?1 AND selected_so.clip_id = c.id
+             LEFT JOIN script_optimizations current_so ON current_so.id = c.active_optimization_id
+             WHERE c.id = ?2 AND c.deleted_at IS NULL",
             rusqlite::params![&optimization_id, &clip_id],
-            |_| Ok(true),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .unwrap_or(false);
+        .map_err(|_| "优化版本不存在或不属于该分集".to_string())?;
 
-    if !exists {
-        return Err("优化版本不存在或不属于该分集".to_string());
+    if selected_status != "completed" || selected_text.trim().is_empty() {
+        return Err("只能使用已完成且内容非空的优化版本".to_string());
     }
+    let selected_effective_text = selected_text;
+    let effective_changed = current_effective_text != selected_effective_text;
 
-    conn.execute(
-        "UPDATE clips SET active_optimization_id = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![&optimization_id, &clip_id],
-    )
-    .map_err(|e| e.to_string())?;
+    if effective_changed {
+        tx.execute(
+            "UPDATE clips
+             SET active_optimization_id = ?1, source_revision = source_revision + 1,
+                 status = 'pending', current_step = 'project', updated_at = datetime('now')
+             WHERE id = ?2",
+            rusqlite::params![&optimization_id, &clip_id],
+        )
+        .map_err(|e| e.to_string())?;
+    } else if current_active_id.as_deref() != Some(optimization_id.as_str()) {
+        tx.execute(
+            "UPDATE clips
+             SET active_optimization_id = ?1, updated_at = datetime('now')
+             WHERE id = ?2",
+            rusqlite::params![&optimization_id, &clip_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1534,19 +1569,68 @@ pub fn select_optimization(
 /// 删除某条优化记录；若其为当前生效版本则一并清除。
 #[tauri::command]
 pub fn delete_optimization(optimization_id: String, app: tauri::AppHandle) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "UPDATE clips SET active_optimization_id = NULL WHERE active_optimization_id = ?1",
-        rusqlite::params![&optimization_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let (clip_id, is_active, source_text, optimization_status, optimization_text): (
+        String,
+        bool,
+        String,
+        String,
+        String,
+    ) = tx
+        .query_row(
+            "SELECT so.clip_id, c.active_optimization_id = so.id, c.source_text,
+                    so.status, so.optimized_text
+             FROM script_optimizations so
+             JOIN clips c ON c.id = so.clip_id
+             WHERE so.id = ?1",
+            rusqlite::params![&optimization_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(|_| "优化版本不存在".to_string())?;
 
-    conn.execute(
+    if is_active {
+        let current_effective_text =
+            if optimization_status == "completed" && !optimization_text.trim().is_empty() {
+                optimization_text
+            } else {
+                source_text.clone()
+            };
+        if current_effective_text != source_text {
+            tx.execute(
+                "UPDATE clips
+                 SET active_optimization_id = NULL, source_revision = source_revision + 1,
+                     status = 'pending', current_step = 'project', updated_at = datetime('now')
+                 WHERE id = ?1",
+                rusqlite::params![&clip_id],
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            tx.execute(
+                "UPDATE clips
+                 SET active_optimization_id = NULL, updated_at = datetime('now')
+                 WHERE id = ?1",
+                rusqlite::params![&clip_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.execute(
         "DELETE FROM script_optimizations WHERE id = ?1",
         rusqlite::params![&optimization_id],
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1558,12 +1642,56 @@ pub fn update_optimization_text(
     optimized_text: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let conn = util::open_app_conn(&app)?;
+    let mut conn = util::open_app_conn(&app)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let (old_text, status, source_text, is_active): (String, String, String, bool) = tx
+        .query_row(
+            "SELECT so.optimized_text, so.status, c.source_text,
+                    c.active_optimization_id = so.id
+             FROM script_optimizations so
+             JOIN clips c ON c.id = so.clip_id
+             WHERE so.id = ?1",
+            rusqlite::params![&optimization_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|_| "优化版本不存在".to_string())?;
+
+    if old_text == optimized_text {
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
     let char_count = optimized_text.chars().count() as i64;
-    conn.execute(
+    tx.execute(
         "UPDATE script_optimizations SET optimized_text = ?1, char_count_after = ?2 WHERE id = ?3",
         rusqlite::params![&optimized_text, char_count, &optimization_id],
     )
     .map_err(|e| e.to_string())?;
+
+    if is_active && status == "completed" {
+        let old_effective_text = if old_text.trim().is_empty() {
+            source_text.clone()
+        } else {
+            old_text
+        };
+        let new_effective_text = if optimized_text.trim().is_empty() {
+            source_text
+        } else {
+            optimized_text
+        };
+        if old_effective_text != new_effective_text {
+            tx.execute(
+                "UPDATE clips
+                 SET source_revision = source_revision + 1,
+                     status = 'pending', current_step = 'project', updated_at = datetime('now')
+                 WHERE active_optimization_id = ?1",
+                rusqlite::params![&optimization_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }

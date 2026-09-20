@@ -19,6 +19,40 @@ pub struct ImportScriptResult {
     pub source_id: String,
 }
 
+/// 剧本文件预检结果；字符数以规范化后的 Unicode 字符为准。
+#[derive(Debug, Serialize)]
+pub struct ScriptImportInspection {
+    pub char_count: usize,
+}
+
+pub const MAX_SCRIPT_CHARACTERS: usize = 80_000;
+
+fn normalize_and_validate_script(raw_content: &str) -> Result<String, String> {
+    let normalized = util::normalize_text(raw_content);
+    let char_count = normalized.chars().count();
+    if char_count == 0 {
+        return Err("剧本内容不能为空".to_string());
+    }
+    if char_count > MAX_SCRIPT_CHARACTERS {
+        return Err(format!(
+            "剧本字符数（{}）超过单次导入上限（{}）",
+            char_count, MAX_SCRIPT_CHARACTERS
+        ));
+    }
+    Ok(normalized)
+}
+
+/// 选择 TXT 文件后预检其规范化字符数；正式导入仍会再次校验。
+#[tauri::command]
+pub fn inspect_script_file(file_path: String) -> Result<ScriptImportInspection, String> {
+    let raw_content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let normalized = normalize_and_validate_script(&raw_content)?;
+    Ok(ScriptImportInspection {
+        char_count: normalized.chars().count(),
+    })
+}
+
 /// 生成分集拆解输入
 #[derive(Debug, Deserialize)]
 pub struct GenerateClipScriptInput {
@@ -105,7 +139,7 @@ pub fn import_script(
         (None, None) => return Err("content or file_path is required".to_string()),
     };
 
-    let normalized = util::normalize_text(&raw_content);
+    let normalized = normalize_and_validate_script(&raw_content)?;
 
     let source_id = uuid::Uuid::new_v4().to_string();
     let task_id = uuid::Uuid::new_v4().to_string();
@@ -185,18 +219,24 @@ pub fn generate_clip_script(
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
     let mut conn = util::open_app_conn(&app)?;
 
-    // 查询分集所属作品、原文和当前状态
-    let row = conn
-        .query_row(
-            "SELECT project_id, source_text, status FROM clips WHERE id = ?1 AND deleted_at IS NULL",
+    // 固定本次拆解实际使用的文本和 revision；active 优化不可用时回退原文。
+    let (project_id, source_text, clip_status, source_revision): (String, String, String, i64) =
+        conn.query_row(
+            "SELECT c.project_id,
+                    CASE
+                      WHEN so.status = 'completed' AND TRIM(so.optimized_text) <> ''
+                        THEN so.optimized_text
+                      ELSE c.source_text
+                    END,
+                    c.status, c.source_revision
+             FROM clips c
+             LEFT JOIN script_optimizations so ON so.id = c.active_optimization_id
+             WHERE c.id = ?1 AND c.deleted_at IS NULL",
             rusqlite::params![&input.clip_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|e| format!("分集查询失败：{}", e))?;
 
-    let (project_id, source_text, clip_status) = row;
-
-    // 只有 pending 或 failed 状态的分集才能拆解
     if clip_status != "pending" && clip_status != "failed" {
         return Err(format!(
             "当前分集状态为「{}」，不允许重新拆解。只有待处理或失败的分集可以拆解",
@@ -205,10 +245,9 @@ pub fn generate_clip_script(
     }
 
     if source_text.trim().is_empty() {
-        return Err("分集原文为空，无法拆解".to_string());
+        return Err("分集当前有效文本为空，无法拆解".to_string());
     }
 
-    // 查询作品风格（用于视频提示词风格拼接）
     let style_mode: String = conn
         .query_row(
             "SELECT style_mode FROM projects WHERE id = ?1",
@@ -218,37 +257,39 @@ pub fn generate_clip_script(
         .unwrap_or(None)
         .unwrap_or_default();
 
-    // 确保 Worker 在线（插入任务前保证消费者存在）
+    // 插入任务前保证消费者存在。
     util::ensure_worker_running(&state, &app, &project_id)?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
+    let script_id = uuid::Uuid::new_v4().to_string();
     let lock_key = format!("generate_clip_script:{}", input.clip_id);
     let input_json = serde_json::json!({
         "projectId": &project_id,
-        "clipId": input.clip_id,
+        "clipId": &input.clip_id,
+        "clipScriptId": &script_id,
+        "sourceRevision": source_revision,
         "sourceText": &source_text,
         "styleMode": &style_mode,
     })
     .to_string();
 
-    // 事务：创建 clip_script 记录 + 插入任务 + 更新分集状态
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    // 先删旧的拆解记录（重拆）
-    tx.execute(
-        "DELETE FROM clip_scripts WHERE clip_id = ?1",
-        rusqlite::params![&input.clip_id],
-    )
-    .map_err(|e| e.to_string())?;
+    // CAS 获取当前 revision 的拆解所有权；状态或文本已变化时不创建孤立任务。
+    let claimed = tx
+        .execute(
+            "UPDATE clips
+             SET status = 'running', updated_at = datetime('now')
+             WHERE id = ?1 AND deleted_at IS NULL AND source_revision = ?2
+               AND status IN ('pending', 'failed')",
+            rusqlite::params![&input.clip_id, source_revision],
+        )
+        .map_err(|e| e.to_string())?;
+    if claimed != 1 {
+        return Err("分集状态或有效文本已变化，请刷新后重试".to_string());
+    }
 
-    let script_id = uuid::Uuid::new_v4().to_string();
-    tx.execute(
-        "INSERT INTO clip_scripts (id, project_id, clip_id, source_text, status)
-         VALUES (?1, ?2, ?3, ?4, 'pending')",
-        rusqlite::params![&script_id, &project_id, &input.clip_id, &source_text],
-    )
-    .map_err(|e| e.to_string())?;
-
+    // clip_scripts.task_id 外键要求任务先落库。
     tx.execute(
         "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json, max_retry)
          VALUES (?1, ?2, ?3, 'generate_clip_script', 'pending', ?4, ?5, 3)",
@@ -262,10 +303,18 @@ pub fn generate_clip_script(
     )
     .map_err(|e| e.to_string())?;
 
-    // 标记分集拆解中
     tx.execute(
-        "UPDATE clips SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
-        rusqlite::params![&input.clip_id],
+        "INSERT INTO clip_scripts
+           (id, project_id, clip_id, task_id, source_revision, source_text, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending')",
+        rusqlite::params![
+            &script_id,
+            &project_id,
+            &input.clip_id,
+            &task_id,
+            source_revision,
+            &source_text
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -275,14 +324,14 @@ pub fn generate_clip_script(
         "拆解",
         "INFO",
         &format!(
-            "拆解已入队 clipId={} taskId={} 原文={}字符",
+            "拆解已入队 clipId={} taskId={} revision={} 原文={}字符",
             input.clip_id,
             task_id,
+            source_revision,
             source_text.len()
         ),
     );
 
-    // 通知 Worker 立即调度（不必等下一轮轮询）
     if let Err(e) = util::send_enqueue_to_worker(&state, &task_id, "generate_clip_script") {
         crate::project_log::append_log(
             &log_path,
@@ -400,8 +449,8 @@ pub fn generate_asset_image(
 
 /// 重试失败的素材生图任务
 ///
-/// 将已有的 failed 任务重置为 pending 并重新入队 Worker，
-/// 而非创建新任务——在原记录上重试，不会新增图片生成记录。
+/// 创建新的任务 ID，并将旧失败记录失效。这样即使旧 handler 在 timeout 后尚未退出，
+/// 也无法借用新执行恢复出的 running 状态继续落库。
 #[derive(Debug, Deserialize)]
 pub struct RetryAssetImageTaskInput {
     pub task_id: String,
@@ -415,15 +464,47 @@ pub fn retry_asset_image_task(
 ) -> Result<(), String> {
     let app_data_dir = crate::app_paths::resolve_app_data_dir(&app).map_err(|e| e.to_string())?;
     let log_path = crate::project_log::log_path_for_app_data(&app_data_dir);
+    let mut conn = util::open_app_conn(&app)?;
 
-    let conn = util::open_app_conn(&app)?;
-
-    // 校验任务存在且为 failed 状态的 generate_asset_image 任务
-    let (task_type, status): (String, String) = conn
+    let (
+        task_type,
+        status,
+        project_id,
+        clip_id,
+        batch_id,
+        asset_id,
+        lock_key,
+        input_json,
+        max_retry,
+    ): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        i64,
+    ) = conn
         .query_row(
-            "SELECT type, status FROM tasks WHERE id = ?1",
+            "SELECT type, status, project_id, clip_id, batch_id, asset_id,
+                    lock_key, input_json, max_retry
+             FROM tasks WHERE id = ?1",
             rusqlite::params![&input.task_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                ))
+            },
         )
         .map_err(|_| format!("任务不存在：{}", input.task_id))?;
 
@@ -434,29 +515,56 @@ pub fn retry_asset_image_task(
         return Err(format!("只能重试失败的任务，当前状态：{}", status));
     }
 
-    // 重置任务状态
-    conn.execute(
-        "UPDATE tasks SET status = 'pending', error_message = NULL, started_at = NULL, finished_at = NULL, retry_count = 0, updated_at = datetime('now') WHERE id = ?1",
-        rusqlite::params![&input.task_id],
+    util::ensure_worker_running(&state, &app, &project_id)?;
+    let new_task_id = uuid::Uuid::new_v4().to_string();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let invalidated = tx
+        .execute(
+            "UPDATE tasks
+             SET status = 'invalidated', updated_at = datetime('now')
+             WHERE id = ?1 AND status = 'failed'",
+            rusqlite::params![&input.task_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if invalidated != 1 {
+        return Err("任务状态已变化，请刷新后重试".to_string());
+    }
+    tx.execute(
+        "INSERT INTO tasks
+           (id, project_id, clip_id, batch_id, asset_id, type, status, lock_key, input_json, max_retry)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'generate_asset_image', 'pending', ?6, ?7, ?8)",
+        rusqlite::params![
+            &new_task_id,
+            &project_id,
+            &clip_id,
+            &batch_id,
+            &asset_id,
+            &lock_key,
+            &input_json,
+            max_retry,
+        ],
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     crate::project_log::append_log(
         &log_path,
         "素材生图",
         "INFO",
-        &format!("重试失败任务 taskId={}", input.task_id),
+        &format!(
+            "重试失败任务 oldTaskId={} newTaskId={}",
+            input.task_id, new_task_id
+        ),
     );
 
-    // 通知 Worker 立即调度
-    if let Err(e) = util::send_enqueue_to_worker(&state, &input.task_id, "generate_asset_image") {
+    if let Err(e) = util::send_enqueue_to_worker(&state, &new_task_id, "generate_asset_image") {
         crate::project_log::append_log(
             &log_path,
             "素材生图",
             "WARN",
             &format!(
                 "重试发送 enqueue 通知失败 taskId={}（任务仍会被轮询拾取）：{}",
-                input.task_id, e
+                new_task_id, e
             ),
         );
     }
@@ -487,6 +595,16 @@ pub fn cancel_clip_script(
         ids.filter_map(|r| r.ok()).collect()
     };
 
+    tx.execute(
+        "UPDATE clip_scripts
+         SET status = 'cancelled', updated_at = datetime('now')
+         WHERE task_id IN (
+           SELECT id FROM tasks WHERE lock_key = ?1 AND status IN ('pending', 'running')
+         ) AND status IN ('pending', 'running')",
+        rusqlite::params![&lock_key],
+    )
+    .map_err(|e| e.to_string())?;
+
     let deleted = tx
         .execute(
             "UPDATE tasks
@@ -498,13 +616,16 @@ pub fn cancel_clip_script(
         .map_err(|e| e.to_string())?;
 
     tx.execute(
-        "UPDATE clip_scripts SET status = 'cancelled', updated_at = datetime('now') WHERE clip_id = ?1 AND status IN ('pending', 'running')",
-        rusqlite::params![&input.clip_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "UPDATE clips SET status = 'pending', updated_at = datetime('now') WHERE id = ?1",
+        "UPDATE clips
+         SET status = CASE
+               WHEN EXISTS (
+                 SELECT 1 FROM clip_scripts
+                 WHERE clip_id = clips.id AND status = 'success'
+               ) THEN 'script_ready'
+               ELSE 'pending'
+             END,
+             updated_at = datetime('now')
+         WHERE id = ?1",
         rusqlite::params![&input.clip_id],
     )
     .map_err(|e| e.to_string())?;
@@ -551,7 +672,9 @@ pub fn get_clip_scripts(
              WHERE c.project_id = ?1 AND c.deleted_at IS NULL
                AND cs.id IN (
                  SELECT id FROM (
-                   SELECT id, ROW_NUMBER() OVER (PARTITION BY clip_id ORDER BY created_at DESC) AS rn
+                   SELECT id, ROW_NUMBER() OVER (
+                     PARTITION BY clip_id ORDER BY created_at DESC, rowid DESC
+                   ) AS rn
                    FROM clip_scripts
                  ) WHERE rn = 1
                )
@@ -596,21 +719,26 @@ pub fn add_asset_to_clip(input: AddAssetInput, app: tauri::AppHandle) -> Result<
             |row| row.get(0),
         )
         .map_err(|_| "未找到该分集".to_string())?;
-    let asset_id = uuid::Uuid::new_v4().to_string();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO assets (id, project_id, type, name, description, prompt, source, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual', 'draft')",
-        rusqlite::params![
-            &asset_id,
-            &project_id,
-            &input.asset_type,
-            &input.name,
-            &input.description,
-            &input.prompt,
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    // assets 以作品、类型、名称唯一；冲突时复用既有 ID，避免并发/重复添加产生重复素材。
+    let asset_id: String = tx
+        .query_row(
+            "INSERT INTO assets (id, project_id, type, name, description, prompt, source, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual', 'draft')
+             ON CONFLICT(project_id, type, name) DO UPDATE SET
+               description = excluded.description, prompt = excluded.prompt, updated_at = datetime('now')
+             RETURNING id",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                &project_id,
+                &input.asset_type,
+                &input.name,
+                &input.description,
+                &input.prompt,
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT INTO clip_assets (id, clip_id, asset_id, source) VALUES (?1, ?2, ?3, 'manual')",
         rusqlite::params![uuid::Uuid::new_v4().to_string(), &input.clip_id, &asset_id],
@@ -1897,11 +2025,17 @@ pub fn import_local_asset_image(
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 tx.execute(
                     "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
-                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'local')",
+                     VALUES (?1, ?2, ?3, ?4, '', '', 'draft', 'local')
+                     ON CONFLICT(project_id, type, name) DO NOTHING",
                     rusqlite::params![aid, &project_id, &input.asset_type, &input.name],
                 )
                 .map_err(|e| e.to_string())?;
-                aid.clone()
+                tx.query_row(
+                    "SELECT id FROM assets WHERE project_id = ?1 AND type = ?2 AND name = ?3",
+                    rusqlite::params![&project_id, &input.asset_type, &input.name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?
             }
             Err(e) => return Err(e.to_string()),
         }
@@ -1917,14 +2051,19 @@ pub fn import_local_asset_image(
         ) {
             Ok(id) => id,
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                let new_id = uuid::Uuid::new_v4().to_string();
                 tx.execute(
                     "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
-                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'local')",
-                    rusqlite::params![&new_id, &project_id, &input.asset_type, &input.name],
+                     VALUES (?1, ?2, ?3, ?4, '', '', 'draft', 'local')
+                     ON CONFLICT(project_id, type, name) DO NOTHING",
+                    rusqlite::params![uuid::Uuid::new_v4().to_string(), &project_id, &input.asset_type, &input.name],
                 )
                 .map_err(|e| e.to_string())?;
-                new_id
+                tx.query_row(
+                    "SELECT id FROM assets WHERE project_id = ?1 AND type = ?2 AND name = ?3",
+                    rusqlite::params![&project_id, &input.asset_type, &input.name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?
             }
             Err(e) => return Err(e.to_string()),
         }
@@ -2171,11 +2310,17 @@ pub fn copy_asset_image_from(
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 tx.execute(
                     "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
-                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
+                     VALUES (?1, ?2, ?3, ?4, '', '', 'draft', 'imported')
+                     ON CONFLICT(project_id, type, name) DO NOTHING",
                     rusqlite::params![aid, &project_id, &input.target_asset_type, &input.target_name],
                 )
                 .map_err(|e| e.to_string())?;
-                aid.clone()
+                tx.query_row(
+                    "SELECT id FROM assets WHERE project_id = ?1 AND type = ?2 AND name = ?3",
+                    rusqlite::params![&project_id, &input.target_asset_type, &input.target_name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?
             }
             Err(e) => return Err(e.to_string()),
         }
@@ -2196,14 +2341,19 @@ pub fn copy_asset_image_from(
         ) {
             Ok(id) => id,
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                let new_id = uuid::Uuid::new_v4().to_string();
                 tx.execute(
                     "INSERT INTO assets (id, project_id, type, name, description, prompt, status, source)
-                     VALUES (?1, ?2, ?3, ?4, ?5, '', '', 'draft', 'imported')",
-                    rusqlite::params![&new_id, &project_id, &input.target_asset_type, &input.target_name],
+                     VALUES (?1, ?2, ?3, ?4, '', '', 'draft', 'imported')
+                     ON CONFLICT(project_id, type, name) DO NOTHING",
+                    rusqlite::params![uuid::Uuid::new_v4().to_string(), &project_id, &input.target_asset_type, &input.target_name],
                 )
                 .map_err(|e| e.to_string())?;
-                new_id
+                tx.query_row(
+                    "SELECT id FROM assets WHERE project_id = ?1 AND type = ?2 AND name = ?3",
+                    rusqlite::params![&project_id, &input.target_asset_type, &input.target_name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?
             }
             Err(e) => return Err(e.to_string()),
         }

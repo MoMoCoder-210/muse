@@ -8,7 +8,7 @@ import {
   type StyleMode,
 } from "../../config/muse";
 import { createProject, getSettings } from "../../services/tauri";
-import { importScriptByTab } from "../../services/import-script";
+import { importScriptByTab, inspectScriptImportFile, MAX_SCRIPT_CHARACTERS } from "../../services/import-script";
 import { pickTxtFile } from "../../services/dialog";
 import { SelectField } from "../common/SelectField";
 import type { ProjectInfo } from "../../types/project";
@@ -59,6 +59,7 @@ function ScriptImportSection({
           onChange={(e) => setScriptText(e.target.value)}
           placeholder="在这里粘贴剧本"
           rows={8}
+          maxLength={MAX_SCRIPT_CHARACTERS}
         />
       ) : (
         <div className="file-picker">
@@ -126,8 +127,14 @@ export function CreateProjectModal({ onClose, onCreated }: CreateProjectModalPro
 
   const handlePickScriptFile = useCallback(async () => {
     const path = await pickTxtFile({ title: "选择剧本文件" });
-    if (path) setScriptFilePath(path);
-  }, []);
+    if (!path) return;
+    try {
+      await inspectScriptImportFile(path);
+      setScriptFilePath(path);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "无法读取剧本文件", "warning");
+    }
+  }, [toast]);
 
   const handleScriptModePostCreate = useCallback(
     async (project: ProjectInfo) => {

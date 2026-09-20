@@ -531,3 +531,605 @@ pub fn migrate_legacy_clip_assets(conn: &mut Connection) -> Result<(), DbError> 
         .map_err(|e| DbError::Sync(format!("提交素材池迁移失败：{}", e)))?;
     Ok(())
 }
+
+/// 重建旧版 `clip_scripts`，为每条历史拆解记录补齐任务所有权和原文版本。
+///
+/// SQLite 不能通过 `ALTER TABLE ADD COLUMN` 添加 `NOT NULL UNIQUE` 列；本迁移在
+/// 通用 schema 同步前重建表。历史记录不会被重新调度：它们关联的任务一律使用
+/// 终态，只有原本成功的拆解记录映射为成功任务，其余映射为失败任务。
+pub fn migrate_clip_scripts_task_ownership(conn: &mut Connection) -> Result<(), DbError> {
+    let clip_scripts_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'clip_scripts'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| DbError::Query(e.to_string()))?
+        > 0;
+    if !clip_scripts_exists {
+        return Ok(());
+    }
+
+    let columns = {
+        let mut statement = conn
+            .prepare("PRAGMA table_info(clip_scripts)")
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Query(e.to_string()))?
+    };
+    let has_column = |name: &str| columns.iter().any(|column| column == name);
+    if has_column("task_id") && has_column("source_revision") {
+        return Ok(());
+    }
+
+    // 静态列名仅来自本迁移维护的已知历史字段，不接收外部输入。
+    let value = |name: &str, fallback: &str| -> String {
+        if has_column(name) {
+            format!("cs.{name}")
+        } else {
+            fallback.to_string()
+        }
+    };
+    let source_text = if has_column("source_text") {
+        "COALESCE(cs.source_text, '')".to_string()
+    } else {
+        "''".to_string()
+    };
+    let status = if has_column("status") {
+        "CASE WHEN cs.status = 'success' THEN 'success' WHEN cs.status = 'cancelled' THEN 'cancelled' ELSE 'failed' END".to_string()
+    } else {
+        "'success'".to_string()
+    };
+    let task_status = if has_column("status") {
+        "CASE WHEN cs.status = 'success' THEN 'success' ELSE 'failed' END".to_string()
+    } else {
+        "'success'".to_string()
+    };
+    let error_message = if has_column("status") {
+        let existing_error = value("error_message", "NULL");
+        format!(
+            "CASE WHEN cs.status = 'success' THEN NULL \
+             WHEN cs.status = 'cancelled' THEN COALESCE({existing_error}, '历史拆解任务已取消') \
+             ELSE COALESCE({existing_error}, '历史拆解任务在数据库升级时未完成，已标记失败') END"
+        )
+    } else {
+        "NULL".to_string()
+    };
+    let created_at = if has_column("created_at") {
+        "COALESCE(cs.created_at, datetime('now'))".to_string()
+    } else {
+        "datetime('now')".to_string()
+    };
+    let updated_at = if has_column("updated_at") {
+        "COALESCE(cs.updated_at, datetime('now'))".to_string()
+    } else {
+        "datetime('now')".to_string()
+    };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| DbError::Sync(format!("开启分集拆解迁移事务失败：{e}")))?;
+
+    // 先检查关联完整性。无法证明归属的旧记录不应被静默丢弃或伪造外键。
+    let orphan_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*)
+             FROM clip_scripts cs
+             LEFT JOIN projects p ON p.id = cs.project_id
+             LEFT JOIN clips c ON c.id = cs.clip_id AND c.project_id = cs.project_id
+             WHERE p.id IS NULL OR c.id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| DbError::Query(format!("检查历史拆解记录归属失败：{e}")))?;
+    if orphan_count > 0 {
+        return Err(DbError::Sync(format!(
+            "无法迁移 {orphan_count} 条缺少作品或分集归属的历史拆解记录；请先备份数据库并清理孤立记录"
+        )));
+    }
+
+    tx.execute_batch(
+        "CREATE TABLE clip_scripts_v2 (
+            id                       TEXT PRIMARY KEY,
+            project_id               TEXT NOT NULL REFERENCES projects(id),
+            clip_id                  TEXT NOT NULL REFERENCES clips(id),
+            task_id                  TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+            source_revision          INTEGER NOT NULL,
+            source_text              TEXT NOT NULL,
+            optimized_text           TEXT,
+            script_summary           TEXT,
+            raw_model_output         TEXT,
+            assets_raw_model_output  TEXT,
+            mode                     TEXT,
+            stop_step                TEXT,
+            status                   TEXT NOT NULL DEFAULT 'pending',
+            error_message            TEXT,
+            created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    )
+    .map_err(|e| DbError::Sync(format!("创建新版分集拆解表失败：{e}")))?;
+
+    let legacy_task_id = "'legacy:clip-script:' || cs.id";
+    let insert_tasks = format!(
+        "INSERT INTO tasks (id, project_id, clip_id, type, status, lock_key, input_json)
+         SELECT {legacy_task_id}, cs.project_id, cs.clip_id, 'legacy_clip_script', {task_status},
+                'legacy:clip-script:' || cs.id, '{{\"legacy\":true}}'
+         FROM clip_scripts cs;"
+    );
+    tx.execute_batch(&insert_tasks)
+        .map_err(|e| DbError::Sync(format!("回填历史拆解任务失败：{e}")))?;
+
+    let insert_scripts = format!(
+        "INSERT INTO clip_scripts_v2 (
+            id, project_id, clip_id, task_id, source_revision, source_text,
+            optimized_text, script_summary, raw_model_output, assets_raw_model_output,
+            mode, stop_step, status, error_message, created_at, updated_at
+         )
+         SELECT
+            cs.id, cs.project_id, cs.clip_id, {legacy_task_id}, 1, {source_text},
+            {optimized_text}, {script_summary}, {raw_model_output}, NULL,
+            {mode}, {stop_step}, {status}, {error_message}, {created_at}, {updated_at}
+         FROM clip_scripts cs;
+         DROP TABLE clip_scripts;
+         ALTER TABLE clip_scripts_v2 RENAME TO clip_scripts;",
+        optimized_text = value("optimized_text", "NULL"),
+        script_summary = value("script_summary", "NULL"),
+        raw_model_output = value("raw_model_output", "NULL"),
+        mode = value("mode", "NULL"),
+        stop_step = value("stop_step", "NULL"),
+    );
+    tx.execute_batch(&insert_scripts)
+        .map_err(|e| DbError::Sync(format!("回填新版分集拆解表失败：{e}")))?;
+
+    {
+        let mut check = tx
+            .prepare("PRAGMA foreign_key_check('clip_scripts')")
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let mut rows = check.query([]).map_err(|e| DbError::Query(e.to_string()))?;
+        if rows
+            .next()
+            .map_err(|e| DbError::Query(e.to_string()))?
+            .is_some()
+        {
+            return Err(DbError::Sync("分集拆解迁移后存在外键错误".to_string()));
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| DbError::Sync(format!("提交分集拆解迁移失败：{e}")))?;
+    log::info!("[schema] 已完成 clip_scripts 任务所有权迁移");
+    Ok(())
+}
+
+/// 将旧的同名非唯一素材索引升级为当前唯一约束。
+///
+/// 若已有重复 `(project_id, type, name)`，安全终止而不删除任何素材；调用方可据此
+/// 先处理重复数据，避免自动选择错误素材作为复用目标。
+pub fn migrate_assets_unique_name_index(conn: &mut Connection) -> Result<(), DbError> {
+    let assets_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'assets'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| DbError::Query(e.to_string()))?
+        > 0;
+    if !assets_exists {
+        return Ok(());
+    }
+
+    // 不论旧索引是否存在，先检查目标唯一键。否则缺少旧索引的库会在
+    // sync_schema 尝试创建唯一索引时再次以不带上下文的错误启动失败。
+    let duplicate: Option<(String, String, String, i64)> = conn
+        .query_row(
+            "SELECT project_id, type, name, COUNT(*)
+             FROM assets
+             GROUP BY project_id, type, name
+             HAVING COUNT(*) > 1
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .ok();
+    if let Some((project_id, asset_type, name, count)) = duplicate {
+        return Err(DbError::Sync(format!(
+            "无法升级素材唯一索引：作品 {project_id} 的 {asset_type}/「{name}」存在 {count} 条重复素材；请先合并重复记录"
+        )));
+    }
+
+    let index_definition = {
+        let mut statement = conn
+            .prepare("PRAGMA index_list(assets)")
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let indexes = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        indexes
+            .into_iter()
+            .find(|(name, _, _)| name == "idx_assets_project_type_name")
+    };
+
+    let is_current = if let Some((_, unique, partial)) = &index_definition {
+        if *unique == 0 || *partial != 0 {
+            false
+        } else {
+            let mut statement = conn
+                .prepare("PRAGMA index_xinfo(idx_assets_project_type_name)")
+                .map_err(|e| DbError::Query(e.to_string()))?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                })
+                .map_err(|e| DbError::Query(e.to_string()))?;
+            let key_columns = rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| DbError::Query(e.to_string()))?
+                .into_iter()
+                .filter(|(_, _, _, is_key)| *is_key != 0)
+                .collect::<Vec<_>>();
+            key_columns
+                == [
+                    (Some("project_id".to_string()), 0, "BINARY".to_string(), 1),
+                    (Some("type".to_string()), 0, "BINARY".to_string(), 1),
+                    (Some("name".to_string()), 0, "BINARY".to_string(), 1),
+                ]
+        }
+    } else {
+        false
+    };
+    if is_current {
+        return Ok(());
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| DbError::Sync(format!("开启素材唯一索引迁移事务失败：{e}")))?;
+    if index_definition.is_some() {
+        tx.execute_batch("DROP INDEX idx_assets_project_type_name;")
+            .map_err(|e| DbError::Sync(format!("删除旧素材名称索引失败：{e}")))?;
+    }
+    tx.execute_batch(
+        "CREATE UNIQUE INDEX idx_assets_project_type_name ON assets(project_id, type, name);",
+    )
+    .map_err(|e| DbError::Sync(format!("升级素材唯一索引失败：{e}")))?;
+    tx.commit()
+        .map_err(|e| DbError::Sync(format!("提交素材唯一索引迁移失败：{e}")))?;
+    log::info!("[schema] 已升级素材名称唯一索引");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{migrate_assets_unique_name_index, migrate_clip_scripts_task_ownership};
+    use rusqlite::Connection;
+
+    fn legacy_connection() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory SQLite");
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE projects (id TEXT PRIMARY KEY);
+             CREATE TABLE clips (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id)
+             );
+             CREATE TABLE tasks (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id),
+               clip_id TEXT REFERENCES clips(id),
+               type TEXT NOT NULL,
+               status TEXT NOT NULL,
+               lock_key TEXT NOT NULL,
+               input_json TEXT NOT NULL,
+               max_retry INTEGER NOT NULL DEFAULT 3,
+               created_at TEXT NOT NULL DEFAULT (datetime('now')),
+               updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+               finished_at TEXT
+             );
+             CREATE TABLE clip_scripts (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL REFERENCES projects(id),
+               clip_id TEXT NOT NULL REFERENCES clips(id),
+               source_text TEXT NOT NULL,
+               optimized_text TEXT,
+               script_summary TEXT,
+               raw_model_output TEXT,
+               mode TEXT,
+               stop_step TEXT,
+               status TEXT NOT NULL DEFAULT 'pending',
+               error_message TEXT,
+               created_at TEXT NOT NULL DEFAULT (datetime('now')),
+               updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             INSERT INTO projects (id) VALUES ('project-1');
+             INSERT INTO clips (id, project_id) VALUES ('clip-1', 'project-1');",
+        )
+        .expect("create legacy schema");
+        conn
+    }
+
+    #[test]
+    fn migrates_legacy_clip_scripts_to_terminal_tasks_without_losing_records() {
+        let mut conn = legacy_connection();
+        for (id, status) in [
+            ("script-success", "success"),
+            ("script-pending", "pending"),
+            ("script-running", "running"),
+            ("script-cancelled", "cancelled"),
+        ] {
+            conn.execute(
+                "INSERT INTO clip_scripts (id, project_id, clip_id, source_text, status)
+                 VALUES (?1, 'project-1', 'clip-1', '历史原文', ?2)",
+                [id, status],
+            )
+            .expect("insert legacy clip script");
+        }
+        conn.execute(
+            "UPDATE clip_scripts
+             SET source_text = '保留原文', optimized_text = '保留优化稿',
+                 script_summary = '保留摘要', raw_model_output = '保留模型输出',
+                 mode = 'chapter', stop_step = 'assets',
+                 created_at = '2026-01-02 03:04:05', updated_at = '2026-01-03 04:05:06'
+             WHERE id = 'script-success'",
+            [],
+        )
+        .expect("populate legacy content");
+
+        migrate_clip_scripts_task_ownership(&mut conn).expect("migrate legacy clip scripts");
+
+        let migrated: Vec<(String, String, i64, Option<String>, String)> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT cs.id, cs.status, cs.source_revision, cs.error_message, t.status
+                     FROM clip_scripts cs JOIN tasks t ON t.id = cs.task_id
+                     ORDER BY cs.id",
+                )
+                .expect("prepare migrated query");
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                })
+                .expect("query migrated clip scripts")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect migrated clip scripts")
+        };
+        assert_eq!(
+            migrated,
+            vec![
+                (
+                    "script-cancelled".to_string(),
+                    "cancelled".to_string(),
+                    1,
+                    Some("历史拆解任务已取消".to_string()),
+                    "failed".to_string(),
+                ),
+                (
+                    "script-pending".to_string(),
+                    "failed".to_string(),
+                    1,
+                    Some("历史拆解任务在数据库升级时未完成，已标记失败".to_string()),
+                    "failed".to_string(),
+                ),
+                (
+                    "script-running".to_string(),
+                    "failed".to_string(),
+                    1,
+                    Some("历史拆解任务在数据库升级时未完成，已标记失败".to_string()),
+                    "failed".to_string(),
+                ),
+                (
+                    "script-success".to_string(),
+                    "success".to_string(),
+                    1,
+                    None,
+                    "success".to_string(),
+                ),
+            ],
+        );
+        let preserved_content: (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, String) = conn
+            .query_row(
+                "SELECT source_text, optimized_text, script_summary, raw_model_output, mode, stop_step,
+                        created_at, updated_at
+                 FROM clip_scripts WHERE id = 'script-success'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                    ))
+                },
+            )
+            .expect("read preserved legacy content");
+        assert_eq!(
+            preserved_content,
+            (
+                "保留原文".to_string(),
+                Some("保留优化稿".to_string()),
+                Some("保留摘要".to_string()),
+                Some("保留模型输出".to_string()),
+                Some("chapter".to_string()),
+                Some("assets".to_string()),
+                "2026-01-02 03:04:05".to_string(),
+                "2026-01-03 04:05:06".to_string(),
+            ),
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("foreign key check"),
+            0,
+        );
+        migrate_clip_scripts_task_ownership(&mut conn).expect("idempotent migration");
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM clip_scripts", [], |row| row
+                .get::<_, i64>(0))
+                .expect("count migrated clip scripts"),
+            4,
+        );
+    }
+
+    #[test]
+    fn upgrades_partial_asset_name_index_to_full_binary_unique_index() {
+        let mut conn = Connection::open_in_memory().expect("open in-memory SQLite");
+        conn.execute_batch(
+            "CREATE TABLE assets (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL,
+               type TEXT NOT NULL,
+               name TEXT NOT NULL,
+               status TEXT NOT NULL
+             );
+             CREATE UNIQUE INDEX idx_assets_project_type_name
+             ON assets(project_id, type, name) WHERE status = 'confirmed';
+             INSERT INTO assets VALUES ('asset-1', 'project-1', 'character', '沈青', 'draft');",
+        )
+        .expect("create partial asset index");
+
+        migrate_assets_unique_name_index(&mut conn).expect("upgrade partial asset index");
+        assert!(
+            conn.execute(
+                "INSERT INTO assets VALUES ('asset-2', 'project-1', 'character', '沈青', 'draft')",
+                [],
+            )
+            .is_err(),
+            "recreated index must reject duplicate rows regardless of status",
+        );
+        let partial: i64 = conn
+            .query_row(
+                "SELECT partial FROM pragma_index_list('assets')
+                 WHERE name = 'idx_assets_project_type_name'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read rebuilt index metadata");
+        assert_eq!(partial, 0);
+    }
+
+    #[test]
+    fn rejects_duplicate_assets_even_when_legacy_index_is_missing() {
+        let mut conn = Connection::open_in_memory().expect("open in-memory SQLite");
+        conn.execute_batch(
+            "CREATE TABLE assets (
+               id TEXT PRIMARY KEY,
+               project_id TEXT NOT NULL,
+               type TEXT NOT NULL,
+               name TEXT NOT NULL
+             );
+             INSERT INTO assets VALUES ('asset-1', 'project-1', 'character', '沈青');
+             INSERT INTO assets VALUES ('asset-2', 'project-1', 'character', '沈青');",
+        )
+        .expect("create duplicate legacy assets");
+
+        let error = migrate_assets_unique_name_index(&mut conn)
+            .expect_err("duplicate legacy assets must be diagnosed before schema sync");
+        assert!(error.to_string().contains("存在 2 条重复素材"));
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM assets", [], |row| row
+                .get::<_, i64>(0))
+                .expect("count original duplicate assets"),
+            2,
+        );
+    }
+
+    #[test]
+    fn upgrades_non_unique_wrong_order_and_nocase_asset_indexes() {
+        for (label, index_sql) in [
+            (
+                "non-unique",
+                "CREATE INDEX idx_assets_project_type_name ON assets(project_id, type, name);",
+            ),
+            (
+                "wrong-column-order",
+                "CREATE UNIQUE INDEX idx_assets_project_type_name ON assets(name, type, project_id);",
+            ),
+            (
+                "nocase",
+                "CREATE UNIQUE INDEX idx_assets_project_type_name ON assets(project_id, type, name COLLATE NOCASE);",
+            ),
+        ] {
+            let mut conn = Connection::open_in_memory().expect("open in-memory SQLite");
+            conn.execute_batch(&format!(
+                "CREATE TABLE assets (
+                   id TEXT PRIMARY KEY,
+                   project_id TEXT NOT NULL,
+                   type TEXT NOT NULL,
+                   name TEXT NOT NULL
+                 );
+                 {index_sql}
+                 INSERT INTO assets VALUES ('asset-1', 'project-1', 'character', 'Hero');"
+            ))
+            .unwrap_or_else(|error| panic!("create {label} asset index: {error}"));
+
+            migrate_assets_unique_name_index(&mut conn)
+                .unwrap_or_else(|error| panic!("upgrade {label} asset index: {error}"));
+            let key_columns: Vec<(Option<String>, i64, String)> = {
+                let mut statement = conn
+                    .prepare("PRAGMA index_xinfo(idx_assets_project_type_name)")
+                    .expect("prepare rebuilt index metadata");
+                statement
+                    .query_map([], |row| Ok((row.get(2)?, row.get(3)?, row.get(4)?, row.get::<_, i64>(5)?)))
+                    .expect("query rebuilt index metadata")
+                    .collect::<Result<Vec<(Option<String>, i64, String, i64)>, _>>()
+                    .expect("collect rebuilt index metadata")
+                    .into_iter()
+                    .filter(|(_, _, _, is_key)| *is_key != 0)
+                    .map(|(name, desc, coll, _)| (name, desc, coll))
+                    .collect()
+            };
+            assert_eq!(
+                key_columns,
+                vec![
+                    (Some("project_id".to_string()), 0, "BINARY".to_string()),
+                    (Some("type".to_string()), 0, "BINARY".to_string()),
+                    (Some("name".to_string()), 0, "BINARY".to_string()),
+                ],
+                "{label} index must be rebuilt with the target key definition",
+            );
+            assert!(
+                conn.execute(
+                    "INSERT INTO assets VALUES ('asset-2', 'project-1', 'character', 'Hero')",
+                    [],
+                )
+                .is_err(),
+                "{label} index must reject an exact duplicate after migration",
+            );
+            if label == "nocase" {
+                conn.execute(
+                    "INSERT INTO assets VALUES ('asset-3', 'project-1', 'character', 'hero')",
+                    [],
+                )
+                .expect("BINARY index must permit a case-distinct asset name");
+            }
+        }
+    }
+}

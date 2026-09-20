@@ -15,27 +15,41 @@ import type { TaskContext } from "../types.js";
 import type { ChatMessage } from "../clients/text.js";
 import { logLine } from "../logger.js";
 import { l, lw, le, stripCodeFences, createPromptLoader } from "../utils/utils.js";
+import { formatNumberedScript, materializeBoundaryClips, parseModelBoundaries } from "./split-boundaries.js";
 
 // ─── 集数标志正则 ────────────────────────────────────────────────
-const EPISODE_PATTERNS = [
-  // 第X集/章/幕/场/回/节（中文数字或阿拉伯数字），支持 Markdown ### 标题前缀
-  /(?:^|\n)\s*[【\[#*\-]*第\s*[一二三四五六七八九十百零\d]+\s*[集章幕场回节]/,
-  // (X) 括号编号（全角/半角）
-  /(?:^|\n)\s*[（(]\s*[一二三四五六七八九十\d]+\s*[)）]/,
-  // EP.X / Ep.X
-  /(?:^|\n)\s*[Ee][Pp]\.?\s*\d+/,
-  // Chapter X
-  /(?:^|\n)\s*[Cc]hapter\s*\d+/,
-  // Episode X
-  /(?:^|\n)\s*[Ee]pisode\s*\d+/,
-  // 场景X（行首）
-  /(?:^|\n)\s*场景\s*\d+/,
-];
+// 行首可选 Markdown 标题/加粗前缀。标题内容必须紧随此前缀，避免把正文中的集数描述误识别为分集。
+const MARKDOWN_HEADING_PREFIX = String.raw`(?:^|\n)[\t ]*(?:#{1,6}[\t ]*)?(?:(?:\*\*|__)[\t ]*)?`;
+// 纯数字编号只在 Markdown 标题行中识别，避免把普通编号列表误拆为分集。
+const MARKDOWN_NUMBERED_PREFIX = String.raw`(?:^|\n)[\t ]*#{1,6}[\t ]+(?:(?:\*\*|__)[\t ]*)?`;
+const EPISODE_NUMBER = String.raw`[一二三四五六七八九十百千两〇零\d０-９]+`;
+const ARABIC_EPISODE_NUMBER = String.raw`[0-9０-９]+`;
+const ROMAN_EPISODE_NUMBER = String.raw`[IVXLCDM]+`;
+const ENGLISH_EPISODE_NUMBER = String.raw`(?:${ARABIC_EPISODE_NUMBER}|${ROMAN_EPISODE_NUMBER})`;
+const CHINESE_SECTION_MARKER = String.raw`第[\t ]*${EPISODE_NUMBER}[\t ]*[集章节回幕话部卷篇]`;
+const CHINESE_SEASON_EPISODE_MARKER = String.raw`第[\t ]*${EPISODE_NUMBER}[\t ]*季[\t ]*(?:[·.．、:：—\-][\t ]*)?第[\t ]*${EPISODE_NUMBER}[\t ]*[集话]`;
+// 编号后必须是标题分隔符、格式符或行尾，避免把“第1集的故事”这类正文误拆为标题。
+const MARKER_END_BOUNDARY = String.raw`(?=$|[\t :：—\-|*#（【])`;
 
-// 设定部分关键词
-const SETTING_KEYWORDS = [
-  "人物介绍", "人物介绍", "背景设定", "故事梗概", "故事背景",
-  "主要人物", "人物设定", "人物设定", "剧情简介", "内容简介",
+const EPISODE_PATTERNS = [
+  // 第1季第2集 / 第1季·第2话
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}${CHINESE_SEASON_EPISODE_MARKER}${MARKER_END_BOUNDARY}`, "mi"),
+  // 第X集/章/回/节/幕/话/部/卷/篇（中文、半角或全角数字）
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:[【\\[])?[\\t ]*${CHINESE_SECTION_MARKER}${MARKER_END_BOUNDARY}`, "mi"),
+  // (X) / （X）括号编号（中文、半角或全角数字）
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}[（(][\\t ]*${EPISODE_NUMBER}[\\t ]*[)）]${MARKER_END_BOUNDARY}`, "mi"),
+  // Episode 1 / Ep. 1 / E01
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:Episode|Ep\\.?|E)[\\t .#]*${ENGLISH_EPISODE_NUMBER}${MARKER_END_BOUNDARY}`, "mi"),
+  // Chapter 1 / Chap. 1 / Ch. 1
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:Chapter|Chap\\.?|Ch\\.?)[\\t .#]*${ENGLISH_EPISODE_NUMBER}${MARKER_END_BOUNDARY}`, "mi"),
+  // Part / Book / Volume / Vol. / Act
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:Part|Book|Volume|Vol\\.?|Act)[\\t .#]*${ENGLISH_EPISODE_NUMBER}${MARKER_END_BOUNDARY}`, "mi"),
+  // Season 1 Episode 2 / S01E02
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:Season[\\t ]*${ARABIC_EPISODE_NUMBER}[\\t ]*(?:Episode|Ep\\.?)[\\t ]*${ARABIC_EPISODE_NUMBER}|S[\\t ]*${ARABIC_EPISODE_NUMBER}[\\t ]*E[\\t ]*${ARABIC_EPISODE_NUMBER})${MARKER_END_BOUNDARY}`, "mi"),
+  // Markdown 章节编号：## 1. 标题 / ## 1、标题 / ## 一、标题
+  new RegExp(`${MARKDOWN_NUMBERED_PREFIX}(?:${ARABIC_EPISODE_NUMBER}|[一二三四五六七八九十]+)[\\t ]*[.．、)）]`, "mi"),
+  // 完结分段可单独成段；序章、前言、楔子仍会在第一个有效分集标题前被剔除。
+  new RegExp(`${MARKDOWN_HEADING_PREFIX}(?:终章|尾声|后记|附录)${MARKER_END_BOUNDARY}`, "mi"),
 ];
 
 type ClipDraft = {
@@ -49,6 +63,8 @@ type ClipDraft = {
 // ─── 模型拆分阈值（可配置） ────────────────────────────────────────
 /** 模型拆分总字数上限（超过则拒绝，要求用户精简） */
 const MODEL_SPLIT_MAX_WORDS = 100000;
+/** 单次模型边界识别的字符上限，与导入端保持一致。 */
+const MODEL_SPLIT_MAX_CHARS = 80000;
 /** 短文本阈值：≤此字数且无集数关键字 → 整体返回不拆分 */
 const SHORT_TEXT_THRESHOLD = 1500;
 /** 单次调用阈值：≤此字数 → 单次调用 LLM */
@@ -75,54 +91,62 @@ const JSON_REPAIR_HINT =
 // ─── 规则拆分 ─────────────────────────────────────────────────────
 
 /**
- * 查找文本中所有集数标志的位置。
+ * 使用一组模式收集并去重集标志位置。
  */
-function findEpisodeMarkers(text: string): number[] {
-  const positions: number[] = [];
-  for (const pattern of EPISODE_PATTERNS) {
-    const global = new RegExp(pattern.source, "gm");
+function collectMarkerPositions(text: string, patterns: readonly RegExp[]): number[] {
+  const positions = new Set<number>();
+  for (const pattern of patterns) {
+    const global = new RegExp(pattern.source, "gmi");
     let match: RegExpExecArray | null;
     while ((match = global.exec(text)) !== null) {
-      // 标志从换行符之后开始，跳过前导 \n
+      // 标志从换行符之后开始，跳过前导 \n。
       const pos = match[0].startsWith("\n") ? match.index + 1 : match.index;
-      if (!positions.includes(pos)) positions.push(pos);
+      positions.add(pos);
     }
   }
-  return positions.sort((a, b) => a - b);
+  return [...positions].sort((a, b) => a - b);
 }
 
 /**
- * 检查文本开头是否包含设定关键词。
+ * 查找文本中所有明确的分集标志位置。
  */
-function hasSettingKeywords(text: string): boolean {
-  const sample = text.slice(0, 500);
-  return SETTING_KEYWORDS.some((kw) => sample.includes(kw));
+function findEpisodeMarkers(text: string): number[] {
+  return collectMarkerPositions(text, EPISODE_PATTERNS);
 }
 
 /**
- * 检查文本是否包含任意集数标志（用于短文本不拆分判定）。
+ * 检查文本是否包含任意可用的拆分标志（用于短文本不拆分判定）。
  */
 function hasEpisodeMarkers(text: string): boolean {
-  return EPISODE_PATTERNS.some((pattern) => pattern.test(text));
+  return findEpisodeMarkers(text).length > 0;
 }
 
 /**
  * 从集数标志行提取标题。
  *
  * 输入示例："第一集 初入职场"、"第3章 转机"、"Chapter 1: The Beginning"
- * 去除集数编号前缀后取剩余文本，若纯编号则回退为原文本身。
+ * 去除集数编号前缀后取剩余文本；纯编号标题返回空字符串，由调用方生成默认标题。
  */
 function extractTitle(markerLine: string): string {
   if (!markerLine) return "";
-  // 去掉前导 Markdown 标记（#、**、*）、然后是 第X集/第X章/Chapter N 等标记
-  const cleaned = markerLine
-    .replace(/^[#*\-|\s]+/, "")
-    .replace(/^第[0-9零一二三四五六七八九十百千]+[集章节回卷篇]?\s*[:：\s]?/, "")
-    .replace(/^Chapter\s*\d+\s*[:：\s]?/i, "")
-    .replace(/^Part\s*\d+\s*[:：\s]?/i, "")
+
+  return markerLine
+    .trim()
+    .replace(/^#{1,6}[\t ]*/, "")
+    .replace(/^(?:\*\*|__)[\t ]*/, "")
+    .replace(new RegExp(`^${CHINESE_SEASON_EPISODE_MARKER}[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^(?:[【\\[]\\s*)?${CHINESE_SECTION_MARKER}[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^[（(]\\s*${EPISODE_NUMBER}\\s*[)）]\\s*`, "i"), "")
+    .replace(new RegExp(`^(?:Season[\\t ]*${ARABIC_EPISODE_NUMBER}[\\t ]*(?:Episode|Ep\\.?)[\\t ]*${ARABIC_EPISODE_NUMBER}|S[\\t ]*${ARABIC_EPISODE_NUMBER}[\\t ]*E[\\t ]*${ARABIC_EPISODE_NUMBER})[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^(?:Episode|Ep\\.?|E)[\\t .#]*${ENGLISH_EPISODE_NUMBER}[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^(?:Chapter|Chap\\.?|Ch\\.?)[\\t .#]*${ENGLISH_EPISODE_NUMBER}[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^(?:Part|Book|Volume|Vol\\.?|Act)[\\t .#]*${ENGLISH_EPISODE_NUMBER}[\\t ]*`, "i"), "")
+    .replace(new RegExp(`^(?:${ARABIC_EPISODE_NUMBER}|[一二三四五六七八九十]+)[\\t ]*[.．、)）][\\t ]*`), "")
+    .replace(/^[:：\-—|]\s*/, "")
+    .replace(/^#+\s*$/, "")
+    .replace(/\s+#+\s*$/, "")
+    .replace(/\s*(?:\*\*|__)\s*$/, "")
     .trim();
-  // 若清空后无内容，回退用原标记行
-  return cleaned || markerLine.trim();
 }
 
 /**
@@ -140,21 +164,16 @@ function countWords(text: string): number {
  * 返回 ClipDraft[] 或 null（失败时）。
  */
 export function ruleSplit(text: string): ClipDraft[] | null {
-  let workText = text;
-
-  // 剔除设定部分
-  if (hasSettingKeywords(workText)) {
-    logLine("剧本拆分", "DEBUG", "检测到设定关键词，剔除前言部分");
-    const markers = findEpisodeMarkers(workText);
-    if (markers.length > 0) {
-      workText = workText.slice(markers[0]);
-    }
-  }
-
-  const markers = findEpisodeMarkers(workText);
+  const markers = findEpisodeMarkers(text);
   if (markers.length === 0) {
     logLine("剧本拆分", "DEBUG", "规则拆分：未发现集数标志");
     return null;
+  }
+
+  // 导入文本在首个有效分集标题前的内容视为前言/设定，默认不写入任何分集。
+  const splitText = text.slice(markers[0]);
+  if (markers[0] > 0) {
+    logLine("剧本拆分", "DEBUG", `规则拆分：跳过首个分集标题前的 ${markers[0]} 个字符`);
   }
 
   logLine("剧本拆分", "DEBUG", `规则拆分：发现 ${markers.length} 个集数标志`);
@@ -162,9 +181,9 @@ export function ruleSplit(text: string): ClipDraft[] | null {
   const clips: ClipDraft[] = [];
 
   for (let i = 0; i < markers.length; i++) {
-    const start = markers[i];
-    const end = i + 1 < markers.length ? markers[i + 1] : workText.length;
-    let segment = workText.slice(start, end);
+    const start = markers[i] - markers[0];
+    const end = i + 1 < markers.length ? markers[i + 1] - markers[0] : splitText.length;
+    let segment = splitText.slice(start, end);
     let title = "";
 
     // 提取标题：从集数标志行截取标题文本
@@ -176,12 +195,15 @@ export function ruleSplit(text: string): ClipDraft[] | null {
       title = extractTitle(markerLine);
       // segment 恢复为非前导空白的原始版本，仅跳过第一行
       segment = trimmedSegment.slice(firstNewline + 1);
+    } else {
+      // 末行仅含标题时同样清理 Markdown 标记，避免回退标题携带格式符。
+      title = extractTitle(trimmedSegment.trim());
+      segment = "";
     }
 
-    // 兜底：标题仍为空时，取正文首句（前 20 字）
+    // 仅有编号时使用稳定的默认标题，避免把正文首句误写为标题。
     if (!title) {
-      const firstSentence = segment.trim().replace(/[\n\r].*$/s, "").slice(0, 20);
-      title = firstSentence || `第${i + 1}集`;
+      title = `第${i + 1}集`;
     }
 
     // 清理首尾
@@ -189,7 +211,6 @@ export function ruleSplit(text: string): ClipDraft[] | null {
     if (segment.startsWith("：") || segment.startsWith(":")) {
       segment = segment.slice(1).trim();
     }
-
     const wc = countWords(segment);
     clips.push({
       sortIndex: i + 1,
@@ -213,7 +234,7 @@ export function ruleSplit(text: string): ClipDraft[] | null {
   }
 
   const totalClipWords = clips.reduce((s, c) => s + c.wordCount, 0);
-  const totalWords = countWords(workText);
+  const totalWords = countWords(splitText);
   const coverage = totalWords > 0 ? totalClipWords / totalWords : 0;
   if (totalWords > 0 && coverage < 0.8) {
     logLine("剧本拆分", "DEBUG", `规则拆分：覆盖率 ${(coverage * 100).toFixed(1)}% 低于80%，放弃`);
@@ -438,7 +459,7 @@ async function callModelOnce(
 /**
  * 模型智能拆分：按文本长度选择策略。
  */
-async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
+async function legacyModelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
   const textClient = ctx.clients?.text;
   if (!textClient) {
     throw new Error("模型拆分不可用：文本模型客户端未初始化");
@@ -529,6 +550,40 @@ async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> 
   logLine("剧本拆分", "INFO", `分块拆分完成：共 ${allClips.length} 集`);
   validateCoverage(allClips, text);
   return reindexClips(allClips);
+}
+
+// ─── 单次模型边界拆分 ─────────────────────────────────────────────
+
+/**
+ * 规则拆分失败时，完整剧本只发送给模型一次；模型仅返回 endLine 边界，原文由本地切片。
+ */
+async function modelSplit(ctx: TaskContext, text: string): Promise<ClipDraft[]> {
+  const textClient = ctx.clients?.text;
+  if (!textClient) {
+    throw new Error("模型拆分不可用：文本模型客户端未初始化");
+  }
+  if (text.length > MODEL_SPLIT_MAX_CHARS) {
+    throw new Error(`剧本字符数（${text.length}）超过单次模型拆分上限（${MODEL_SPLIT_MAX_CHARS}）`);
+  }
+
+  const lines = text.split("\n");
+  const messages: ChatMessage[] = [
+    { role: "system", content: getSplitPrompt() },
+    { role: "user", content: formatNumberedScript(text) },
+  ];
+  l("剧本拆分", `模型边界拆分：单次调用（${text.length} 字符，${lines.length} 行）`);
+
+  const result = await textClient.chat(messages, () => {}, {
+    signal: ctx.signal,
+    reasoning_effort: "medium",
+  });
+  const endLines = parseModelBoundaries(result.content, lines.length);
+  const clips = materializeBoundaryClips(text, endLines).map((clip) => ({
+    ...clip,
+    wordCount: countWords(clip.sourceText),
+  }));
+  l("剧本拆分", `模型边界拆分成功：共 ${clips.length} 个分集`);
+  return clips;
 }
 
 // ─── handler 入口 ─────────────────────────────────────────────────

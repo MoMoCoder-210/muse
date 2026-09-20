@@ -254,7 +254,7 @@ export function markTaskFailed(
  */
 export function transitionEntityStatus(
   db: DatabaseType,
-  task: { type: string; clip_id: string | null; storyboard_id?: string | null; input_json: string },
+  task: { id: string; type: string; clip_id: string | null; storyboard_id?: string | null; input_json: string },
   newStatus: "running" | "running-pending" | "success" | "failed",
   errorMessage?: string
 ): void {
@@ -288,39 +288,60 @@ export function transitionEntityStatus(
     }
   } else if (task.type === "generate_clip_script" && task.clip_id) {
     const cid = task.clip_id;
+    let input: { clipScriptId?: unknown; sourceRevision?: unknown };
+    try {
+      input = JSON.parse(task.input_json || "{}") as typeof input;
+    } catch {
+      return;
+    }
+    if (
+      typeof input.clipScriptId !== "string"
+      || !input.clipScriptId
+      || !Number.isInteger(input.sourceRevision)
+    ) return;
+
+    const sourceRevision = input.sourceRevision as number;
+    const updateClipStatus = (status: string): void => {
+      db.prepare(`
+        UPDATE clips
+        SET status = ?, updated_at = ${now}
+        WHERE id = ? AND source_revision = ? AND deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM clip_scripts cs
+            WHERE cs.id = ? AND cs.task_id = ? AND cs.clip_id = clips.id
+              AND cs.source_revision = clips.source_revision
+          )
+      `).run(status, cid, sourceRevision, input.clipScriptId, task.id);
+    };
 
     switch (newStatus) {
       case "running":
+        updateClipStatus("running");
         db.prepare(
-          `UPDATE clips SET status = 'running', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
-        ).run(cid);
-        db.prepare(
-          `UPDATE clip_scripts SET status = 'running', updated_at = ${now} WHERE clip_id = ?`
-        ).run(cid);
+          `UPDATE clip_scripts SET status = 'running', updated_at = ${now}
+           WHERE id = ? AND task_id = ? AND clip_id = ? AND source_revision = ?`
+        ).run(input.clipScriptId, task.id, cid, sourceRevision);
         break;
       case "running-pending":
+        updateClipStatus("pending");
         db.prepare(
-          `UPDATE clips SET status = 'pending', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
-        ).run(cid);
-        db.prepare(
-          `UPDATE clip_scripts SET status = 'pending', updated_at = ${now} WHERE clip_id = ?`
-        ).run(cid);
+          `UPDATE clip_scripts SET status = 'pending', updated_at = ${now}
+           WHERE id = ? AND task_id = ? AND clip_id = ? AND source_revision = ?`
+        ).run(input.clipScriptId, task.id, cid, sourceRevision);
         break;
       case "success":
+        updateClipStatus("script_ready");
         db.prepare(
-          `UPDATE clips SET status = 'script_ready', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
-        ).run(cid);
-        db.prepare(
-          `UPDATE clip_scripts SET status = 'success', updated_at = ${now} WHERE clip_id = ?`
-        ).run(cid);
+          `UPDATE clip_scripts SET status = 'success', updated_at = ${now}
+           WHERE id = ? AND task_id = ? AND clip_id = ? AND source_revision = ?`
+        ).run(input.clipScriptId, task.id, cid, sourceRevision);
         break;
       case "failed":
+        updateClipStatus("failed");
         db.prepare(
-          `UPDATE clips SET status = 'failed', updated_at = ${now} WHERE id = ? AND deleted_at IS NULL`
-        ).run(cid);
-        db.prepare(
-          `UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = ${now} WHERE clip_id = ?`
-        ).run(errorMessage ?? "任务最终失败", cid);
+          `UPDATE clip_scripts SET status = 'failed', error_message = ?, updated_at = ${now}
+           WHERE id = ? AND task_id = ? AND clip_id = ? AND source_revision = ?`
+        ).run(errorMessage ?? "任务最终失败", input.clipScriptId, task.id, cid, sourceRevision);
         break;
     }
   } else if (task.type === "generate_video") {

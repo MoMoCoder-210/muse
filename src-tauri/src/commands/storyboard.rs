@@ -291,7 +291,7 @@ pub fn update_storyboard_assets(
     let mut insert_clip_asset = tx
         .prepare(
             "INSERT OR IGNORE INTO clip_assets (id, clip_id, asset_id, source)
-             VALUES (?1, ?2, ?3, 'reused')",
+             VALUES (?1, ?2, ?3, 'manual')",
         )
         .map_err(|e| e.to_string())?;
     for (asset_type, asset_ids) in groups {

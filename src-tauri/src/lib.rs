@@ -406,6 +406,7 @@ pub fn run() {
             commands::get_project_canvas_read_model,
             commands::list_projects,
             commands::import_script,
+            commands::inspect_script_file,
             commands::list_script_sources,
             commands::create_clip,
             commands::list_clips,

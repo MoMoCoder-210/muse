@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { createClip, getSettings } from "../../services/tauri";
-import { importScriptByTab } from "../../services/import-script";
+import { importScriptByTab, inspectScriptImportFile, MAX_SCRIPT_CHARACTERS } from "../../services/import-script";
 import { pickTxtFile } from "../../services/dialog";
 import { getActiveChannel } from "../../types/settings";
 import { useToast } from "../../hooks/useToast";
@@ -29,8 +29,14 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
 
   const handlePickFile = useCallback(async () => {
     const path = await pickTxtFile({ title: "选择剧本文件" });
-    if (path) setFilePath(path);
-  }, []);
+    if (!path) return;
+    try {
+      await inspectScriptImportFile(path);
+      setFilePath(path);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "无法读取剧本文件", "warning");
+    }
+  }, [toast]);
 
   const handleManualCreate = useCallback(async () => {
     const t = title.trim();
@@ -117,6 +123,7 @@ export function CreateClipModal({ projectId, onCreated, onClose }: CreateClipMod
                   className="script-textarea"
                   value={text} onChange={(e) => setText(e.target.value)}
                   placeholder="将剧本粘贴到此处" rows={10}
+                  maxLength={MAX_SCRIPT_CHARACTERS}
                 />
               ) : (
                 <div className="file-picker">

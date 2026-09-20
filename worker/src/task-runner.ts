@@ -45,6 +45,17 @@ interface RetryableError extends Error {
   message: string;
 }
 
+/**
+ * handler 超时后底层 Promise 可能尚未真正退出。该错误必须保持不可重试，
+ * 防止释放锁后同一 task_id 被再次领取并与旧执行并发。
+ */
+class TaskHandlerTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`任务执行超时（${timeoutMs / 1000}s）`);
+    this.name = "TaskHandlerTimeoutError";
+  }
+}
+
 export class TaskRunner {
   private db: DatabaseType;
   private workerId: string;
@@ -342,16 +353,37 @@ export class TaskRunner {
         taskAbort,
       );
       log("任务调度", "INFO", `任务成功：id=${task.id} type=${taskType}`);
-      if (!markTaskSuccess(this.db, task.id, outputJson)) {
-        log("任务调度", "WARN", `任务完成时已被取消或失效，丢弃回写：id=${task.id}`);
-        return;
+      const taskMarkedSuccess = markTaskSuccess(this.db, task.id, outputJson);
+      if (!taskMarkedSuccess) {
+        const persistedTask = this.db.prepare(
+          "SELECT status FROM tasks WHERE id = ?"
+        ).get(task.id) as { status: string } | undefined;
+        if (persistedTask?.status !== "success") {
+          log("任务调度", "WARN", `任务完成时已被取消或失效，丢弃回写：id=${task.id}`);
+          return;
+        }
+        log("任务调度", "INFO", `任务已由 handler 原子标记成功，继续发送成功事件：id=${task.id}`);
+      } else {
+        transitionEntityStatus(this.db, task, "success");
       }
-      transitionEntityStatus(this.db, task, "success");
       this.emit({ type: "task_success", taskId: task.id, outputJson });
       emitAssetProgress("success");
       emitClipScriptReady("success");
       emitStoryboardVideoReady("success");
     } catch (err) {
+      const persistedTask = this.db.prepare(
+        "SELECT status, output_json FROM tasks WHERE id = ?"
+      ).get(task.id) as { status: string; output_json: string | null } | undefined;
+      if (persistedTask?.status === "success") {
+        const outputJson = persistedTask.output_json ?? "{}";
+        log("任务调度", "INFO", `handler 返回前任务已原子成功，继续发送成功事件：id=${task.id}`);
+        this.emit({ type: "task_success", taskId: task.id, outputJson });
+        emitAssetProgress("success");
+        emitClipScriptReady("success");
+        emitStoryboardVideoReady("success");
+        return;
+      }
+
       const errorMessage = err instanceof Error ? err.message : String(err);
       log("任务调度", "ERROR", `任务失败：id=${task.id} type=${taskType} 错误=${errorMessage}`);
 
@@ -410,13 +442,14 @@ export class TaskRunner {
   }
 
   /**
-   * 包装 Promise，超时后 abort 并抛错。
+   * 包装 Promise，超时后 abort 并抛出不可重试错误。
+   * 底层 Promise 可能暂时继续运行，但拆解 handler 的最终事务还会再次校验 owner/revision。
    */
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, abort: AbortController): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         abort.abort();
-        reject(new Error(`任务执行超时（${timeoutMs / 1000}s）`));
+        reject(new TaskHandlerTimeoutError(timeoutMs));
       }, timeoutMs);
 
       promise
@@ -429,6 +462,7 @@ export class TaskRunner {
    * 判断错误是否可重试
    */
   private isRetryable(err: unknown): boolean {
+    if (err instanceof TaskHandlerTimeoutError) return false;
     const msg = err instanceof Error ? err.message : String(err);
     return RETRYABLE_KEYWORDS.some((kw) => msg.toLowerCase().includes(kw.toLowerCase()));
   }

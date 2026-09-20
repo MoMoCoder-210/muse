@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "node -e \"const fs=require('fs');fs.cpSync('../src/types/settings-types.ts','src/config/settings-types.ts');\" && tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.cpSync('src/prompts','dist/prompts',{recursive:true});fs.copyFileSync('../src/config/default-settings.json','dist/config/default-settings.json')\" && node ../scripts/copy-worker-deps.mjs",
+    "test:split": "tsx --test src/handlers/split-script.test.ts src/handlers/generate-clip-script.test.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
